@@ -3,6 +3,7 @@ import { readFile, stat, readdir } from "node:fs/promises";
 import { resolve, extname } from "node:path";
 import { inspectWorkflow } from "./matrix.js";
 import { analyzeRepository } from "./analyze.js";
+import { recommendHistoryOnly } from "./recommend.js";
 
 function flagValue(args: string[], flag: string): string | undefined {
   const index = args.indexOf(flag);
@@ -61,6 +62,16 @@ function parseOptionalInt(
   return value;
 }
 
+function requireGitHubToken(command: string): string {
+  const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN;
+  if (!token) {
+    throw new Error(
+      `${command} requires GH_TOKEN or GITHUB_TOKEN with permission to read Actions logs`,
+    );
+  }
+  return token;
+}
+
 async function analyzeCommand(args: string[], json: boolean): Promise<void> {
   const repository = args[1];
   if (!repository) {
@@ -72,12 +83,7 @@ async function analyzeCommand(args: string[], json: boolean): Promise<void> {
   const workflow = flagValue(args, "--workflow");
   const limit = parseOptionalInt(args, "--limit", 1, 500) ?? 30;
   const runId = parseOptionalInt(args, "--run", 1, Number.MAX_SAFE_INTEGER);
-  const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN;
-  if (!token) {
-    throw new Error(
-      "analyze requires GH_TOKEN or GITHUB_TOKEN with permission to read Actions logs",
-    );
-  }
+  const token = requireGitHubToken("analyze");
 
   const report = await analyzeRepository(repository, {
     limit,
@@ -120,9 +126,78 @@ async function analyzeCommand(args: string[], json: boolean): Promise<void> {
 
   console.log("\nFailure detection by job variant");
   for (const cell of report.cells) {
+    const runtime = cell.medianRuntimeSeconds === null
+      ? "runtime=n/a"
+      : `runtime=${cell.medianRuntimeSeconds.toFixed(1)}s`;
     console.log(
-      `  ${cell.cell}: distinct=${cell.distinctFailures}, unique=${cell.uniqueFailures}, observations=${cell.observations}`,
+      `  ${cell.cell}: distinct=${cell.distinctFailures}, unique=${cell.uniqueFailures}, observations=${cell.observations}, ${runtime}`,
     );
+  }
+}
+
+async function recommendCommand(args: string[], json: boolean): Promise<void> {
+  const repository = args[1];
+  if (!repository) {
+    throw new Error(
+      "usage: matrixtrim recommend owner/repo [--workflow ci.yml] [--limit 100] [--run ID]",
+    );
+  }
+
+  const workflow = flagValue(args, "--workflow");
+  const limit = parseOptionalInt(args, "--limit", 1, 500) ?? 100;
+  const runId = parseOptionalInt(args, "--run", 1, Number.MAX_SAFE_INTEGER);
+  const token = requireGitHubToken("recommend");
+
+  const analysis = await analyzeRepository(repository, {
+    limit,
+    workflow,
+    runId,
+    token,
+  });
+  const recommendation = recommendHistoryOnly(analysis);
+
+  if (json) {
+    console.log(JSON.stringify({ analysis, recommendation }, null, 2));
+    return;
+  }
+
+  console.log(`Repository: ${repository}`);
+  console.log("Mode:       history-only (experimental)");
+  console.log(`Runs:       ${analysis.runsAnalyzed}`);
+  console.log(
+    `Historical failure recall: ${recommendation.coveredFingerprints}/${recommendation.historicalFingerprints} (${(recommendation.historicalRecall * 100).toFixed(1)}%)`,
+  );
+  console.log(
+    `Matrix cells: ${recommendation.currentCells} -> ${recommendation.selectedCells.length}`,
+  );
+
+  if (
+    recommendation.currentEstimatedSeconds !== null &&
+    recommendation.selectedEstimatedSeconds !== null
+  ) {
+    console.log(
+      `Estimated compute: ${recommendation.currentEstimatedSeconds.toFixed(1)}s -> ${recommendation.selectedEstimatedSeconds.toFixed(1)}s`,
+    );
+    if (recommendation.estimatedComputeReductionPercent !== null) {
+      console.log(
+        `Estimated reduction: ${recommendation.estimatedComputeReductionPercent.toFixed(1)}%`,
+      );
+    }
+  }
+
+  console.log("\nRecommended cells");
+  for (const cell of recommendation.selectedCells) {
+    const runtime = cell.medianRuntimeSeconds === null
+      ? "n/a"
+      : `${cell.medianRuntimeSeconds.toFixed(1)}s`;
+    console.log(
+      `  ${cell.cell}  failures=${cell.coveredFailures}  median=${runtime}`,
+    );
+  }
+
+  console.log("\nWarnings");
+  for (const warning of recommendation.warnings) {
+    console.log(`  - ${warning}`);
   }
 }
 
@@ -133,6 +208,8 @@ try {
 
   if (command === "analyze") {
     await analyzeCommand(args, json);
+  } else if (command === "recommend") {
+    await recommendCommand(args, json);
   } else if (command === "inspect") {
     await inspectCommand(args[1] ?? ".github/workflows", json);
   } else {

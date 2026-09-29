@@ -15,9 +15,11 @@ export type FailureObservation = {
 export type CellSummary = {
   cell: string;
   baseJob: string;
+  runsObserved: number;
   observations: number;
   distinctFailures: number;
   uniqueFailures: number;
+  medianRuntimeSeconds: number | null;
 };
 
 export type FailureCluster = {
@@ -48,6 +50,24 @@ function splitJobName(
   return match
     ? { baseJob: match[1]!.trim(), cell: name, matrixLike: true }
     : { baseJob: name, cell: name, matrixLike: false };
+}
+
+function durationSeconds(
+  startedAt: string | null,
+  completedAt: string | null,
+): number | null {
+  if (!startedAt || !completedAt) return null;
+  const value = (Date.parse(completedAt) - Date.parse(startedAt)) / 1000;
+  return Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+function median(values: number[]): number | null {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2
+    ? sorted[middle]!
+    : (sorted[middle - 1]! + sorted[middle]!) / 2;
 }
 
 async function mapLimit<T, R>(
@@ -96,6 +116,22 @@ export async function analyzeRepository(
     run,
     jobs: await client.listJobs(run.id),
   }));
+
+  const matrixJobs = jobsByRun.flatMap(({ run, jobs }) => {
+    const parsed = jobs.map((job) => ({ job, parsed: splitJobName(job.name) }));
+    const matrixBases = new Set(
+      parsed.filter(({ parsed }) => parsed.matrixLike).map(({ parsed }) => parsed.baseJob),
+    );
+    return parsed
+      .filter(({ parsed }) => parsed.matrixLike && matrixBases.has(parsed.baseJob))
+      .map(({ job, parsed }) => ({
+        run,
+        job,
+        cell: parsed.cell,
+        baseJob: parsed.baseJob,
+        runtimeSeconds: durationSeconds(job.started_at, job.completed_at),
+      }));
+  });
 
   let ignoredNonMatrixJobs = 0;
   const failed = jobsByRun.flatMap(({ run, jobs }) => {
@@ -150,6 +186,21 @@ export async function analyzeRepository(
 
   const byFingerprint = new Map<string, FailureObservation[]>();
   const byCell = new Map<string, FailureObservation[]>();
+  const matrixByCell = new Map<
+    string,
+    { baseJob: string; runs: Set<number>; runtimes: number[] }
+  >();
+
+  for (const item of matrixJobs) {
+    const entry = matrixByCell.get(item.cell) ?? {
+      baseJob: item.baseJob,
+      runs: new Set<number>(),
+      runtimes: [],
+    };
+    entry.runs.add(item.run.id);
+    if (item.runtimeSeconds !== null) entry.runtimes.push(item.runtimeSeconds);
+    matrixByCell.set(item.cell, entry);
+  }
 
   for (const item of observations) {
     const cluster = byFingerprint.get(item.fingerprint) ?? [];
@@ -159,6 +210,14 @@ export async function analyzeRepository(
     const cellItems = byCell.get(item.cell) ?? [];
     cellItems.push(item);
     byCell.set(item.cell, cellItems);
+
+    if (!matrixByCell.has(item.cell)) {
+      matrixByCell.set(item.cell, {
+        baseJob: item.baseJob,
+        runs: new Set([item.runId]),
+        runtimes: [],
+      });
+    }
   }
 
   const clusters = [...byFingerprint.entries()]
@@ -174,16 +233,19 @@ export async function analyzeRepository(
       a.fingerprint.localeCompare(b.fingerprint)
     );
 
-  const cells = [...byCell.entries()].map(([cell, items]) => {
+  const cells = [...matrixByCell.entries()].map(([cell, meta]) => {
+    const items = byCell.get(cell) ?? [];
     const fingerprints = new Set(items.map((item) => item.fingerprint));
     return {
       cell,
-      baseJob: items[0]!.baseJob,
+      baseJob: meta.baseJob,
+      runsObserved: meta.runs.size,
       observations: items.length,
       distinctFailures: fingerprints.size,
       uniqueFailures: [...fingerprints].filter(
         (fingerprint) => byFingerprint.get(fingerprint)?.every((item) => item.cell === cell),
       ).length,
+      medianRuntimeSeconds: median(meta.runtimes),
     };
   }).sort((a, b) =>
     b.uniqueFailures - a.uniqueFailures ||
