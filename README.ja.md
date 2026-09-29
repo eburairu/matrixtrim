@@ -10,7 +10,7 @@ MatrixTrim が答えたいのは、次の問いです。
 
 最終的には、過去の failure、組み合わせ網羅性（pairwise / t-wise）、実行時間、holdout backtest を使って、**必要十分な CI matrix 候補**を提示することを目標にしています。
 
-> **Status: v0.3 experimental.** static matrix解析、GitHub Actions履歴取得、failure fingerprinting、unique failure集計、history-only recommendationまで動作します。
+> **Status: v0.4 experimental.** static matrix解析、GitHub Actions履歴取得、failure fingerprinting、unique failure集計、history-only recommendation、time-based holdout backtestまで動作します。
 
 ## なぜ必要か
 
@@ -95,7 +95,19 @@ Estimated compute: 1520.0s -> 611.0s
 Estimated reduction: 59.8%
 ```
 
-これは「9セルだけで将来も安全」という意味ではありません。**解析できた過去の18種類の障害は、この9セルでも全部検出できた**という意味です。pairwise/t-wise coverageやholdout backtestingは今後追加します。
+これは「9セルだけで将来も安全」という意味ではありません。**解析できた過去の18種類の障害は、この9セルでも全部検出できた**という意味です。
+
+## 新しいfailureでbacktestする
+
+```bash
+GH_TOKEN="$(gh auth token)" \
+  node dist/cli.js backtest owner/repo \
+  --workflow ci.yml \
+  --limit 100 \
+  --holdout 25
+```
+
+`backtest` はrun number順に履歴を分割し、古い75%だけでセルを選び、新しい25%のfailureを実際に捕捉できたか測定します。全holdout failureのrecallに加えて、**training時点では存在しなかった新しいfingerprintのrecall**も表示します。
 
 ## 実例: pytest
 
@@ -144,7 +156,7 @@ LLMは使用しません。coreはdeterministicです。
 - [ ] historical job名からmatrix axis名を復元
 - [ ] pairwise / t-wise coverage
 - [ ] exact / improved optimizer
-- [ ] holdout backtesting
+- [x] time-based holdout backtesting
 - [ ] GitHub ActionとしてPRへコメント
 - [ ] recommendation PR自動生成
 

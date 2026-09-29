@@ -142,11 +142,17 @@ export function recommendHistoryOnly(
       ? (1 - selectedEstimatedSeconds / currentEstimatedSeconds) * 100
       : null;
 
+  const failureRuns = new Set(report.observations.map((item) => item.runId)).size;
   const warnings = [
     "History-only mode preserves observed failure fingerprints, not unseen future failures.",
     "Pairwise/t-wise matrix coverage is not enforced yet.",
     "Runtime estimates come from matrix jobs observed in failed workflow runs.",
   ];
+  if (failureRuns < 5) {
+    warnings.unshift(
+      `Evidence is sparse: only ${failureRuns} workflow run(s) with analyzable matrix failures contributed to this recommendation.`,
+    );
+  }
   if (report.expiredLogs || report.logErrors) {
     warnings.push(
       `Some failed logs were unavailable (expired=${report.expiredLogs}, errors=${report.logErrors}); recommendations only cover analyzed logs.`,

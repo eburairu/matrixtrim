@@ -60,4 +60,6 @@ cell D -> {F3, F4}
 
 It then uses median runtime as cost and greedily selects a set that covers every observed failure fingerprint while retaining at least one cell per matrix job family.
 
-Pairwise/t-wise constraints and holdout backtesting are planned before recommendations should be treated as strong removal guidance.
+If history-only recommendation is run on this single failure run alone, it can reduce 30 cells to 1 while retaining 100% recall of the one observed fingerprint. Estimated compute for the 30 failed matrix jobs was 1159 seconds versus 20 seconds for the selected cell, a 98.3% reduction.
+
+That result is intentionally treated as **sparse evidence, not safety proof**. MatrixTrim v0.4 adds time-based holdout backtesting: select cells using older failures, then measure whether those cells actually detect newer failures. Pairwise/t-wise constraints are still planned before recommendations should be treated as strong removal guidance.

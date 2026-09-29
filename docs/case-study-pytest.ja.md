@@ -110,7 +110,11 @@ subject to:
   every matrix job family keeps at least one cell
 ```
 
-今後はここにpairwise/t-wise coverageとholdout backtestingを追加します。
+この1 runだけを材料にhistory-only recommendationを実行すると、30セルから1セルまで縮約でき、観測failure recallは100%になります。推定computeは1159秒から20秒で、約98.3%削減です。
+
+ただし、これは**安全性の証明ではなく、単一runだけでは情報が足りないことの実例**です。MatrixTrim v0.4ではこの問題を見るためにtime-based holdout backtestを追加しました。古いrunでセルを選び、新しいrunのfailureを実際に捕捉できたかを測定します。
+
+今後はさらにpairwise/t-wise coverageを追加します。
 
 ## この実例が重要な理由
 

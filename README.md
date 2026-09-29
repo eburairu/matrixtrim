@@ -10,7 +10,7 @@ MatrixTrim analyzes GitHub Actions matrix jobs and asks a practical question:
 
 The long-term goal is to recommend the smallest useful CI matrix using historical failures, combinatorial coverage, runtime cost, and holdout backtesting.
 
-> **Status: v0.3 experimental.** Static matrix inspection, Actions history ingestion, failure fingerprinting, unique-failure analysis, runtime aggregation, and history-only recommendations work today.
+> **Status: v0.4 experimental.** Static matrix inspection, Actions history ingestion, failure fingerprinting, unique-failure analysis, runtime aggregation, history-only recommendations, and time-based holdout backtesting work today.
 
 ## Why
 
@@ -95,7 +95,19 @@ Estimated compute: 1520.0s -> 611.0s
 Estimated reduction: 59.8%
 ```
 
-This means the selected cells preserve all **observed** failure fingerprints. It does **not** mean unseen future failures are guaranteed to be detected. Pairwise/t-wise constraints and holdout backtesting are planned.
+This means the selected cells preserve all **observed** failure fingerprints. It does **not** mean unseen future failures are guaranteed to be detected.
+
+## Backtest against newer failures
+
+```bash
+GH_TOKEN="$(gh auth token)" \
+  node dist/cli.js backtest owner/repo \
+  --workflow ci.yml \
+  --limit 100 \
+  --holdout 25
+```
+
+`backtest` sorts runs by run number, builds a recommendation from the older training window, then measures whether those selected cells actually detected failures in the newer holdout window. It reports overall holdout recall and recall for **new fingerprints that were not present in training**.
 
 ## What failure analysis does
 
@@ -163,7 +175,7 @@ Future versions will add pairwise/t-wise constraints, stronger optimization, and
 - [ ] Recover named matrix axes from historical jobs
 - [ ] Pairwise / t-wise coverage model
 - [ ] Exact / improved optimizer
-- [ ] Holdout backtesting
+- [x] Time-based holdout backtesting
 - [ ] `matrixtrim/action` PR comment integration
 - [ ] Recommendation PR generation
 

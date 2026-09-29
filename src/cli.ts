@@ -4,6 +4,7 @@ import { resolve, extname } from "node:path";
 import { inspectWorkflow } from "./matrix.js";
 import { analyzeRepository } from "./analyze.js";
 import { recommendHistoryOnly } from "./recommend.js";
+import { backtestHistoryOnly } from "./backtest.js";
 
 function flagValue(args: string[], flag: string): string | undefined {
   const index = args.indexOf(flag);
@@ -201,6 +202,68 @@ async function recommendCommand(args: string[], json: boolean): Promise<void> {
   }
 }
 
+async function backtestCommand(args: string[], json: boolean): Promise<void> {
+  const repository = args[1];
+  if (!repository) {
+    throw new Error(
+      "usage: matrixtrim backtest owner/repo [--workflow ci.yml] [--limit 100] [--holdout 25]",
+    );
+  }
+
+  const workflow = flagValue(args, "--workflow");
+  const limit = parseOptionalInt(args, "--limit", 2, 500) ?? 100;
+  const holdout = parseOptionalInt(args, "--holdout", 5, 50) ?? 25;
+  const token = requireGitHubToken("backtest");
+
+  const analysis = await analyzeRepository(repository, {
+    limit,
+    workflow,
+    token,
+  });
+  const result = backtestHistoryOnly(analysis, holdout);
+
+  if (json) {
+    console.log(JSON.stringify({ analysis, backtest: result }, null, 2));
+    return;
+  }
+
+  console.log(`Repository: ${repository}`);
+  console.log("Mode:       time-holdout backtest");
+  console.log(`Runs with failures: train=${result.trainingRuns}, holdout=${result.holdoutRuns}`);
+  console.log(`Selected cells from training: ${result.selectedCells.length}`);
+  console.log(
+    `Holdout recall: ${result.coveredHoldoutFingerprints}/${result.holdoutFingerprints} (${(result.holdoutRecall * 100).toFixed(1)}%)`,
+  );
+
+  if (result.unseenHoldoutRecall !== null) {
+    console.log(
+      `Unseen-failure recall: ${result.coveredUnseenHoldoutFingerprints}/${result.unseenHoldoutFingerprints} (${(result.unseenHoldoutRecall * 100).toFixed(1)}%)`,
+    );
+  } else {
+    console.log("Unseen-failure recall: n/a (no new fingerprints in holdout)");
+  }
+
+  console.log("\nTraining-selected cells");
+  for (const cell of result.selectedCells) {
+    console.log(`  ${cell}`);
+  }
+
+  if (result.missed.length) {
+    console.log("\nMissed holdout failures");
+    for (const missed of result.missed.slice(0, 10)) {
+      console.log(
+        `  ${missed.fingerprint}: seenInTraining=${missed.seenInTraining}, detectedBy=${missed.detectingCells.join(", ")}`,
+      );
+      if (missed.signature[0]) console.log(`    ${missed.signature[0]}`);
+    }
+  }
+
+  console.log("\nWarnings");
+  for (const warning of result.warnings) {
+    console.log(`  - ${warning}`);
+  }
+}
+
 try {
   const args = process.argv.slice(2);
   const json = args.includes("--json");
@@ -210,6 +273,8 @@ try {
     await analyzeCommand(args, json);
   } else if (command === "recommend") {
     await recommendCommand(args, json);
+  } else if (command === "backtest") {
+    await backtestCommand(args, json);
   } else if (command === "inspect") {
     await inspectCommand(args[1] ?? ".github/workflows", json);
   } else {
