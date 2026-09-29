@@ -1,0 +1,27 @@
+import { describe, expect, it } from "vitest";
+import { inspectWorkflow } from "../src/matrix.js";
+
+describe("inspectWorkflow", () => {
+  it("finds static matrix dimensions", () => {
+    const source = [
+      "jobs:",
+      "  test:",
+      "    strategy:",
+      "      matrix:",
+      "        os: [ubuntu-latest, windows-latest, macos-latest]",
+      "        node: [20, 22, 24]",
+      "        exclude:",
+      "          - os: macos-latest",
+      "            node: 20",
+    ].join("\n");
+
+    expect(inspectWorkflow(source)).toEqual([{
+      job: "test",
+      axes: { os: 3, node: 3 },
+      baseCells: 9,
+      excludeRules: 1,
+      includeEntries: 0,
+      dynamic: false,
+    }]);
+  });
+});

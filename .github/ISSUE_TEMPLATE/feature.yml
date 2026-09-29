@@ -1,0 +1,17 @@
+name: Feature request
+description: Suggest a MatrixTrim capability
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What CI matrix problem are you trying to solve?
+    validations:
+      required: true
+  - type: textarea
+    id: example
+    attributes:
+      label: Example workflow
+      description: Share a minimal workflow or matrix shape if possible.
