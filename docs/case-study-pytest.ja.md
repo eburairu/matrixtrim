@@ -89,9 +89,9 @@ macos-py310   ─┤
 
 ただし、ここから直ちに「29セル削除してよい」とは判断しません。別の履歴では特定OSや特定runtimeだけが固有障害を見つけている可能性があるためです。
 
-## `recommend` が次に行うこと
+## 現在の `recommend` が行うこと
 
-MatrixTrimのhistory-only recommendationでは、多数のrunを横断してcoverage graphを作ります。
+MatrixTrimは多数のrunを横断して、各cellがどのfailure fingerprintを検出したかをcoverage graphとして扱います。
 
 ```text
 cell A → failures {F1, F2, F4}
@@ -100,21 +100,17 @@ cell C → failures {F2, F3}
 cell D → failures {F3, F4}
 ```
 
-現在はmedian runtimeをcostにしたgreedy weighted set coverです。
+ただし、現在のモデルはfailure coverageだけでセルを選びません。観測済みmatrix構造に対する1-wise / pairwise / t-wise coverage、matrix job familyごとの最低1セル、axis未解決セルの保守的な保持、repository側で明示した`keep` / `require`制約も同時に守ります。
 
-```text
-minimize: estimated CI compute
+目的関数には観測runtimeのmedianが使われます。`auto` modeでは、探索budget内で最適性を証明できる場合はexact branch-and-boundを使い、証明できない場合は保守的にfallbackします。ここでいうexactは、あくまで**現在の観測証拠モデルに対する最適解**であり、履歴に一度も現れていない将来障害を否定する証明ではありません。
 
-subject to:
-  every observed failure fingerprint is covered
-  every matrix job family keeps at least one cell
-```
+このpytestの単一runだけを見ると、30セルは1つのfingerprintに対して同等に見えます。しかし、これは**安全性の証明ではなく、単一runの証拠が疎であることの実例**です。
 
-この1 runだけを材料にhistory-only recommendationを実行すると、30セルから1セルまで縮約でき、観測failure recallは100%になります。推定computeは1159秒から20秒で、約98.3%削減です。
+現在のMatrixTrimはtime-based holdout backtestも使えます。古いrunだけでセルを選び、より新しいrunのfailureをその選択で検出できたかを測定します。公開benchmarkではこれをpairwise coverage（`--strength 2`）と組み合わせ、解決できない対象を無理に縮約せず`partial` / `unresolved`として残します。
 
-ただし、これは**安全性の証明ではなく、単一runだけでは情報が足りないことの実例**です。MatrixTrim v0.4ではこの問題を見るためにtime-based holdout backtestを追加しました。古いrunでセルを選び、新しいrunのfailureを実際に捕捉できたかを測定します。
+したがって、このrunから得られる結論は「29 jobを消してよい」ではありません。
 
-今後はさらにpairwise/t-wise coverageを追加します。
+**GitHub UI上では30件のfailureに見えても、観測されたfailure signalの種類は1つだったため、raw failed-job countだけでは証拠の多様性を大きく見誤る可能性がある**、ということです。
 
 ## この実例が重要な理由
 

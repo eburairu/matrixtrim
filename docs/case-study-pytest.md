@@ -47,9 +47,9 @@ It does **not** mean that 29 cells are automatically safe to remove. Other runs 
 
 That is why the recommendation layer looks across many runs and solves a coverage problem rather than reacting to a single failure.
 
-## Recommendation model
+## Recommendation model today
 
-History-only mode builds a mapping such as:
+MatrixTrim builds a mapping such as:
 
 ```text
 cell A -> {F1, F2, F4}
@@ -58,8 +58,12 @@ cell C -> {F2, F3}
 cell D -> {F3, F4}
 ```
 
-It then uses median runtime as cost and greedily selects a set that covers every observed failure fingerprint while retaining at least one cell per matrix job family.
+Failure coverage is only one constraint. The current model also preserves observed matrix structure through configurable 1-wise / pairwise / t-wise coverage, keeps at least one cell per matrix job family, retains unresolved cells conservatively, and applies explicit repository `keep` / `require` compatibility constraints.
 
-If history-only recommendation is run on this single failure run alone, it can reduce 30 cells to 1 while retaining 100% recall of the one observed fingerprint. Estimated compute for the 30 failed matrix jobs was 1159 seconds versus 20 seconds for the selected cell, a 98.3% reduction.
+Median observed runtime contributes to the objective. In `auto` mode, MatrixTrim uses exact branch-and-bound when it can prove optimality inside the configured search budget and falls back conservatively when it cannot. The optimizer is exact only for this evidence model; it is not a proof about failures that have never appeared in history.
 
-That result is intentionally treated as **sparse evidence, not safety proof**. MatrixTrim v0.4 adds time-based holdout backtesting: select cells using older failures, then measure whether those cells actually detect newer failures. Pairwise/t-wise constraints are still planned before recommendations should be treated as strong removal guidance.
+If recommendation is run on this single failure run alone, the historical evidence can still make 30 cells look equivalent for that one fingerprint. That is intentionally treated as **sparse evidence, not safety proof**.
+
+Time-based holdout backtesting addresses part of that risk: MatrixTrim selects cells using older runs, then measures whether the selected set detects failures in newer runs. The public benchmark runs this together with pairwise coverage (`--strength 2`) and reports partial/unresolved cases instead of forcing a reduction.
+
+The lesson from this run is therefore not “29 jobs are safe to delete.” It is: **30 failures in the UI represented one observed failure signal, so raw failed-job counts substantially overstated the diversity of evidence in that run.**
