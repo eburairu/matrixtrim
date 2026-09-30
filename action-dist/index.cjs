@@ -7363,6 +7363,30 @@ var require_dist = __commonJS({
 var import_promises = require("node:fs/promises");
 var import_node_path2 = require("node:path");
 
+// src/action-input.ts
+function actionInputEnvName(name) {
+  return `INPUT_${name.replace(/ /g, "_").toUpperCase()}`;
+}
+function actionInput(name, env = process.env) {
+  return env[actionInputEnvName(name)]?.trim() ?? "";
+}
+function intActionInput(name, fallback, min, max, env = process.env) {
+  const raw = actionInput(name, env);
+  if (!raw) return fallback;
+  const value = Number.parseInt(raw, 10);
+  if (!Number.isInteger(value) || value < min || value > max) {
+    throw new Error(`${name} must be an integer from ${min} to ${max}`);
+  }
+  return value;
+}
+function boolActionInput(name, fallback, env = process.env) {
+  const raw = actionInput(name, env).toLowerCase();
+  if (!raw) return fallback;
+  if (["true", "1", "yes", "on"].includes(raw)) return true;
+  if (["false", "0", "no", "off"].includes(raw)) return false;
+  throw new Error(`${name} must be true or false`);
+}
+
 // src/action-report.ts
 var percent = (value) => value === null ? "n/a" : `${(value * 100).toFixed(1)}%`;
 var seconds = (value) => value === null ? "n/a" : `${value.toFixed(1)}s`;
@@ -8295,8 +8319,8 @@ var rootCausePatterns = [
   ...strongRootCausePatterns,
   ...summaryRootCausePatterns
 ];
-function normalizeLogLine(input2) {
-  return input2.replace(/^\uFEFF/, "").replace(ansiColorPattern, "").replace(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\s*/, "").replace(/##\[(?:error|warning)\]/gi, "").replace(
+function normalizeLogLine(input) {
+  return input.replace(/^\uFEFF/, "").replace(ansiColorPattern, "").replace(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\s*/, "").replace(/##\[(?:error|warning)\]/gi, "").replace(
     /[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[1-5][A-Fa-f0-9]{3}-[89ABab][A-Fa-f0-9]{3}-[A-Fa-f0-9]{12}/g,
     "<uuid>"
   ).replace(/0x[A-Fa-f0-9]+/g, "<hex>").replace(/:\d+:\d+(?=\)?(?:\s|$|:))/g, ":<line>:<col>").replace(/\bline \d+\b/gi, "line <n>").replace(
@@ -10431,25 +10455,6 @@ async function createOrUpdateOptimizationPullRequest(client, analysis, recommend
 }
 
 // src/action.ts
-function input(name) {
-  return process.env[`INPUT_${name.toUpperCase().replace(/-/g, "_")}`]?.trim() ?? "";
-}
-function intInput(name, fallback, min, max) {
-  const raw = input(name);
-  if (!raw) return fallback;
-  const value = Number.parseInt(raw, 10);
-  if (!Number.isInteger(value) || value < min || value > max) {
-    throw new Error(`${name} must be an integer from ${min} to ${max}`);
-  }
-  return value;
-}
-function boolInput(name, fallback) {
-  const raw = input(name).toLowerCase();
-  if (!raw) return fallback;
-  if (["true", "1", "yes", "on"].includes(raw)) return true;
-  if (["false", "0", "no", "off"].includes(raw)) return false;
-  throw new Error(`${name} must be true or false`);
-}
 function inferWorkflowFile(repository) {
   const ref = process.env.GITHUB_WORKFLOW_REF;
   if (!ref) return void 0;
@@ -10482,12 +10487,12 @@ function notice(message) {
   console.log(`::notice title=MatrixTrim evidence::${message}`);
 }
 async function main() {
-  const mode = input("mode") || "analyze";
+  const mode = actionInput("mode") || "analyze";
   if (!["analyze", "capture"].includes(mode)) {
     throw new Error("mode must be analyze or capture");
   }
   if (mode === "capture") {
-    const matrixJson = input("matrix");
+    const matrixJson = actionInput("matrix");
     if (!matrixJson)
       throw new Error("matrix input is required in capture mode");
     const evidence = encodeMatrixEvidence(
@@ -10500,21 +10505,26 @@ async function main() {
   }
   const repository = process.env.GITHUB_REPOSITORY;
   if (!repository) throw new Error("GITHUB_REPOSITORY is not available");
-  const token = input("token") || process.env.GITHUB_TOKEN || "";
+  const token = actionInput("token") || process.env.GITHUB_TOKEN || "";
   if (!token) throw new Error("token input or GITHUB_TOKEN is required");
-  const workflow = input("workflow") || inferWorkflowFile(repository);
-  const limit = intInput("limit", 100, 2, 500);
-  const holdout = intInput("holdout", 25, 5, 50);
-  const strength = intInput("strength", 2, 1, 4);
-  const optimizerRaw = input("optimizer") || "auto";
+  const workflow = actionInput("workflow") || inferWorkflowFile(repository);
+  const limit = intActionInput("limit", 100, 2, 500);
+  const holdout = intActionInput("holdout", 25, 5, 50);
+  const strength = intActionInput("strength", 2, 1, 4);
+  const optimizerRaw = actionInput("optimizer") || "auto";
   if (!["auto", "exact", "greedy"].includes(optimizerRaw)) {
     throw new Error("optimizer must be auto, exact, or greedy");
   }
   const optimizer = optimizerRaw;
-  const exactMaxNodes = intInput("exact-max-nodes", 25e4, 1, 1e7);
-  const configPath = input("config") || ".matrixtrim.yml";
-  const comment = boolInput("comment", true);
-  const createPr = boolInput("create-pr", false);
+  const exactMaxNodes = intActionInput(
+    "exact-max-nodes",
+    25e4,
+    1,
+    1e7
+  );
+  const configPath = actionInput("config") || ".matrixtrim.yml";
+  const comment = boolActionInput("comment", true);
+  const createPr = boolActionInput("create-pr", false);
   const github = new GitHubClient(repository, token);
   const config = await loadRepositoryConfig(
     github,
