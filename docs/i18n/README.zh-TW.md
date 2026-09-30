@@ -1,12 +1,12 @@
 # MatrixTrim
 
 [![CI](https://github.com/eburairu/matrixtrim/actions/workflows/ci.yml/badge.svg)](https://github.com/eburairu/matrixtrim/actions/workflows/ci.yml)
-[![License](https://img.shields.io/github/license/eburairu/matrixtrim)](LICENSE)
+[![License](https://img.shields.io/github/license/eburairu/matrixtrim)](../../LICENSE)
 ![Node.js](https://img.shields.io/badge/Node.js-%3E%3D20-339933?logo=node.js&logoColor=white)
 [![GitHub stars](https://img.shields.io/github/stars/eburairu/matrixtrim?style=flat)](https://github.com/eburairu/matrixtrim/stargazers)
 [![Last commit](https://img.shields.io/github/last-commit/eburairu/matrixtrim)](https://github.com/eburairu/matrixtrim/commits/main)
 
-[English](README.md) | [简体中文](README.zh-CN.md) | **繁體中文** | [日本語](README.ja.md) | [한국어](README.ko.md) | [Español](README.es.md)
+[English](../../README.md) | [简体中文](README.zh-CN.md) | **繁體中文** | [日本語](README.ja.md) | [한국어](README.ko.md) | [Español](README.es.md)
 
 **在保留真正有價值的 failure signal 前提下，縮小 GitHub Actions matrix。**
 
@@ -195,7 +195,7 @@ MatrixTrim 不再把所有 CI minute 視為相同成本，而是依實際 runner
 - 在10個完整解析的 repo 中，**有7個因安全限制而明確維持原matrix不變**。
 - aiohttp 與 Tokio 仍是 partial。v0.9 會把 unresolved cell 當成安全限制逐一保留，因此此 snapshot 為 **aiohttp 29 → 29 / Tokio 51 → 51**，兩者都不列入 validated reduction。
 
-所有run ID固定在 [benchmark/snapshot.json](benchmark/snapshot.json)，完整結果見 [benchmark/results.md](benchmark/results.md)。這些數字描述的是固定snapshot，不是對未來CI行為的保證。
+所有run ID固定在 [benchmark/snapshot.json](../../benchmark/snapshot.json)，完整結果見 [benchmark/results.md](../../benchmark/results.md)。這些數字描述的是固定snapshot，不是對未來CI行為的保證。
 
 ## 真實案例：pytest
 
@@ -220,7 +220,7 @@ from partially initialized module '_pytest.fixtures'
 
 這代表**針對這個已觀察到的 failure**，30 個 cell 的訊號高度重複；不是在宣稱可以直接安全刪掉其中 29 個。
 
-完整案例：[docs/case-study-pytest.md](docs/case-study-pytest.md)
+完整案例：[docs/case-study-pytest.md](../case-study-pytest.md)
 
 ## Failure Fingerprint
 
@@ -259,7 +259,7 @@ MatrixTrim 會移除 timestamp、絕對路徑、UUID、duration、line number �
 
 ## Contributing
 
-歡迎 Issue 與 Pull Request。請參考 [CONTRIBUTING.md](CONTRIBUTING.md)。
+歡迎 Issue 與 Pull Request。請參考 [CONTRIBUTING.md](../../CONTRIBUTING.md)。
 
 ## License
 

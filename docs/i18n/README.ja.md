@@ -1,12 +1,12 @@
 # MatrixTrim
 
 [![CI](https://github.com/eburairu/matrixtrim/actions/workflows/ci.yml/badge.svg)](https://github.com/eburairu/matrixtrim/actions/workflows/ci.yml)
-[![License](https://img.shields.io/github/license/eburairu/matrixtrim)](LICENSE)
+[![License](https://img.shields.io/github/license/eburairu/matrixtrim)](../../LICENSE)
 ![Node.js](https://img.shields.io/badge/Node.js-%3E%3D20-339933?logo=node.js&logoColor=white)
 [![GitHub stars](https://img.shields.io/github/stars/eburairu/matrixtrim?style=flat)](https://github.com/eburairu/matrixtrim/stargazers)
 [![Last commit](https://img.shields.io/github/last-commit/eburairu/matrixtrim)](https://github.com/eburairu/matrixtrim/commits/main)
 
-[English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | **日本語** | [한국어](README.ko.md) | [Español](README.es.md)
+[English](../../README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | **日本語** | [한국어](README.ko.md) | [Español](README.es.md)
 
 **GitHub Actions の巨大な matrix を、「本当に必要な failure signal」を残しながら小さくするためのOSSです。**
 
@@ -195,7 +195,7 @@ MatrixTrimはCI minuteをすべて同じ価値として扱わず、実際のrunn
 - 完全解決できた10 repoのうち**7 repoは安全制約上「削らない」判定**でした。
 - aiohttpとTokioはpartialのままです。unresolved cellを安全制約として個別保持するv0.9では、このsnapshotで **aiohttp 29 → 29 / Tokio 51 → 51** となり、どちらも検証済み削減には数えていません。
 
-対象run IDは [benchmark/snapshot.json](benchmark/snapshot.json) に固定し、全結果は [benchmark/results.md](benchmark/results.md) に保存しています。この数値は固定snapshotに対する観測結果であり、将来のCI挙動を保証するものではありません。
+対象run IDは [benchmark/snapshot.json](../../benchmark/snapshot.json) に固定し、全結果は [benchmark/results.md](../../benchmark/results.md) に保存しています。この数値は固定snapshotに対する観測結果であり、将来のCI挙動を保証するものではありません。
 
 ## 実例: pytest
 
@@ -220,7 +220,7 @@ from partially initialized module '_pytest.fixtures'
 
 これは**その障害について重複があった**という証拠であって、「29cell削除して安全」という意味ではありません。
 
-詳細: [pytest 実例ケーススタディ](docs/case-study-pytest.ja.md)
+詳細: [pytest 実例ケーススタディ](../case-study-pytest.ja.md)
 
 ## Failure Fingerprint
 
@@ -259,7 +259,7 @@ coreはdeterministicで、LLMは必須ではありません。
 
 ## Contributing
 
-Issue / Pull Request歓迎です。[CONTRIBUTING.md](CONTRIBUTING.md) を参照してください。
+Issue / Pull Request歓迎です。[CONTRIBUTING.md](../../CONTRIBUTING.md) を参照してください。
 
 ## License
 

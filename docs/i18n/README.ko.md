@@ -1,12 +1,12 @@
 # MatrixTrim
 
 [![CI](https://github.com/eburairu/matrixtrim/actions/workflows/ci.yml/badge.svg)](https://github.com/eburairu/matrixtrim/actions/workflows/ci.yml)
-[![License](https://img.shields.io/github/license/eburairu/matrixtrim)](LICENSE)
+[![License](https://img.shields.io/github/license/eburairu/matrixtrim)](../../LICENSE)
 ![Node.js](https://img.shields.io/badge/Node.js-%3E%3D20-339933?logo=node.js&logoColor=white)
 [![GitHub stars](https://img.shields.io/github/stars/eburairu/matrixtrim?style=flat)](https://github.com/eburairu/matrixtrim/stargazers)
 [![Last commit](https://img.shields.io/github/last-commit/eburairu/matrixtrim)](https://github.com/eburairu/matrixtrim/commits/main)
 
-[English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md) | **한국어** | [Español](README.es.md)
+[English](../../README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md) | **한국어** | [Español](README.es.md)
 
 **실제로 필요한 failure signal은 남기고, GitHub Actions matrix는 더 작게.**
 
@@ -195,7 +195,7 @@ MatrixTrim은 모든 CI minute를 같은 비용으로 보지 않고, 실제 runn
 - 완전히 해석된 10개 저장소 중 **7개는 안전 제약 때문에 의도적으로 축소하지 않았습니다**.
 - aiohttp와 Tokio는 여전히 partial입니다. v0.9에서는 unresolved cell을 안전 제약으로 개별 유지하므로 이 snapshot에서 **aiohttp 29 → 29 / Tokio 51 → 51**이며, 둘 다 validated reduction에 포함하지 않습니다.
 
-정확한 run ID는 [benchmark/snapshot.json](benchmark/snapshot.json)에 고정되어 있고, 전체 결과는 [benchmark/results.md](benchmark/results.md)에서 확인할 수 있습니다. 이 수치는 고정snapshot에 대한 관측 결과이며 미래 CI 동작을 보장하지 않습니다.
+정확한 run ID는 [benchmark/snapshot.json](../../benchmark/snapshot.json)에 고정되어 있고, 전체 결과는 [benchmark/results.md](../../benchmark/results.md)에서 확인할 수 있습니다. 이 수치는 고정snapshot에 대한 관측 결과이며 미래 CI 동작을 보장하지 않습니다.
 
 ## 실제 사례: pytest
 
@@ -220,7 +220,7 @@ from partially initialized module '_pytest.fixtures'
 
 이는 **그 관측된 failure에 대해서는 중복 신호가 많았다**는 뜻이지, 29개 cell을 바로 삭제해도 안전하다는 뜻은 아닙니다.
 
-전체 사례: [docs/case-study-pytest.md](docs/case-study-pytest.md)
+전체 사례: [docs/case-study-pytest.md](../case-study-pytest.md)
 
 ## Failure Fingerprint
 
@@ -259,7 +259,7 @@ timestamp, 절대 경로, UUID, duration, line number처럼 흔들리는 정보�
 
 ## Contributing
 
-Issue와 Pull Request를 환영합니다. [CONTRIBUTING.md](CONTRIBUTING.md)를 참고하세요.
+Issue와 Pull Request를 환영합니다. [CONTRIBUTING.md](../../CONTRIBUTING.md)를 참고하세요.
 
 ## License
 

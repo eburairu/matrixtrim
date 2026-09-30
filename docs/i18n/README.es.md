@@ -1,12 +1,12 @@
 # MatrixTrim
 
 [![CI](https://github.com/eburairu/matrixtrim/actions/workflows/ci.yml/badge.svg)](https://github.com/eburairu/matrixtrim/actions/workflows/ci.yml)
-[![License](https://img.shields.io/github/license/eburairu/matrixtrim)](LICENSE)
+[![License](https://img.shields.io/github/license/eburairu/matrixtrim)](../../LICENSE)
 ![Node.js](https://img.shields.io/badge/Node.js-%3E%3D20-339933?logo=node.js&logoColor=white)
 [![GitHub stars](https://img.shields.io/github/stars/eburairu/matrixtrim?style=flat)](https://github.com/eburairu/matrixtrim/stargazers)
 [![Last commit](https://img.shields.io/github/last-commit/eburairu/matrixtrim)](https://github.com/eburairu/matrixtrim/commits/main)
 
-[English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | **Español**
+[English](../../README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | **Español**
 
 **Reduce tus matrices de GitHub Actions sin perder las señales de fallo que realmente importan.**
 
@@ -195,7 +195,7 @@ Para evitar validar MatrixTrim solo con ejemplos favorables, fijamos **20 ejecuc
 - **7 de los 10 repositorios completamente resueltos se dejaron sin cambios deliberadamente** porque las restricciones de seguridad no justificaban una reducción.
 - aiohttp y Tokio siguen siendo partial. En v0.9 los cells unresolved se conservan individualmente como restricción de seguridad, por lo que este snapshot queda en **aiohttp 29 → 29 / Tokio 51 → 51**; ninguno cuenta como reducción validada.
 
-Los run IDs exactos están fijados en [benchmark/snapshot.json](benchmark/snapshot.json) y los resultados completos en [benchmark/results.md](benchmark/results.md). Estas cifras describen ese snapshot fijo; no son una promesa sobre el comportamiento futuro del CI.
+Los run IDs exactos están fijados en [benchmark/snapshot.json](../../benchmark/snapshot.json) y los resultados completos en [benchmark/results.md](../../benchmark/results.md). Estas cifras describen ese snapshot fijo; no son una promesa sobre el comportamiento futuro del CI.
 
 ## Caso real: pytest
 
@@ -220,7 +220,7 @@ from partially initialized module '_pytest.fixtures'
 
 Eso demuestra redundancia **para ese fallo observado**. No significa que eliminar 29 celdas sea automáticamente seguro.
 
-Caso completo: [docs/case-study-pytest.md](docs/case-study-pytest.md)
+Caso completo: [docs/case-study-pytest.md](../case-study-pytest.md)
 
 ## Failure Fingerprint
 
@@ -259,7 +259,7 @@ El núcleo es determinista y no depende de un LLM.
 
 ## Contributing
 
-Se agradecen Issues y Pull Requests. Consulta [CONTRIBUTING.md](CONTRIBUTING.md).
+Se agradecen Issues y Pull Requests. Consulta [CONTRIBUTING.md](../../CONTRIBUTING.md).
 
 ## License
 
