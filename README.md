@@ -270,6 +270,8 @@ To avoid validating MatrixTrim only on hand-picked examples, we pinned **20 conc
 
 The exact run IDs are pinned in [benchmark/snapshot.json](benchmark/snapshot.json), and the complete results are in [benchmark/results.md](benchmark/results.md). These measurements describe that fixed snapshot; they are not universal promises about future CI behavior.
 
+Have a matrix-heavy public repository? [Run MatrixTrim against it without changing the official benchmark, then propose it as a benchmark target](benchmark/README.md#add-your-repository-to-the-benchmark). A zero-reduction result is welcome; the benchmark is meant to measure where MatrixTrim is useful and where it correctly refuses to trim.
+
 ## Real-world example: pytest
 
 MatrixTrim was validated against a real failed `pytest-dev/pytest` Actions run:

@@ -32,6 +32,78 @@ GH_TOKEN="$(gh auth token)" npm run benchmark -- \
   --refresh-snapshot
 ```
 
+## Add your repository to the benchmark
+
+MatrixTrim welcomes public repositories with real matrix-heavy GitHub Actions workflows. The contribution path is intentionally split into a **scratch run** and an **official snapshot update** so contributors do not have to rewrite the existing benchmark just to test one repository.
+
+A useful candidate normally has:
+
+- a public GitHub repository,
+- a GitHub Actions workflow with an actual `strategy.matrix`,
+- at least several observed matrix cells,
+- enough completed history to make the result meaningful (20 conclusive runs is preferred),
+- and a workflow that is still representative of how the project currently tests code.
+
+A zero reduction is a valid contribution. Repositories where MatrixTrim stays conservative are as useful as repositories where it finds redundancy.
+
+### 1. Run one repository in isolation
+
+Create a temporary target file outside the tracked benchmark:
+
+```bash
+cat >/tmp/matrixtrim-targets.json <<'JSON'
+[
+  {
+    "repository": "OWNER/REPOSITORY",
+    "workflow": "ci.yml"
+  }
+]
+JSON
+```
+
+Then capture and analyze a fresh 20-run snapshot without touching the official benchmark files:
+
+```bash
+GH_TOKEN="$(gh auth token)" npm run benchmark -- \
+  --targets /tmp/matrixtrim-targets.json \
+  --snapshot /tmp/matrixtrim-snapshot.json \
+  --output /tmp/matrixtrim-results.json \
+  --markdown /tmp/matrixtrim-results.md \
+  --limit 20 \
+  --strength 2 \
+  --holdout 25 \
+  --refresh-snapshot
+```
+
+Review `/tmp/matrixtrim-results.md`. Before proposing the target, check:
+
+- the status is `resolved` or the reason for `partial` is interesting and reproducible,
+- the observed matrix-cell count matches what you expect from GitHub,
+- workflow-name matching and axis recovery are plausible,
+- and any suggested reduction makes sense as **diagnostic evidence**, not as an automatic deletion claim.
+
+### 2. Propose the target
+
+Fork MatrixTrim, add only the repository/workflow entry to `benchmark/targets.json`, and open a pull request. In the PR body, paste the relevant row or short excerpt from your scratch result and explain why the workflow is useful benchmark coverage.
+
+Do **not** replace `benchmark/snapshot.json` or the aggregate result files in a first-time target PR. The maintainer refreshes the canonical snapshot so every target is captured with one consistent protocol and token context.
+
+If you are unsure whether a repository is a good fit, use the **Benchmark target** issue form first.
+
+### 3. Maintainer validation
+
+For accepted targets, the maintainer refreshes the canonical snapshot and checks the aggregate diff before merging:
+
+```bash
+GH_TOKEN="$(gh auth token)" npm run benchmark -- \
+  --limit 20 \
+  --strength 2 \
+  --holdout 25 \
+  --refresh-snapshot
+```
+
+The benchmark is evidence, not a leaderboard. Targets are not selected for high reduction percentages, and a repository is never removed merely because MatrixTrim recommends no change.
+
 ## Result classes
 
 - **resolved** — observed axes are fully resolved; static workflow names are renderable; active matrix families match the actual GitHub job names.

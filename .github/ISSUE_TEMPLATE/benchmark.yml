@@ -1,0 +1,48 @@
+name: Benchmark target
+description: Propose a public matrix-heavy repository for the reproducible benchmark
+title: "[Benchmark] "
+labels: ["benchmark", "help wanted"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please run the repository in scratch files first using the contribution guide in `benchmark/README.md`. A zero-reduction result is welcome.
+  - type: input
+    id: repository
+    attributes:
+      label: Repository
+      description: Public GitHub repository in owner/name form.
+      placeholder: owner/repository
+    validations:
+      required: true
+  - type: input
+    id: workflow
+    attributes:
+      label: Workflow
+      description: Workflow filename or identifier passed to MatrixTrim.
+      placeholder: ci.yml
+    validations:
+      required: true
+  - type: textarea
+    id: matrix
+    attributes:
+      label: Matrix shape
+      description: Briefly describe the axes and approximate observed cell count.
+      placeholder: "os × python-version, about 18 cells"
+    validations:
+      required: true
+  - type: textarea
+    id: scratch
+    attributes:
+      label: Scratch result
+      description: Paste the relevant result row or summarize resolved/partial status and any suggested reduction.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: value
+    attributes:
+      label: Why this target adds benchmark value
+      description: Ecosystem, matrix syntax, runner mix, dynamic behavior, or another reason this target improves coverage.
+    validations:
+      required: true
