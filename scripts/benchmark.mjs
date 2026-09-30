@@ -167,6 +167,29 @@ for (const target of snapshot.targets) {
     row.selectedEstimatedSeconds = recommendation.selectedEstimatedSeconds;
     row.combinatorialRequirements =
       recommendation.combinatorialRequirements;
+    row.repositoryVisibility =
+      recommendation.pricing.repositoryVisibility;
+    row.pricingCoverage = recommendation.pricingCoverage;
+    row.currentRateCardUsdPerRun =
+      recommendation.pricing.currentRateCardUsdPerRun;
+    row.selectedRateCardUsdPerRun =
+      recommendation.pricing.selectedRateCardUsdPerRun;
+    row.rateCardReductionPercent =
+      recommendation.pricing.rateCardReductionPercent;
+    row.currentEstimatedChargeUsdPerRun =
+      recommendation.pricing.currentEstimatedChargeUsdPerRun;
+    row.selectedEstimatedChargeUsdPerRun =
+      recommendation.pricing.selectedEstimatedChargeUsdPerRun;
+    row.projectedRunsPer30Days =
+      recommendation.pricing.projectedRunsPer30Days;
+    row.currentRateCardUsdPer30Days =
+      recommendation.pricing.currentRateCardUsdPer30Days;
+    row.selectedRateCardUsdPer30Days =
+      recommendation.pricing.selectedRateCardUsdPer30Days;
+    row.currentEstimatedChargeUsdPer30Days =
+      recommendation.pricing.currentEstimatedChargeUsdPer30Days;
+    row.selectedEstimatedChargeUsdPer30Days =
+      recommendation.pricing.selectedEstimatedChargeUsdPer30Days;
 
     try {
       const backtest = backtestRecommendation(
@@ -252,6 +275,19 @@ function pctRaw(value) {
     : `${value.toFixed(1)}%`;
 }
 
+function usd(value, digits = 3) {
+  return value === null || value === undefined
+    ? "n/a"
+    : `$${value.toFixed(digits)}`;
+}
+
+function usdPair(current, selected) {
+  return current === null || current === undefined ||
+    selected === null || selected === undefined
+    ? "n/a"
+    : `${usd(current)} → ${usd(selected)}`;
+}
+
 const resolvedCount = results.filter((row) => row.status === "resolved").length;
 const partialCount = results.filter((row) => row.status === "partial").length;
 const unresolvedCount = results.filter((row) => row.status === "unresolved").length;
@@ -275,14 +311,16 @@ const lines = [
   "",
   "Only rows marked resolved are treated as validated reduction results. Partial rows are diagnostic only, even when their apparent reduction is large.",
   "",
+  "All benchmark targets are public OSS repositories. For standard GitHub-hosted runners, estimated GitHub charge is therefore $0; rate-card values are comparison-only and show the monetary value of equivalent private-repository overage usage.",
+  "",
   "Validated non-zero reductions in this snapshot:",
   "",
   ...validatedReductions.map(
     (row) =>
-      `- **${row.repository}**: ${row.matrixCells} → ${row.selectedCells} cells, ${pctRaw(row.computeReductionPercent)} estimated compute reduction.`,
+      `- **${row.repository}**: ${row.matrixCells} → ${row.selectedCells} cells, ${pctRaw(row.computeReductionPercent)} estimated compute reduction; standard-runner rate-card ${usdPair(row.currentRateCardUsdPerRun, row.selectedRateCardUsdPerRun)} per run; estimated GitHub charge ${usdPair(row.currentEstimatedChargeUsdPerRun, row.selectedEstimatedChargeUsdPerRun)} per run.`,
   ),
   "",
-  "| Repository | Status | Observed cells | Selected | Axis resolved | Workflow render | Job match | Inactive families | Dynamic defs | Fingerprints | Historical recall | Holdout recall | Unseen recall | Combo coverage | Compute reduction |",
+  "| Repository | Status | Cells | Selected | Axis resolved | Workflow render | Job match | Fingerprints | Historical recall | Holdout recall | Unseen recall | Compute reduction | Pricing coverage | Rate-card/run | Est. charge/run |",
   "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
 ];
 
@@ -300,7 +338,7 @@ for (const row of results) {
     ? "n/a"
     : `${(row.workflowMatchCoverage * 100).toFixed(0)}%`;
   lines.push(
-    `| ${row.repository} | ${row.status} | ${row.matrixCells ?? "n/a"} | ${selected} | ${axis} | ${workflowRender} | ${workflowMatch} | ${row.inactiveStaticMatrixFamilies ?? 0} | ${row.dynamicMatrixDefinitions ?? 0} | ${row.fingerprints ?? "n/a"} | ${pct(row.historicalRecall)} | ${pct(row.backtest?.holdoutRecall)} | ${pct(row.backtest?.unseenFailureRecall)} | ${pct(row.combinatorialCoverage)} | ${pctRaw(row.computeReductionPercent)} |`,
+    `| ${row.repository} | ${row.status} | ${row.matrixCells ?? "n/a"} | ${selected} | ${axis} | ${workflowRender} | ${workflowMatch} | ${row.fingerprints ?? "n/a"} | ${pct(row.historicalRecall)} | ${pct(row.backtest?.holdoutRecall)} | ${pct(row.backtest?.unseenFailureRecall)} | ${pctRaw(row.computeReductionPercent)} | ${pct(row.pricingCoverage)} | ${usdPair(row.currentRateCardUsdPerRun, row.selectedRateCardUsdPerRun)} | ${usdPair(row.currentEstimatedChargeUsdPerRun, row.selectedEstimatedChargeUsdPerRun)} |`,
   );
 }
 

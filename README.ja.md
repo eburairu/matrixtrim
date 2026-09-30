@@ -16,7 +16,7 @@ MatrixTrimが見たいのは、単純なjob数ではありません。
 
 過去のfailure、実行コスト、matrix構造、holdout backtestを使って、より小さいCI matrix候補を作ることを目指しています。
 
-> **Status: v0.8 experimental.** 過去のfailure evidence、観測済み1-wise / pairwise / t-wise構成coverage、runtime cost、time-based holdout backtest、render済みmatrix job名の復元、GitHub Action、再現可能な公開OSS benchmarkまで利用できます。
+> **Status: v0.9 experimental.** 過去のfailure evidence、観測済み1-wise / pairwise / t-wise構成coverage、runtime costとrunner-awareな金額推定、time-based holdout backtest、render済みmatrix job名の復元、GitHub Action、再現可能な公開OSS benchmarkまで利用できます。
 
 ## なぜ必要か
 
@@ -147,7 +147,20 @@ steps:
 
 Actionは必ず **Step Summary** を生成します。Pull Request上では、権限があればMatrixTrimコメントを1件だけ作成・更新します。fork PRなどでtokenがread-onlyの場合、コメント作成だけwarning付きでskipし、分析自体は成功させます。
 
-レポートには、現在cell数と推奨cell数、historical failure recall、combinatorial coverage、推定compute削減率、holdout recall、unseen-failure recall、推奨cell一覧を表示します。
+レポートには、現在cell数と推奨cell数、historical failure recall、combinatorial coverage、推定compute削減率、runner-awareなrate-card / 推定請求額、holdout recall、unseen-failure recall、推奨cell一覧を表示します。
+
+## runner-aware cost model
+
+MatrixTrimはCI minuteをすべて同じ価値として扱わず、実際のrunner labelと観測したjob実行時間から金額影響を推定します。
+
+- v0.9で使用するstandard GitHub-hosted runnerの基準単価は、Linux 1-core x64 **$0.002/min**、Linux 2-core x64 **$0.006/min**、Linux 2-core arm64 **$0.005/min**、Windows x64/arm64 **$0.010/min**、standard macOS **$0.062/min** です。
+- GitHub Actionsの課金仕様に合わせ、各jobの実行時間を1分単位へ切り上げてから金額化します。
+- **public repository**ではstandard GitHub-hosted runnerは無料です。そのため推定GitHub請求額は**$0**とし、rate-cardは比較用の金額として別表示します。
+- **private/internal repository**では、account/planに含まれる無料minuteを差し引く前のstandard runner overage相当額として表示します。
+- self-hosted runnerのGitHub Actions請求は$0として扱い、larger runnerや判定できないrunnerは無理に単価を推測せずunpricedにします。
+- 30日換算は、観測したrunの期間が**7日以上**ある場合だけ表示します。数時間分の履歴から月額を過剰に外挿しません。
+
+料金根拠: [GitHub Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions) / [Actions runner pricing](https://docs.github.com/en/billing/reference/actions-runner-pricing)
 
 ## 公開OSS benchmark
 
@@ -155,9 +168,10 @@ Actionは必ず **Step Summary** を生成します。Pull Request上では、�
 
 - **12 repo中10 repoは、観測cellのaxis復元・workflow名render・active matrix familyの実job名照合をすべて100%解決**できました。残り2 repoはpartialで、検証済み削減結果には含めていません。
 - 検証済みで削減が出たのは **pandas 34 → 32 cell (-7.2%)**、**Flask 12 → 10 (-13.6%)**、**Diesel 28 → 25 (-7.6%)** です。
+- runner単価とjob単位の1分丸めがあるため、compute削減率と金額削減率は一致しません。standard runnerのrate-cardでは、pandas **$25.148 → $24.671/run (-1.9%)**、Flask **$0.132 → $0.120/run (-9.1%)**、Diesel **$11.624 → $11.450/run (-1.5%)** でした。3 repoともpublicなのでstandard runnerの推定GitHub請求額は**$0**のままです。
 - pandasとDieselは、利用可能なbacktest期間で **holdout recall 100% / unseen-failure recall 100%** を維持しました。
 - 完全解決できた10 repoのうち**7 repoは安全制約上「削らない」判定**でした。
-- aiohttpは見かけ上29 → 14まで減りますが、axis解決率41%、workflow名render率75%、active familyのjob名match率42%のため、validatedではなくdiagnostic扱いです。
+- aiohttpとTokioはpartialのままです。unresolved cellを安全制約として個別保持するv0.9では、このsnapshotで **aiohttp 29 → 29 / Tokio 51 → 51** となり、どちらも検証済み削減には数えていません。
 
 対象run IDは [benchmark/snapshot.json](benchmark/snapshot.json) に固定し、全結果は [benchmark/results.md](benchmark/results.md) に保存しています。この数値は固定snapshotに対する観測結果であり、将来のCI挙動を保証するものではありません。
 
@@ -208,7 +222,7 @@ coreはdeterministicで、LLMは必須ではありません。
 - [ ] 明示的なkeep / compatibility constraint
 - [x] GitHub Action化＋PRコメント
 - [x] matrix-heavy OSSでの再現可能benchmark
-- [ ] runner単価を含むmonetary cost model
+- [x] runner単価を含むmonetary cost model
 - [ ] 1 job内のmulti-event failure fingerprint
 - [ ] recommendation PR自動生成
 - [ ] exact / stronger optimizer

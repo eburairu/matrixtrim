@@ -16,7 +16,7 @@ MatrixTrim은 단순히 job 수를 줄이는 도구가 아닙니다. 핵심 질�
 
 목표는 **과거 failure coverage, 실행 비용, matrix 구조, holdout backtest**를 바탕으로 더 작은 CI matrix 후보를 제안하는 것입니다.
 
-> **현재 상태: v0.8 experimental.** 과거 failure evidence, 관측된 1-wise / pairwise / t-wise configuration coverage, runtime cost, time-based holdout backtest, 렌더링된 matrix job 이름 복원, GitHub Action, 재현 가능한 공개 OSS benchmark까지 지원합니다.
+> **현재 상태: v0.9 experimental.** 과거 failure evidence, 관측된 1-wise / pairwise / t-wise configuration coverage, runtime cost와 runner-aware 금액 추정, time-based holdout backtest, 렌더링된 matrix job 이름 복원, GitHub Action, 재현 가능한 공개 OSS benchmark까지 지원합니다.
 
 ## 왜 MatrixTrim인가?
 
@@ -147,7 +147,20 @@ steps:
 
 Action은 항상 **Step Summary**를 생성합니다. Pull Request에서는 권한이 허용될 경우 MatrixTrim 댓글 하나를 생성하거나 갱신합니다. fork PR처럼 token이 read-only이면 댓글 작성만 warning과 함께 건너뛰고 분석 자체는 성공합니다.
 
-리포트에는 현재/추천 cell 수, historical failure recall, combinatorial coverage, 예상 compute 절감률, holdout recall, unseen-failure recall, 추천 cell 목록이 포함됩니다.
+리포트에는 현재/추천 cell 수, historical failure recall, combinatorial coverage, 예상 compute 절감률, runner-aware rate-card / 예상 청구액, holdout recall, unseen-failure recall, 추천 cell 목록이 포함됩니다.
+
+## runner-aware cost model
+
+MatrixTrim은 모든 CI minute를 같은 비용으로 보지 않고, 실제 runner label과 관측된 job 실행 시간을 이용해 금액 영향을 추정합니다.
+
+- v0.9에서 사용하는 standard GitHub-hosted runner 기준 단가는 Linux 1-core x64 **$0.002/min**, Linux 2-core x64 **$0.006/min**, Linux 2-core arm64 **$0.005/min**, Windows x64/arm64 **$0.010/min**, standard macOS **$0.062/min**입니다.
+- GitHub Actions 과금 방식에 맞춰 각 job 실행 시간을 분 단위로 올림한 뒤 금액을 계산합니다.
+- **public repository**에서는 standard GitHub-hosted runner가 무료이므로 예상 GitHub 실제 청구액은 **$0**으로 표시하고, rate-card 금액은 비교용 값으로 따로 보여 줍니다.
+- **private/internal repository**에서는 account/plan에 포함된 무료 minutes를 차감하기 전의 standard runner overage 상당액을 표시합니다.
+- self-hosted runner의 GitHub Actions 청구액은 $0으로 처리하며, larger runner나 식별할 수 없는 runner는 가격을 추측하지 않고 unpriced로 남깁니다.
+- 30일 환산은 관측된 run 기간이 **7일 이상**일 때만 표시해, 몇 시간의 기록을 월 비용으로 과도하게 외삽하지 않습니다.
+
+가격 근거: [GitHub Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions) / [Actions runner pricing](https://docs.github.com/en/billing/reference/actions-runner-pricing)
 
 ## 공개 OSS benchmark
 
@@ -155,9 +168,10 @@ Action은 항상 **Step Summary**를 생성합니다. Pull Request에서는 권�
 
 - **12개 중 10개 저장소를 완전히 해석**했습니다. 관측된 axis 복원, workflow 이름 렌더링, active matrix family의 실제 job 이름 매칭이 모두 100%였으며, 나머지 2개는 partial이라 검증된 축소 결과에 포함하지 않았습니다.
 - 검증된 비제로 축소 사례는 **pandas 34 → 32 cells (-7.2%)**, **Flask 12 → 10 (-13.6%)**, **Diesel 28 → 25 (-7.6%)**입니다.
+- runner 단가와 job별 1분 단위 올림 때문에 compute 감소율과 금액 감소율은 같지 않습니다. standard runner rate-card 기준으로 pandas **$25.148 → $24.671/run (-1.9%)**, Flask **$0.132 → $0.120/run (-9.1%)**, Diesel **$11.624 → $11.450/run (-1.5%)**였습니다. 세 저장소 모두 public이므로 standard runner의 예상 GitHub 실제 청구액은 **$0**입니다.
 - pandas와 Diesel은 사용 가능한 backtest 구간에서 **holdout recall 100%, unseen-failure recall 100%**를 유지했습니다.
 - 완전히 해석된 10개 저장소 중 **7개는 안전 제약 때문에 의도적으로 축소하지 않았습니다**.
-- aiohttp는 겉보기에는29 → 14까지 줄어들지만 axis 복원율41%, workflow 이름 render coverage75%, active family job 이름 match율42%이므로 validated가 아닌 diagnostic 결과로 분류합니다.
+- aiohttp와 Tokio는 여전히 partial입니다. v0.9에서는 unresolved cell을 안전 제약으로 개별 유지하므로 이 snapshot에서 **aiohttp 29 → 29 / Tokio 51 → 51**이며, 둘 다 validated reduction에 포함하지 않습니다.
 
 정확한 run ID는 [benchmark/snapshot.json](benchmark/snapshot.json)에 고정되어 있고, 전체 결과는 [benchmark/results.md](benchmark/results.md)에서 확인할 수 있습니다. 이 수치는 고정snapshot에 대한 관측 결과이며 미래 CI 동작을 보장하지 않습니다.
 
@@ -208,7 +222,7 @@ timestamp, 절대 경로, UUID, duration, line number처럼 흔들리는 정보�
 - [ ] 명시적 keep / compatibility constraint
 - [x] GitHub Action + PR comment
 - [x] matrix-heavy OSS 재현 가능benchmark
-- [ ] runner-aware monetary cost model
+- [x] runner-aware monetary cost model
 - [ ] multi-event failure fingerprint
 - [ ] recommendation PR 자동 생성
 - [ ] 더 강한 / exact optimizer

@@ -14,12 +14,18 @@ export type WorkflowJob = {
   conclusion: string | null;
   started_at: string | null;
   completed_at: string | null;
+  labels?: string[];
 };
 
 export type IssueComment = {
   id: number;
   body: string | null;
   user: { login: string } | null;
+};
+
+export type RepositoryInfo = {
+  private: boolean;
+  visibility?: "public" | "private" | "internal" | string;
 };
 
 export class GitHubHttpError extends Error {
@@ -73,6 +79,12 @@ export class GitHubClient {
       );
     }
     return await response.json() as T;
+  }
+
+  async repositoryInfo(): Promise<RepositoryInfo> {
+    return await this.json<RepositoryInfo>(
+      `/repos/${repoPath(this.repo)}`,
+    );
   }
 
   async getRun(runId: number): Promise<WorkflowRun> {

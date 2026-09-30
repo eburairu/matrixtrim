@@ -122,6 +122,54 @@ async function main(): Promise<void> {
     recommendation.estimatedComputeReductionPercent?.toFixed(1) ?? "",
   );
   await writeOutput(
+    "pricing-coverage",
+    recommendation.pricingCoverage.toFixed(4),
+  );
+  await writeOutput(
+    "rate-card-usd-per-run-current",
+    recommendation.currentEstimatedListPriceUsdPerRun?.toFixed(4) ?? "",
+  );
+  await writeOutput(
+    "rate-card-usd-per-run-selected",
+    recommendation.selectedEstimatedListPriceUsdPerRun?.toFixed(4) ?? "",
+  );
+  await writeOutput(
+    "rate-card-reduction-percent",
+    recommendation.estimatedListPriceReductionPercent?.toFixed(1) ?? "",
+  );
+  await writeOutput(
+    "projected-30d-rate-card-usd-current",
+    recommendation.currentProjectedListPriceUsd30Days?.toFixed(2) ?? "",
+  );
+  await writeOutput(
+    "projected-30d-rate-card-usd-selected",
+    recommendation.selectedProjectedListPriceUsd30Days?.toFixed(2) ?? "",
+  );
+  await writeOutput(
+    "repository-visibility",
+    recommendation.pricing.repositoryVisibility ?? "",
+  );
+  await writeOutput(
+    "estimated-charge-usd-per-run-current",
+    recommendation.pricing.currentEstimatedChargeUsdPerRun?.toFixed(4) ?? "",
+  );
+  await writeOutput(
+    "estimated-charge-usd-per-run-selected",
+    recommendation.pricing.selectedEstimatedChargeUsdPerRun?.toFixed(4) ?? "",
+  );
+  await writeOutput(
+    "estimated-charge-reduction-percent",
+    recommendation.pricing.estimatedChargeReductionPercent?.toFixed(1) ?? "",
+  );
+  await writeOutput(
+    "projected-30d-estimated-charge-usd-current",
+    recommendation.pricing.currentEstimatedChargeUsdPer30Days?.toFixed(2) ?? "",
+  );
+  await writeOutput(
+    "projected-30d-estimated-charge-usd-selected",
+    recommendation.pricing.selectedEstimatedChargeUsdPer30Days?.toFixed(2) ?? "",
+  );
+  await writeOutput(
     "historical-recall",
     recommendation.historicalRecall?.toFixed(4) ?? "",
   );

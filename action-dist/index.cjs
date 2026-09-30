@@ -7447,6 +7447,11 @@ var GitHubClient = class {
     }
     return await response.json();
   }
+  async repositoryInfo() {
+    return await this.json(
+      `/repos/${repoPath(this.repo)}`
+    );
+  }
   async getRun(runId) {
     return await this.json(
       `/repos/${repoPath(this.repo)}/actions/runs/${runId}`
@@ -7929,7 +7934,8 @@ function summarizeCells(matrixJobs, observations) {
       successRuns: /* @__PURE__ */ new Set(),
       failureRuns: /* @__PURE__ */ new Set(),
       otherRuns: /* @__PURE__ */ new Set(),
-      runtimes: []
+      runtimes: [],
+      runnerLabelSets: /* @__PURE__ */ new Map()
     };
     entry.runs.add(item.runId);
     if (item.conclusion === "success") {
@@ -7941,6 +7947,15 @@ function summarizeCells(matrixJobs, observations) {
     }
     if (item.runtimeSeconds !== null && isConclusiveConclusion(item.conclusion)) {
       entry.runtimes.push(item.runtimeSeconds);
+    }
+    if (item.runnerLabels?.length) {
+      const labels = [...item.runnerLabels].sort();
+      const key = JSON.stringify(labels);
+      const current = entry.runnerLabelSets.get(key);
+      entry.runnerLabelSets.set(key, {
+        labels,
+        count: (current?.count ?? 0) + 1
+      });
     }
     if (entry.axisSource === "unavailable" && item.axisSource !== "unavailable") {
       entry.axes = item.axes;
@@ -7958,7 +7973,8 @@ function summarizeCells(matrixJobs, observations) {
         successRuns: /* @__PURE__ */ new Set(),
         failureRuns: /* @__PURE__ */ new Set([item.runId]),
         otherRuns: /* @__PURE__ */ new Set(),
-        runtimes: []
+        runtimes: [],
+        runnerLabelSets: /* @__PURE__ */ new Map()
       });
     }
   }
@@ -7979,7 +7995,10 @@ function summarizeCells(matrixJobs, observations) {
       uniqueFailures: [...fingerprints].filter(
         (fingerprint) => byFingerprint.get(fingerprint)?.every((item) => item.cell === cell)
       ).length,
-      medianRuntimeSeconds: median(meta.runtimes)
+      medianRuntimeSeconds: median(meta.runtimes),
+      runnerLabels: [...meta.runnerLabelSets.values()].sort(
+        (a, b) => b.count - a.count || JSON.stringify(a.labels).localeCompare(JSON.stringify(b.labels))
+      )[0]?.labels ?? []
     };
   }).sort(
     (a, b) => b.uniqueFailures - a.uniqueFailures || b.distinctFailures - a.distinctFailures || a.cell.localeCompare(b.cell)
@@ -7988,6 +8007,13 @@ function summarizeCells(matrixJobs, observations) {
 async function analyzeRepository(repository, options) {
   const client = new GitHubClient(repository, options.token);
   const concurrency = options.concurrency ?? 4;
+  let repositoryVisibility;
+  try {
+    const info = await client.repositoryInfo();
+    repositoryVisibility = info.visibility ?? (info.private ? "private" : "public");
+  } catch {
+    repositoryVisibility = void 0;
+  }
   const runs = options.runIds?.length ? await mapLimit(options.runIds, concurrency, (runId) => client.getRun(runId)) : options.runId ? [await client.getRun(options.runId)] : await client.listRuns(options.limit, options.workflow);
   let workflowPath;
   const workflowPaths = [...new Set(runs.map((run) => run.path).filter(Boolean))];
@@ -8122,7 +8148,8 @@ async function analyzeRepository(repository, options) {
         axes: inferred.axes,
         axisSource: inferred.source,
         conclusion: job.conclusion,
-        runtimeSeconds: durationSeconds(job.started_at, job.completed_at)
+        runtimeSeconds: durationSeconds(job.started_at, job.completed_at),
+        runnerLabels: job.labels ?? []
       };
       matrixJobIds.add(job.id);
       matrixJobs.push(observation);
@@ -8178,8 +8205,12 @@ async function analyzeRepository(repository, options) {
     (a, b) => b.cells.length - a.cells.length || b.observations - a.observations || a.fingerprint.localeCompare(b.fingerprint)
   );
   const cells = summarizeCells(matrixJobs, observations);
+  const conclusiveRunTimes = runs.filter((run) => isConclusiveConclusion(run.conclusion)).map((run) => Date.parse(run.created_at)).filter((value) => Number.isFinite(value)).sort((a, b) => a - b);
+  const runWindowDays = conclusiveRunTimes.length >= 2 ? (conclusiveRunTimes.at(-1) - conclusiveRunTimes[0]) / (24 * 60 * 60 * 1e3) : null;
+  const projectedRunsPer30Days = runWindowDays !== null && runWindowDays >= 7 ? (conclusiveRunTimes.length - 1) / runWindowDays * 30 : null;
   return {
     repository,
+    repositoryVisibility,
     workflow: options.workflow,
     workflowPath,
     runsAnalyzed: runs.length,
@@ -8198,6 +8229,8 @@ async function analyzeRepository(repository, options) {
     workflowMatchCoverage: workflowExpectedMatrixCells ? workflowMatchedMatrixCells / workflowExpectedMatrixCells : null,
     inactiveStaticMatrixFamilies,
     dynamicMatrixDefinitions,
+    runWindowDays,
+    projectedRunsPer30Days,
     cells,
     clusters,
     observations,
@@ -8268,8 +8301,253 @@ function observedCombinatorialCoverage(cells, maxStrength = 2) {
   };
 }
 
-// src/recommend.ts
+// src/pricing.ts
+var STANDARD_LABEL_PRICES = [
+  {
+    test: (label) => label === "ubuntu-slim",
+    price: {
+      sku: "actions_linux_slim",
+      usdPerMinute: 2e-3,
+      label: "Linux 1-core x64"
+    }
+  },
+  {
+    test: (label) => /^ubuntu-(?:22\.04|24\.04|26\.04)-arm$/.test(label),
+    price: {
+      sku: "actions_linux_arm",
+      usdPerMinute: 5e-3,
+      label: "Linux 2-core arm64"
+    }
+  },
+  {
+    test: (label) => label === "ubuntu-latest" || /^ubuntu-(?:22\.04|24\.04|26\.04)$/.test(label),
+    price: {
+      sku: "actions_linux",
+      usdPerMinute: 6e-3,
+      label: "Linux 2-core x64"
+    }
+  },
+  {
+    test: (label) => /^windows-11-(?:arm|vs2026-arm)$/.test(label),
+    price: {
+      sku: "actions_windows_arm",
+      usdPerMinute: 0.01,
+      label: "Windows 2-core arm64"
+    }
+  },
+  {
+    test: (label) => label === "windows-latest" || /^windows-(?:2022|2025(?:-vs2026)?)$/.test(label),
+    price: {
+      sku: "actions_windows",
+      usdPerMinute: 0.01,
+      label: "Windows 2-core x64"
+    }
+  },
+  {
+    test: (label) => label === "macos-latest" || /^macos-(?:14|15|26)(?:-intel)?$/.test(label) || label === "xcode-27",
+    price: {
+      sku: "actions_macos",
+      usdPerMinute: 0.062,
+      label: "macOS standard"
+    }
+  }
+];
+function inferStandardRunnerPrice(labels) {
+  const classification = classifyRunner(labels);
+  return classification.kind === "standard" ? classification.price : null;
+}
+function classifyRunner(labels) {
+  if (!labels?.length) return { kind: "unknown" };
+  const normalized = labels.map((label) => label.trim().toLowerCase());
+  if (normalized.includes("self-hosted")) {
+    return { kind: "self-hosted" };
+  }
+  for (const label of normalized) {
+    for (const candidate of STANDARD_LABEL_PRICES) {
+      if (candidate.test(label)) {
+        return { kind: "standard", price: candidate.price };
+      }
+    }
+  }
+  return { kind: "unknown" };
+}
+function billedMinutes(runtimeSeconds) {
+  if (!Number.isFinite(runtimeSeconds) || runtimeSeconds < 0) {
+    throw new Error("runtimeSeconds must be a finite non-negative number");
+  }
+  return Math.max(1, Math.ceil(runtimeSeconds / 60));
+}
+function standardRunnerListPriceUsd(runtimeSeconds, labels) {
+  if (runtimeSeconds === null) return null;
+  const runner = inferStandardRunnerPrice(labels);
+  if (!runner) return null;
+  return billedMinutes(runtimeSeconds) * runner.usdPerMinute;
+}
 function median2(values) {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+function isConclusiveJob(job) {
+  return ["success", "failure", "timed_out", "neutral"].includes(
+    job.conclusion ?? ""
+  );
+}
+function estimateJob(job, visibility) {
+  if (job.runtimeSeconds === null || !isConclusiveJob(job)) return null;
+  const classification = classifyRunner(job.runnerLabels);
+  if (classification.kind === "unknown") {
+    return { rateCard: null, estimatedCharge: null };
+  }
+  if (classification.kind === "self-hosted") {
+    return { rateCard: null, estimatedCharge: 0 };
+  }
+  const rateCard = billedMinutes(job.runtimeSeconds) * classification.price.usdPerMinute;
+  if (visibility === "public") {
+    return { rateCard, estimatedCharge: 0 };
+  }
+  if (visibility === "private" || visibility === "internal") {
+    return { rateCard, estimatedCharge: rateCard };
+  }
+  return { rateCard, estimatedCharge: null };
+}
+function cellPrices(report) {
+  const jobsByCell = /* @__PURE__ */ new Map();
+  for (const job of report.matrixJobs ?? []) {
+    const items = jobsByCell.get(job.cell) ?? [];
+    items.push(job);
+    jobsByCell.set(job.cell, items);
+  }
+  const visibility = report.repositoryVisibility ?? null;
+  const result = /* @__PURE__ */ new Map();
+  for (const cell of report.cells) {
+    const samples = (jobsByCell.get(cell.cell) ?? []).map((job) => estimateJob(job, visibility)).filter((value) => value !== null);
+    if (!samples.length) {
+      result.set(cell.cell, { rateCard: null, estimatedCharge: null });
+      continue;
+    }
+    const rateCardKnown = samples.every((sample) => sample.rateCard !== null);
+    const chargeKnown = samples.every(
+      (sample) => sample.estimatedCharge !== null
+    );
+    result.set(cell.cell, {
+      rateCard: rateCardKnown ? median2(samples.map((sample) => sample.rateCard)) : null,
+      estimatedCharge: chargeKnown ? median2(samples.map((sample) => sample.estimatedCharge)) : null
+    });
+  }
+  return result;
+}
+function totalFor(names, prices, field) {
+  const values = names.map((name) => prices.get(name)?.[field] ?? null);
+  const known = values.filter((value) => value !== null);
+  if (known.length !== values.length) return null;
+  return known.reduce((sum, value) => sum + value, 0);
+}
+function savings(current, selected) {
+  if (current === null || selected === null) {
+    return { amount: null, percent: null };
+  }
+  const amount = current - selected;
+  return {
+    amount,
+    percent: current > 0 ? amount / current * 100 : null
+  };
+}
+function monthly(perRun, projectedRunsPer30Days) {
+  return perRun !== null && projectedRunsPer30Days != null ? perRun * projectedRunsPer30Days : null;
+}
+function estimatePricing(report, selectedCells) {
+  const prices = cellPrices(report);
+  const currentNames = report.cells.map((cell) => cell.cell);
+  const currentRateCardUsdPerRun = totalFor(
+    currentNames,
+    prices,
+    "rateCard"
+  );
+  const selectedRateCardUsdPerRun = totalFor(
+    selectedCells,
+    prices,
+    "rateCard"
+  );
+  const currentEstimatedChargeUsdPerRun = totalFor(
+    currentNames,
+    prices,
+    "estimatedCharge"
+  );
+  const selectedEstimatedChargeUsdPerRun = totalFor(
+    selectedCells,
+    prices,
+    "estimatedCharge"
+  );
+  const rateCardSavings = savings(
+    currentRateCardUsdPerRun,
+    selectedRateCardUsdPerRun
+  );
+  const chargeSavings = savings(
+    currentEstimatedChargeUsdPerRun,
+    selectedEstimatedChargeUsdPerRun
+  );
+  const pricedCells = currentNames.filter(
+    (name) => prices.get(name)?.estimatedCharge !== null
+  ).length;
+  const selectedPricedCells = selectedCells.filter(
+    (name) => prices.get(name)?.estimatedCharge !== null
+  ).length;
+  const unpricedCells = currentNames.filter(
+    (name) => prices.get(name)?.estimatedCharge === null
+  );
+  const projectedRunsPer30Days = report.runWindowDays !== null && report.runWindowDays !== void 0 && report.runWindowDays < 7 ? null : report.projectedRunsPer30Days ?? null;
+  const visibility = report.repositoryVisibility ?? null;
+  let note;
+  if (visibility === "public") {
+    note = "Standard GitHub-hosted runners are free in public repositories; rate-card values are comparison-only. Larger/unknown runners are not estimated.";
+  } else if (visibility === "private" || visibility === "internal") {
+    note = "Estimated GitHub charge uses standard-runner overage rates before plan-included minutes. Larger/unknown runners are not estimated.";
+  } else {
+    note = "Repository visibility is unavailable, so GitHub charge cannot be estimated. Standard-runner rate-card values may still be available.";
+  }
+  if (report.runWindowDays !== null && report.runWindowDays !== void 0 && report.runWindowDays < 7) {
+    note += ` 30-day projection is omitted because the observed run window is only ${report.runWindowDays.toFixed(1)} days (<7 days).`;
+  }
+  return {
+    repositoryVisibility: visibility,
+    currentCells: currentNames.length,
+    pricedCells,
+    selectedCells: selectedCells.length,
+    selectedPricedCells,
+    unpricedCells,
+    currentRateCardUsdPerRun,
+    selectedRateCardUsdPerRun,
+    rateCardSavingsUsdPerRun: rateCardSavings.amount,
+    rateCardReductionPercent: rateCardSavings.percent,
+    currentEstimatedChargeUsdPerRun,
+    selectedEstimatedChargeUsdPerRun,
+    estimatedChargeSavingsUsdPerRun: chargeSavings.amount,
+    estimatedChargeReductionPercent: chargeSavings.percent,
+    projectedRunsPer30Days,
+    currentRateCardUsdPer30Days: monthly(
+      currentRateCardUsdPerRun,
+      projectedRunsPer30Days
+    ),
+    selectedRateCardUsdPer30Days: monthly(
+      selectedRateCardUsdPerRun,
+      projectedRunsPer30Days
+    ),
+    currentEstimatedChargeUsdPer30Days: monthly(
+      currentEstimatedChargeUsdPerRun,
+      projectedRunsPer30Days
+    ),
+    selectedEstimatedChargeUsdPer30Days: monthly(
+      selectedEstimatedChargeUsdPerRun,
+      projectedRunsPer30Days
+    ),
+    note
+  };
+}
+
+// src/recommend.ts
+function median3(values) {
   if (!values.length) return null;
   const sorted = [...values].sort((a, b) => a - b);
   const middle = Math.floor(sorted.length / 2);
@@ -8290,7 +8568,7 @@ function recommendMatrix(report, options = {}) {
     throw new Error("maxStrength must be an integer from 1 to 4");
   }
   const knownRuntimes = report.cells.map((cell) => cell.medianRuntimeSeconds).filter((value) => value !== null);
-  const fallbackCost = median2(knownRuntimes) ?? 1;
+  const fallbackCost = median3(knownRuntimes) ?? 1;
   const failureCoverage = /* @__PURE__ */ new Map();
   for (const observation of report.observations) {
     const set = failureCoverage.get(observation.cell) ?? /* @__PURE__ */ new Set();
@@ -8406,6 +8684,17 @@ function recommendMatrix(report, options = {}) {
     0
   ) : null;
   const reduction = currentEstimatedSeconds !== null && selectedEstimatedSeconds !== null && currentEstimatedSeconds > 0 ? (1 - selectedEstimatedSeconds / currentEstimatedSeconds) * 100 : null;
+  const pricing = estimatePricing(
+    report,
+    selected.map((cell) => cell.cell)
+  );
+  const pricingCoverage = pricing.currentCells ? pricing.pricedCells / pricing.currentCells : 0;
+  const currentEstimatedListPriceUsdPerRun = pricing.currentRateCardUsdPerRun;
+  const selectedEstimatedListPriceUsdPerRun = pricing.selectedRateCardUsdPerRun;
+  const estimatedListPriceReductionPercent = pricing.rateCardReductionPercent;
+  const projectedRunsPer30Days = pricing.projectedRunsPer30Days;
+  const currentProjectedListPriceUsd30Days = pricing.currentRateCardUsdPer30Days;
+  const selectedProjectedListPriceUsd30Days = pricing.selectedRateCardUsdPer30Days;
   const failureRuns = new Set(
     report.observations.map((item) => item.runId)
   ).size;
@@ -8414,6 +8703,11 @@ function recommendMatrix(report, options = {}) {
     `Combinatorial coverage preserves observed axis combinations up to strength ${maxStrength}; it does not invent combinations absent from the observed matrix.`,
     "Runtime estimates come from matrix jobs observed across completed workflow runs."
   ];
+  if (pricingCoverage < 1) {
+    warnings.push(
+      `Billing classification could be resolved for ${pricing.pricedCells}/${pricing.currentCells} cells; aggregate monetary estimates are omitted unless coverage is complete.`
+    );
+  }
   if (!report.fingerprints) {
     warnings.unshift(
       "No analyzable failure fingerprints were observed; selection is based on combinatorial coverage and runtime only."
@@ -8467,6 +8761,11 @@ function recommendMatrix(report, options = {}) {
       cell: cell.cell,
       baseJob: cell.baseJob,
       medianRuntimeSeconds: cell.medianRuntimeSeconds,
+      runnerLabels: cell.runnerLabels,
+      estimatedListPriceUsdPerRun: standardRunnerListPriceUsd(
+        cell.medianRuntimeSeconds,
+        cell.runnerLabels
+      ),
       coveredFailures: (failureCoverage.get(cell.cell) ?? /* @__PURE__ */ new Set()).size,
       coveredCombinations: (combinatorial.byCell.get(cell.cell) ?? /* @__PURE__ */ new Set()).size
     })),
@@ -8480,6 +8779,14 @@ function recommendMatrix(report, options = {}) {
     currentEstimatedSeconds,
     selectedEstimatedSeconds,
     estimatedComputeReductionPercent: reduction,
+    pricingCoverage,
+    currentEstimatedListPriceUsdPerRun,
+    selectedEstimatedListPriceUsdPerRun,
+    estimatedListPriceReductionPercent,
+    projectedRunsPer30Days,
+    currentProjectedListPriceUsd30Days,
+    selectedProjectedListPriceUsd30Days,
+    pricing,
     warnings
   };
 }
@@ -8621,11 +8928,19 @@ function backtestRecommendation(report, holdoutPercent = 25, coverageStrength = 
 // src/action-report.ts
 var percent = (value) => value === null ? "n/a" : `${(value * 100).toFixed(1)}%`;
 var seconds = (value) => value === null ? "n/a" : `${value.toFixed(1)}s`;
+var dollars = (value, digits = 3) => value === null ? "n/a" : `$${value.toFixed(digits)}`;
 function formatActionReport(repository, workflow, recommendation, backtest, backtestError) {
-  const selected = recommendation.selectedCells.map((cell) => `- \`${cell.cell}\` \u2014 failures=${cell.coveredFailures}, combinations=${cell.coveredCombinations}, median=${seconds(cell.medianRuntimeSeconds)}`).join("\n");
+  const selected = recommendation.selectedCells.map((cell) => `- \`${cell.cell}\` \u2014 failures=${cell.coveredFailures}, combinations=${cell.coveredCombinations}, median=${seconds(cell.medianRuntimeSeconds)}, list-price/run=${dollars(cell.estimatedListPriceUsdPerRun)}`).join("\n");
   const historical = recommendation.historicalRecall === null ? "n/a (no analyzed failure fingerprints)" : `${recommendation.coveredFingerprints}/${recommendation.historicalFingerprints} (${percent(recommendation.historicalRecall)})`;
   const combinatorial = recommendation.combinatorialCoverage === null ? "n/a" : `${recommendation.coveredCombinatorialRequirements}/${recommendation.combinatorialRequirements} (${percent(recommendation.combinatorialCoverage)})`;
   const reduction = recommendation.estimatedComputeReductionPercent === null ? "n/a" : `${recommendation.estimatedComputeReductionPercent.toFixed(1)}%`;
+  const listPricePerRun = recommendation.currentEstimatedListPriceUsdPerRun === null || recommendation.selectedEstimatedListPriceUsdPerRun === null ? "n/a" : `${dollars(recommendation.currentEstimatedListPriceUsdPerRun)} \u2192 ${dollars(recommendation.selectedEstimatedListPriceUsdPerRun)}`;
+  const listPriceReduction = recommendation.estimatedListPriceReductionPercent === null ? "n/a" : `${recommendation.estimatedListPriceReductionPercent.toFixed(1)}%`;
+  const projected30d = recommendation.currentProjectedListPriceUsd30Days === null || recommendation.selectedProjectedListPriceUsd30Days === null || recommendation.projectedRunsPer30Days === null ? "n/a" : `${dollars(recommendation.currentProjectedListPriceUsd30Days, 2)} \u2192 ${dollars(recommendation.selectedProjectedListPriceUsd30Days, 2)} (${recommendation.projectedRunsPer30Days.toFixed(1)} runs)`;
+  const estimatedChargePerRun = recommendation.pricing.currentEstimatedChargeUsdPerRun === null || recommendation.pricing.selectedEstimatedChargeUsdPerRun === null ? "n/a" : `${dollars(recommendation.pricing.currentEstimatedChargeUsdPerRun)} \u2192 ${dollars(recommendation.pricing.selectedEstimatedChargeUsdPerRun)}`;
+  const estimatedChargeReduction = recommendation.pricing.estimatedChargeReductionPercent === null ? "n/a" : `${recommendation.pricing.estimatedChargeReductionPercent.toFixed(1)}%`;
+  const projectedCharge30d = recommendation.pricing.currentEstimatedChargeUsdPer30Days === null || recommendation.pricing.selectedEstimatedChargeUsdPer30Days === null || recommendation.pricing.projectedRunsPer30Days === null ? "n/a" : `${dollars(recommendation.pricing.currentEstimatedChargeUsdPer30Days, 2)} \u2192 ${dollars(recommendation.pricing.selectedEstimatedChargeUsdPer30Days, 2)} (${recommendation.pricing.projectedRunsPer30Days.toFixed(1)} runs)`;
+  const repositoryVisibility = recommendation.pricing.repositoryVisibility ?? "unknown";
   const backtestRows = backtest ? [
     `| Holdout failure recall | ${backtest.coveredHoldoutFingerprints}/${backtest.holdoutFingerprints} (${percent(backtest.holdoutRecall)}) |`,
     `| Unseen-failure recall | ${backtest.unseenHoldoutRecall === null ? "n/a" : `${backtest.coveredUnseenHoldoutFingerprints}/${backtest.unseenHoldoutFingerprints} (${percent(backtest.unseenHoldoutRecall)})`} |`,
@@ -8647,6 +8962,14 @@ function formatActionReport(repository, workflow, recommendation, backtest, back
 | Observed combinatorial coverage | ${combinatorial} |
 | Estimated compute | ${seconds(recommendation.currentEstimatedSeconds)} \u2192 ${seconds(recommendation.selectedEstimatedSeconds)} |
 | Estimated compute reduction | ${reduction} |
+| Pricing coverage | ${percent(recommendation.pricingCoverage)} |
+| Repository visibility | ${repositoryVisibility} |
+| Standard runner rate-card / run | ${listPricePerRun} |
+| Rate-card reduction | ${listPriceReduction} |
+| Projected 30-day rate-card equivalent | ${projected30d} |
+| Estimated GitHub charge / run | ${estimatedChargePerRun} |
+| Estimated GitHub charge reduction | ${estimatedChargeReduction} |
+| Projected 30-day GitHub charge | ${projectedCharge30d} |
 ${backtestRows}
 
 <details>
@@ -8659,6 +8982,8 @@ ${selected || "_No cells selected._"}
 ### Interpretation
 
 MatrixTrim measures the historical failure-detection value of CI configurations. A recommendation is **evidence, not proof that removed configurations can never catch a future failure**.
+
+**Billing note:** ${recommendation.pricing.note}
 
 ${warnings}
 
@@ -8761,6 +9086,54 @@ async function main() {
   await writeOutput(
     "compute-reduction-percent",
     recommendation.estimatedComputeReductionPercent?.toFixed(1) ?? ""
+  );
+  await writeOutput(
+    "pricing-coverage",
+    recommendation.pricingCoverage.toFixed(4)
+  );
+  await writeOutput(
+    "rate-card-usd-per-run-current",
+    recommendation.currentEstimatedListPriceUsdPerRun?.toFixed(4) ?? ""
+  );
+  await writeOutput(
+    "rate-card-usd-per-run-selected",
+    recommendation.selectedEstimatedListPriceUsdPerRun?.toFixed(4) ?? ""
+  );
+  await writeOutput(
+    "rate-card-reduction-percent",
+    recommendation.estimatedListPriceReductionPercent?.toFixed(1) ?? ""
+  );
+  await writeOutput(
+    "projected-30d-rate-card-usd-current",
+    recommendation.currentProjectedListPriceUsd30Days?.toFixed(2) ?? ""
+  );
+  await writeOutput(
+    "projected-30d-rate-card-usd-selected",
+    recommendation.selectedProjectedListPriceUsd30Days?.toFixed(2) ?? ""
+  );
+  await writeOutput(
+    "repository-visibility",
+    recommendation.pricing.repositoryVisibility ?? ""
+  );
+  await writeOutput(
+    "estimated-charge-usd-per-run-current",
+    recommendation.pricing.currentEstimatedChargeUsdPerRun?.toFixed(4) ?? ""
+  );
+  await writeOutput(
+    "estimated-charge-usd-per-run-selected",
+    recommendation.pricing.selectedEstimatedChargeUsdPerRun?.toFixed(4) ?? ""
+  );
+  await writeOutput(
+    "estimated-charge-reduction-percent",
+    recommendation.pricing.estimatedChargeReductionPercent?.toFixed(1) ?? ""
+  );
+  await writeOutput(
+    "projected-30d-estimated-charge-usd-current",
+    recommendation.pricing.currentEstimatedChargeUsdPer30Days?.toFixed(2) ?? ""
+  );
+  await writeOutput(
+    "projected-30d-estimated-charge-usd-selected",
+    recommendation.pricing.selectedEstimatedChargeUsdPer30Days?.toFixed(2) ?? ""
   );
   await writeOutput(
     "historical-recall",

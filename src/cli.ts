@@ -240,6 +240,53 @@ async function recommendCommand(args: string[], json: boolean): Promise<void> {
     }
   }
 
+  console.log(
+    `Pricing coverage: ${(recommendation.pricingCoverage * 100).toFixed(1)}%`,
+  );
+  console.log(
+    `Repository visibility: ${recommendation.pricing.repositoryVisibility ?? "unknown"}`,
+  );
+  if (
+    recommendation.currentEstimatedListPriceUsdPerRun !== null &&
+    recommendation.selectedEstimatedListPriceUsdPerRun !== null
+  ) {
+    console.log(
+      `Standard runner rate-card/run: $${recommendation.currentEstimatedListPriceUsdPerRun.toFixed(3)} -> $${recommendation.selectedEstimatedListPriceUsdPerRun.toFixed(3)}`,
+    );
+    if (recommendation.estimatedListPriceReductionPercent !== null) {
+      console.log(
+        `Rate-card reduction: ${recommendation.estimatedListPriceReductionPercent.toFixed(1)}%`,
+      );
+    }
+  }
+  if (
+    recommendation.currentProjectedListPriceUsd30Days !== null &&
+    recommendation.selectedProjectedListPriceUsd30Days !== null &&
+    recommendation.projectedRunsPer30Days !== null
+  ) {
+    console.log(
+      `Projected 30d rate-card equivalent (${recommendation.projectedRunsPer30Days.toFixed(1)} runs): $${recommendation.currentProjectedListPriceUsd30Days.toFixed(2)} -> $${recommendation.selectedProjectedListPriceUsd30Days.toFixed(2)}`,
+    );
+  }
+  if (
+    recommendation.pricing.currentEstimatedChargeUsdPerRun !== null &&
+    recommendation.pricing.selectedEstimatedChargeUsdPerRun !== null
+  ) {
+    console.log(
+      `Estimated GitHub charge/run: $${recommendation.pricing.currentEstimatedChargeUsdPerRun.toFixed(3)} -> $${recommendation.pricing.selectedEstimatedChargeUsdPerRun.toFixed(3)}`,
+    );
+  }
+  if (
+    recommendation.pricing.currentEstimatedChargeUsdPer30Days !== null &&
+    recommendation.pricing.selectedEstimatedChargeUsdPer30Days !== null &&
+    recommendation.pricing.projectedRunsPer30Days !== null
+  ) {
+    console.log(
+      `Projected 30d GitHub charge (${recommendation.pricing.projectedRunsPer30Days.toFixed(1)} runs): $${recommendation.pricing.currentEstimatedChargeUsdPer30Days.toFixed(2)} -> $${recommendation.pricing.selectedEstimatedChargeUsdPer30Days.toFixed(2)}`,
+    );
+  }
+  console.log(`Billing note: ${recommendation.pricing.note}`);
+
   console.log("\nRecommended cells");
   for (const cell of recommendation.selectedCells) {
     const runtime = cell.medianRuntimeSeconds === null

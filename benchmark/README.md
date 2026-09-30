@@ -41,6 +41,14 @@ GH_TOKEN="$(gh auth token)" npm run benchmark -- \
 
 A zero reduction is a valid result. It means the current evidence and safety constraints did not justify removing matrix cells.
 
+## Pricing interpretation
+
+- Runner pricing uses the standard GitHub-hosted rate card verified on 2026-09-30.
+- Each job is rounded up to a whole minute before pricing.
+- Every benchmark target is a public repository, so standard GitHub-hosted runners have an estimated GitHub charge of $0. Rate-card values are comparison-only.
+- Larger/unknown runners are left unpriced rather than assigned a guessed rate.
+- A 30-day run-frequency projection is emitted only when the pinned history spans at least 7 days.
+
 ## Files
 
 - `targets.json` — benchmark repositories and workflows.

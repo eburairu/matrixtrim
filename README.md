@@ -16,7 +16,7 @@ MatrixTrim analyzes GitHub Actions matrix jobs and asks a practical question:
 
 The goal is to recommend a smaller CI matrix using **historical failure coverage, runtime cost, matrix structure, and holdout backtesting**.
 
-> **Status: v0.8 experimental.** MatrixTrim combines empirical failure evidence, observed 1-wise / pairwise / t-wise configuration coverage, runtime cost, time-based holdout backtesting, rendered matrix-name reconstruction, a GitHub Action, and a reproducible public-OSS benchmark.
+> **Status: v0.9 experimental.** MatrixTrim combines empirical failure evidence, observed 1-wise / pairwise / t-wise configuration coverage, runtime and runner-aware monetary cost, time-based holdout backtesting, rendered matrix-name reconstruction, a GitHub Action, and a reproducible public-OSS benchmark.
 
 ## Why MatrixTrim?
 
@@ -147,7 +147,20 @@ steps:
 
 The Action always writes a **Step Summary**. On pull requests it also creates or updates a single MatrixTrim comment when permissions allow it. If a fork PR has a read-only token, comment creation is skipped with a warning while the analysis still succeeds.
 
-The report includes current vs suggested cells, historical failure recall, combinatorial coverage, estimated compute reduction, holdout recall, unseen-failure recall, and the recommended cell set.
+The report includes current vs suggested cells, historical failure recall, combinatorial coverage, estimated compute reduction, runner-aware rate-card / charge estimates, holdout recall, unseen-failure recall, and the recommended cell set.
+
+## Runner-aware cost model
+
+MatrixTrim now estimates monetary impact from the runner labels and observed job durations instead of treating every CI minute as equal.
+
+- Current standard GitHub-hosted rates used by v0.9: Linux 1-core x64 **$0.002/min**, Linux 2-core x64 **$0.006/min**, Linux 2-core arm64 **$0.005/min**, Windows x64/arm64 **$0.010/min**, and standard macOS **$0.062/min**.
+- Each job is rounded up to a whole minute before pricing, matching GitHub Actions billing behavior.
+- For **public repositories**, standard GitHub-hosted runners are free. MatrixTrim therefore reports an estimated GitHub charge of **$0** and shows the rate-card amount only as a comparison value.
+- For **private/internal repositories**, the estimated charge is the standard-runner overage equivalent **before account/plan included minutes are subtracted**.
+- Self-hosted runners are treated as $0 GitHub Actions charge; larger or unknown runner SKUs are left unpriced rather than guessed.
+- A 30-day projection is shown only when the observed run window spans at least **7 days**, avoiding aggressive extrapolation from a few hours of CI history.
+
+Pricing reference: [GitHub Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions) and [Actions runner pricing](https://docs.github.com/en/billing/reference/actions-runner-pricing).
 
 ## Public OSS benchmark
 
@@ -155,9 +168,10 @@ To avoid validating MatrixTrim only on hand-picked examples, we pinned **20 conc
 
 - **10/12 repositories were fully resolved** with 100% observed axis recovery, workflow-name rendering, and active-family job-name matching; 2 were partial and are not treated as validated reduction results.
 - Validated non-zero reductions: **pandas 34 → 32 cells (-7.2%)**, **Flask 12 → 10 (-13.6%)**, **Diesel 28 → 25 (-7.6%)**.
+- Monetary reduction is not identical to compute reduction because runner prices and per-job minute rounding matter: pandas **$25.148 → $24.671/run (-1.9%)**, Flask **$0.132 → $0.120/run (-9.1%)**, Diesel **$11.624 → $11.450/run (-1.5%)** on the standard-runner rate card. All three are public repositories, so estimated standard-runner GitHub charge remains **$0**.
 - pandas and Diesel both kept **100% holdout recall and 100% unseen-failure recall** in the available backtest windows.
 - **7 of the 10 fully resolved repositories were intentionally left unchanged** because the safety constraints did not justify a reduction.
-- aiohttp showed an apparent 29 → 14 reduction, but only 41% of observed cells had resolved axes (75% workflow-name render coverage, 42% active-family job-name match), so that result is diagnostic rather than validated.
+- aiohttp and Tokio remain partial. With unresolved cells retained as safety constraints, the v0.9 recommendation keeps **aiohttp 29 → 29** and **Tokio 51 → 51** in this snapshot; neither is counted as a validated reduction.
 
 The exact run IDs are pinned in [benchmark/snapshot.json](benchmark/snapshot.json), and the complete results are in [benchmark/results.md](benchmark/results.md). These measurements describe that fixed snapshot; they are not universal promises about future CI behavior.
 
@@ -208,7 +222,7 @@ The core is deterministic. No LLM is required.
 - [ ] Explicit keep / compatibility constraints
 - [x] GitHub Action + PR comments
 - [x] Reproducible benchmark across matrix-heavy OSS repositories
-- [ ] Runner-aware monetary cost model
+- [x] Runner-aware monetary cost model
 - [ ] Multi-event failure fingerprints
 - [ ] Recommendation PR generation
 - [ ] Stronger / exact optimizer

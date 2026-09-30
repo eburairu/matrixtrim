@@ -28,6 +28,7 @@ export type MatrixJobObservation = {
   axisSource: "workflow-rendered-name" | "workflow-job-name" | "unavailable";
   conclusion: string | null;
   runtimeSeconds: number | null;
+  runnerLabels?: string[];
 };
 
 export type CellSummary = {
@@ -43,6 +44,7 @@ export type CellSummary = {
   distinctFailures: number;
   uniqueFailures: number;
   medianRuntimeSeconds: number | null;
+  runnerLabels?: string[];
 };
 
 export type FailureCluster = {
@@ -54,6 +56,7 @@ export type FailureCluster = {
 
 export type AnalysisReport = {
   repository: string;
+  repositoryVisibility?: "public" | "private" | "internal" | string;
   workflow?: string;
   workflowPath?: string;
   runsAnalyzed: number;
@@ -72,6 +75,8 @@ export type AnalysisReport = {
   workflowMatchCoverage?: number | null;
   inactiveStaticMatrixFamilies?: number;
   dynamicMatrixDefinitions?: number;
+  runWindowDays?: number | null;
+  projectedRunsPer30Days?: number | null;
   cells: CellSummary[];
   clusters: FailureCluster[];
   observations: FailureObservation[];
@@ -172,6 +177,7 @@ export function summarizeCells(
       failureRuns: Set<number>;
       otherRuns: Set<number>;
       runtimes: number[];
+      runnerLabelSets: Map<string, { labels: string[]; count: number }>;
     }
   >();
 
@@ -184,7 +190,8 @@ export function summarizeCells(
       successRuns: new Set<number>(),
       failureRuns: new Set<number>(),
       otherRuns: new Set<number>(),
-      runtimes: [],
+      runtimes: [] as number[],
+      runnerLabelSets: new Map<string, { labels: string[]; count: number }>(),
     };
 
     entry.runs.add(item.runId);
@@ -200,6 +207,15 @@ export function summarizeCells(
       isConclusiveConclusion(item.conclusion)
     ) {
       entry.runtimes.push(item.runtimeSeconds);
+    }
+    if (item.runnerLabels?.length) {
+      const labels = [...item.runnerLabels].sort();
+      const key = JSON.stringify(labels);
+      const current = entry.runnerLabelSets.get(key);
+      entry.runnerLabelSets.set(key, {
+        labels,
+        count: (current?.count ?? 0) + 1,
+      });
     }
 
     if (entry.axisSource === "unavailable" && item.axisSource !== "unavailable") {
@@ -218,8 +234,9 @@ export function summarizeCells(
         runs: new Set([item.runId]),
         successRuns: new Set(),
         failureRuns: new Set([item.runId]),
-        otherRuns: new Set(),
-        runtimes: [],
+        otherRuns: new Set<number>(),
+        runtimes: [] as number[],
+        runnerLabelSets: new Map<string, { labels: string[]; count: number }>(),
       });
     }
   }
@@ -243,6 +260,11 @@ export function summarizeCells(
           byFingerprint.get(fingerprint)?.every((item) => item.cell === cell),
       ).length,
       medianRuntimeSeconds: median(meta.runtimes),
+      runnerLabels: [...meta.runnerLabelSets.values()]
+        .sort((a, b) =>
+          b.count - a.count ||
+          JSON.stringify(a.labels).localeCompare(JSON.stringify(b.labels))
+        )[0]?.labels ?? [],
     };
   }).sort((a, b) =>
     b.uniqueFailures - a.uniqueFailures ||
@@ -264,6 +286,14 @@ export async function analyzeRepository(
 ): Promise<AnalysisReport> {
   const client = new GitHubClient(repository, options.token);
   const concurrency = options.concurrency ?? 4;
+  let repositoryVisibility: AnalysisReport["repositoryVisibility"];
+  try {
+    const info = await client.repositoryInfo();
+    repositoryVisibility = info.visibility ?? (info.private ? "private" : "public");
+  } catch {
+    repositoryVisibility = undefined;
+  }
+
   const runs: WorkflowRun[] = options.runIds?.length
     ? await mapLimit(options.runIds, concurrency, (runId) => client.getRun(runId))
     : options.runId
@@ -432,6 +462,7 @@ export async function analyzeRepository(
         axisSource: inferred.source,
         conclusion: job.conclusion,
         runtimeSeconds: durationSeconds(job.started_at, job.completed_at),
+        runnerLabels: job.labels ?? [],
       };
 
       matrixJobIds.add(job.id);
@@ -503,8 +534,23 @@ export async function analyzeRepository(
 
   const cells = summarizeCells(matrixJobs, observations);
 
+  const conclusiveRunTimes = runs
+    .filter((run) => isConclusiveConclusion(run.conclusion))
+    .map((run) => Date.parse(run.created_at))
+    .filter((value) => Number.isFinite(value))
+    .sort((a, b) => a - b);
+  const runWindowDays = conclusiveRunTimes.length >= 2
+    ? (conclusiveRunTimes.at(-1)! - conclusiveRunTimes[0]!) /
+      (24 * 60 * 60 * 1000)
+    : null;
+  const projectedRunsPer30Days =
+    runWindowDays !== null && runWindowDays >= 7
+      ? ((conclusiveRunTimes.length - 1) / runWindowDays) * 30
+      : null;
+
   return {
     repository,
+    repositoryVisibility,
     workflow: options.workflow,
     workflowPath,
     runsAnalyzed: runs.length,
@@ -525,6 +571,8 @@ export async function analyzeRepository(
       : null,
     inactiveStaticMatrixFamilies,
     dynamicMatrixDefinitions,
+    runWindowDays,
+    projectedRunsPer30Days,
     cells,
     clusters,
     observations,

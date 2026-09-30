@@ -38,6 +38,30 @@ outputs:
     description: Number of cells in the recommendation.
   compute-reduction-percent:
     description: Estimated compute reduction percentage.
+  pricing-coverage:
+    description: Fraction of matrix cells whose billing classification could be resolved.
+  rate-card-usd-per-run-current:
+    description: Standard GitHub-hosted runner rate-card equivalent per workflow run before reduction.
+  rate-card-usd-per-run-selected:
+    description: Standard GitHub-hosted runner rate-card equivalent per workflow run after reduction.
+  rate-card-reduction-percent:
+    description: Estimated standard-runner rate-card reduction percentage.
+  projected-30d-rate-card-usd-current:
+    description: Projected 30-day standard-runner rate-card equivalent before reduction.
+  projected-30d-rate-card-usd-selected:
+    description: Projected 30-day standard-runner rate-card equivalent after reduction.
+  repository-visibility:
+    description: Repository visibility used for billing interpretation.
+  estimated-charge-usd-per-run-current:
+    description: Estimated GitHub Actions charge per workflow run before reduction, subject to the billing note.
+  estimated-charge-usd-per-run-selected:
+    description: Estimated GitHub Actions charge per workflow run after reduction, subject to the billing note.
+  estimated-charge-reduction-percent:
+    description: Estimated GitHub Actions charge reduction percentage when billable standard-runner pricing is known.
+  projected-30d-estimated-charge-usd-current:
+    description: Projected 30-day estimated GitHub Actions charge before reduction.
+  projected-30d-estimated-charge-usd-selected:
+    description: Projected 30-day estimated GitHub Actions charge after reduction.
   historical-recall:
     description: Historical failure recall as a 0-1 ratio.
   combinatorial-coverage:

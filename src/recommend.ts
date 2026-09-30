@@ -1,10 +1,17 @@
 import type { AnalysisReport, CellSummary } from "./analyze.js";
 import { observedCombinatorialCoverage } from "./coverage.js";
+import {
+  estimatePricing,
+  standardRunnerListPriceUsd,
+  type PricingEstimate,
+} from "./pricing.js";
 
 export type RecommendedCell = {
   cell: string;
   baseJob: string;
   medianRuntimeSeconds: number | null;
+  runnerLabels?: string[];
+  estimatedListPriceUsdPerRun: number | null;
   coveredFailures: number;
   coveredCombinations: number;
 };
@@ -29,6 +36,14 @@ export type RecommendationReport = {
   currentEstimatedSeconds: number | null;
   selectedEstimatedSeconds: number | null;
   estimatedComputeReductionPercent: number | null;
+  pricingCoverage: number;
+  currentEstimatedListPriceUsdPerRun: number | null;
+  selectedEstimatedListPriceUsdPerRun: number | null;
+  estimatedListPriceReductionPercent: number | null;
+  projectedRunsPer30Days: number | null;
+  currentProjectedListPriceUsd30Days: number | null;
+  selectedProjectedListPriceUsd30Days: number | null;
+  pricing: PricingEstimate;
   warnings: string[];
 };
 
@@ -218,6 +233,25 @@ export function recommendMatrix(
       ? (1 - selectedEstimatedSeconds / currentEstimatedSeconds) * 100
       : null;
 
+  const pricing = estimatePricing(
+    report,
+    selected.map((cell) => cell.cell),
+  );
+  const pricingCoverage = pricing.currentCells
+    ? pricing.pricedCells / pricing.currentCells
+    : 0;
+  const currentEstimatedListPriceUsdPerRun =
+    pricing.currentRateCardUsdPerRun;
+  const selectedEstimatedListPriceUsdPerRun =
+    pricing.selectedRateCardUsdPerRun;
+  const estimatedListPriceReductionPercent =
+    pricing.rateCardReductionPercent;
+  const projectedRunsPer30Days = pricing.projectedRunsPer30Days;
+  const currentProjectedListPriceUsd30Days =
+    pricing.currentRateCardUsdPer30Days;
+  const selectedProjectedListPriceUsd30Days =
+    pricing.selectedRateCardUsdPer30Days;
+
   const failureRuns = new Set(
     report.observations.map((item) => item.runId),
   ).size;
@@ -226,6 +260,12 @@ export function recommendMatrix(
     `Combinatorial coverage preserves observed axis combinations up to strength ${maxStrength}; it does not invent combinations absent from the observed matrix.`,
     "Runtime estimates come from matrix jobs observed across completed workflow runs.",
   ];
+
+  if (pricingCoverage < 1) {
+    warnings.push(
+      `Billing classification could be resolved for ${pricing.pricedCells}/${pricing.currentCells} cells; aggregate monetary estimates are omitted unless coverage is complete.`,
+    );
+  }
 
   if (!report.fingerprints) {
     warnings.unshift(
@@ -292,6 +332,11 @@ export function recommendMatrix(
       cell: cell.cell,
       baseJob: cell.baseJob,
       medianRuntimeSeconds: cell.medianRuntimeSeconds,
+      runnerLabels: cell.runnerLabels,
+      estimatedListPriceUsdPerRun: standardRunnerListPriceUsd(
+        cell.medianRuntimeSeconds,
+        cell.runnerLabels,
+      ),
       coveredFailures: (failureCoverage.get(cell.cell) ?? new Set()).size,
       coveredCombinations: (combinatorial.byCell.get(cell.cell) ?? new Set())
         .size,
@@ -310,6 +355,14 @@ export function recommendMatrix(
     currentEstimatedSeconds,
     selectedEstimatedSeconds,
     estimatedComputeReductionPercent: reduction,
+    pricingCoverage,
+    currentEstimatedListPriceUsdPerRun,
+    selectedEstimatedListPriceUsdPerRun,
+    estimatedListPriceReductionPercent,
+    projectedRunsPer30Days,
+    currentProjectedListPriceUsd30Days,
+    selectedProjectedListPriceUsd30Days,
+    pricing,
     warnings,
   };
 }

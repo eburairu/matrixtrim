@@ -7,6 +7,9 @@ const percent = (value: number | null): string =>
 const seconds = (value: number | null): string =>
   value === null ? "n/a" : `${value.toFixed(1)}s`;
 
+const dollars = (value: number | null, digits = 3): string =>
+  value === null ? "n/a" : `$${value.toFixed(digits)}`;
+
 export function formatActionReport(
   repository: string,
   workflow: string | undefined,
@@ -15,7 +18,7 @@ export function formatActionReport(
   backtestError?: string,
 ): string {
   const selected = recommendation.selectedCells
-    .map((cell) => `- \`${cell.cell}\` — failures=${cell.coveredFailures}, combinations=${cell.coveredCombinations}, median=${seconds(cell.medianRuntimeSeconds)}`)
+    .map((cell) => `- \`${cell.cell}\` — failures=${cell.coveredFailures}, combinations=${cell.coveredCombinations}, median=${seconds(cell.medianRuntimeSeconds)}, list-price/run=${dollars(cell.estimatedListPriceUsdPerRun)}`)
     .join("\n");
 
   const historical = recommendation.historicalRecall === null
@@ -29,6 +32,40 @@ export function formatActionReport(
   const reduction = recommendation.estimatedComputeReductionPercent === null
     ? "n/a"
     : `${recommendation.estimatedComputeReductionPercent.toFixed(1)}%`;
+
+  const listPricePerRun =
+    recommendation.currentEstimatedListPriceUsdPerRun === null ||
+    recommendation.selectedEstimatedListPriceUsdPerRun === null
+      ? "n/a"
+      : `${dollars(recommendation.currentEstimatedListPriceUsdPerRun)} → ${dollars(recommendation.selectedEstimatedListPriceUsdPerRun)}`;
+  const listPriceReduction =
+    recommendation.estimatedListPriceReductionPercent === null
+      ? "n/a"
+      : `${recommendation.estimatedListPriceReductionPercent.toFixed(1)}%`;
+  const projected30d =
+    recommendation.currentProjectedListPriceUsd30Days === null ||
+    recommendation.selectedProjectedListPriceUsd30Days === null ||
+    recommendation.projectedRunsPer30Days === null
+      ? "n/a"
+      : `${dollars(recommendation.currentProjectedListPriceUsd30Days, 2)} → ${dollars(recommendation.selectedProjectedListPriceUsd30Days, 2)} (${recommendation.projectedRunsPer30Days.toFixed(1)} runs)`;
+
+  const estimatedChargePerRun =
+    recommendation.pricing.currentEstimatedChargeUsdPerRun === null ||
+    recommendation.pricing.selectedEstimatedChargeUsdPerRun === null
+      ? "n/a"
+      : `${dollars(recommendation.pricing.currentEstimatedChargeUsdPerRun)} → ${dollars(recommendation.pricing.selectedEstimatedChargeUsdPerRun)}`;
+  const estimatedChargeReduction =
+    recommendation.pricing.estimatedChargeReductionPercent === null
+      ? "n/a"
+      : `${recommendation.pricing.estimatedChargeReductionPercent.toFixed(1)}%`;
+  const projectedCharge30d =
+    recommendation.pricing.currentEstimatedChargeUsdPer30Days === null ||
+    recommendation.pricing.selectedEstimatedChargeUsdPer30Days === null ||
+    recommendation.pricing.projectedRunsPer30Days === null
+      ? "n/a"
+      : `${dollars(recommendation.pricing.currentEstimatedChargeUsdPer30Days, 2)} → ${dollars(recommendation.pricing.selectedEstimatedChargeUsdPer30Days, 2)} (${recommendation.pricing.projectedRunsPer30Days.toFixed(1)} runs)`;
+  const repositoryVisibility =
+    recommendation.pricing.repositoryVisibility ?? "unknown";
 
   const backtestRows = backtest
     ? [
@@ -57,6 +94,14 @@ export function formatActionReport(
 | Observed combinatorial coverage | ${combinatorial} |
 | Estimated compute | ${seconds(recommendation.currentEstimatedSeconds)} → ${seconds(recommendation.selectedEstimatedSeconds)} |
 | Estimated compute reduction | ${reduction} |
+| Pricing coverage | ${percent(recommendation.pricingCoverage)} |
+| Repository visibility | ${repositoryVisibility} |
+| Standard runner rate-card / run | ${listPricePerRun} |
+| Rate-card reduction | ${listPriceReduction} |
+| Projected 30-day rate-card equivalent | ${projected30d} |
+| Estimated GitHub charge / run | ${estimatedChargePerRun} |
+| Estimated GitHub charge reduction | ${estimatedChargeReduction} |
+| Projected 30-day GitHub charge | ${projectedCharge30d} |
 ${backtestRows}
 
 <details>
@@ -69,6 +114,8 @@ ${selected || "_No cells selected._"}
 ### Interpretation
 
 MatrixTrim measures the historical failure-detection value of CI configurations. A recommendation is **evidence, not proof that removed configurations can never catch a future failure**.
+
+**Billing note:** ${recommendation.pricing.note}
 
 ${warnings}
 
