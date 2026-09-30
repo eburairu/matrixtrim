@@ -11,6 +11,16 @@ const dependabotPath = fileURLToPath(
 );
 
 describe("workflow supply-chain policy", () => {
+	it("pins hosted runner images instead of using moving latest labels", () => {
+		const workflowFiles = readdirSync(workflowsDir).filter(
+			(name) => name.endsWith(".yml") || name.endsWith(".yaml"),
+		);
+		for (const file of workflowFiles) {
+			const source = readFileSync(`${workflowsDir}/${file}`, "utf8");
+			expect(source, file).not.toMatch(/runs-on:\s+[^\n]*-latest\b/);
+		}
+	});
+
 	it("pins every external GitHub Action to an immutable commit SHA", () => {
 		const workflowFiles = readdirSync(workflowsDir).filter(
 			(name) => name.endsWith(".yml") || name.endsWith(".yaml"),
