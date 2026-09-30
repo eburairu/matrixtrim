@@ -8,7 +8,7 @@ MatrixTrim publishes versioned GitHub Action releases from the repository's `mai
 
 A release creates two Git tags:
 
-- exact tag such as `v0.18.0`
+- exact tag such as `v0.19.0`
 - floating major tag `v0`
 
 Consumers should normally use the floating major tag:
@@ -39,7 +39,9 @@ For maximum reproducibility, pin an exact release tag or commit SHA instead.
 - An exact tag pointing elsewhere fails closed rather than being moved.
 - The exact release tag is never force-updated.
 - Only the floating major tag is intentionally force-updated.
+- The full `npm run quality` gate must pass before any tag is created.
 - The committed Action bundle must match a fresh build before any tag is created.
+- Repository-level immutable releases prevent a published exact `vX.Y.Z` release and its tag from being changed afterward; the floating `v0` compatibility tag is intentionally not a release tag and may advance.
 
 ## Re-running a release
 

@@ -23,7 +23,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npm run check
+      - run: npm run quality
       - run: npm run build:action
       - name: Verify committed Action bundle
         run: git diff --exit-code -- action-dist/index.cjs

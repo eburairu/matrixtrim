@@ -16,7 +16,7 @@ MatrixTrim no intenta simplemente ejecutar menos jobs. La pregunta útil es otra
 
 El objetivo es proponer una CI matrix más pequeña basándose en **cobertura histórica de fallos, coste de ejecución, estructura de la matrix y backtesting con holdout temporal**.
 
-> **Estado actual: v0.18 experimental.** MatrixTrim combina multi-event root-cause fingerprints, evidencia histórica de fallos, cobertura observada 1-wise / pairwise / t-wise, restricciones keep / compatibility definidas explícitamente por humanos, exact branch-and-bound optimizer, coste de runtime y estimación monetaria según runner, backtesting temporal, reconstrucción de nombres de jobs de matrix ya renderizados, GitHub Action, benchmark reproducible sobre OSS público y generación opt-in de draft PRs de optimización.
+> **Estado actual: v0.19 experimental.** MatrixTrim combina multi-event root-cause fingerprints, evidencia histórica de fallos, cobertura observada 1-wise / pairwise / t-wise, restricciones keep / compatibility definidas explícitamente por humanos, exact branch-and-bound optimizer, coste de runtime y estimación monetaria según runner, backtesting temporal, reconstrucción de nombres de jobs de matrix ya renderizados, GitHub Action, benchmark reproducible sobre OSS público y generación opt-in de draft PRs de optimización.
 
 ## ¿Por qué MatrixTrim?
 
@@ -282,6 +282,10 @@ El núcleo es determinista y no depende de un LLM.
 - [x] Captura opt-in de evidencia runtime determinista mediante anotaciones de Check Run
 - [x] Releases versionadas de GitHub Action + floating major tag
 - [x] SHA-pinned workflow dependencies + Dependabot enforcement
+- [x] Retry/timeout-aware GitHub API client + complete job pagination
+- [x] Coverage/lint/type/package quality gates + aggregate protected CI check
+- [x] CodeQL, dependency review, private vulnerability reporting, immutable releases
+- [x] Brute-force oracle validation for the exact optimizer
 - [x] Restricciones explícitas keep / compatibility
 - [x] GitHub Action + comentarios en PR
 - [x] Benchmark reproducible en repos OSS con matrices grandes

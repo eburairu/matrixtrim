@@ -1,852 +1,382 @@
 import { parse } from "yaml";
-
-type MatrixValue = string | number | boolean | null | Record<string, unknown>;
+import {
+	type MatrixValue,
+	matchDynamicNameTemplate,
+	matrixAxesInTemplate,
+	renderName,
+} from "./expression.js";
+import { asRecord } from "./object.js";
 
 export type ExpandedMatrixCell = {
-  name: string;
-  axes: Record<string, string>;
-  matrix: Record<string, unknown>;
+	name: string;
+	axes: Record<string, string>;
+	matrix: Record<string, unknown>;
 };
 
 export type MatrixDefinition = {
-  jobId: string;
-  displayName: string;
-  axes: string[];
-  dynamic: boolean;
-  expectedCells: number;
-  renderedCells: number;
-  cells: ExpandedMatrixCell[];
-  nameTemplate?: string;
-  captureEvidence: boolean;
+	jobId: string;
+	displayName: string;
+	axes: string[];
+	dynamic: boolean;
+	expectedCells: number;
+	renderedCells: number;
+	cells: ExpandedMatrixCell[];
+	nameTemplate?: string;
+	captureEvidence: boolean;
 };
 
 export type AxisInference = {
-  baseJob: string;
-  axes: Record<string, string> | null;
-  source: "workflow-rendered-name" | "workflow-job-name" | "unavailable";
+	baseJob: string;
+	axes: Record<string, string> | null;
+	source: "workflow-rendered-name" | "workflow-job-name" | "unavailable";
 };
 
 function stableStringify(value: unknown): string {
-  if (value === null) return "null";
-  if (typeof value !== "object") return String(value);
-  if (Array.isArray(value)) {
-    return `[${value.map(stableStringify).join(",")}]`;
-  }
-  const entries = Object.entries(value as Record<string, unknown>)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item)}`);
-  return `{${entries.join(",")}}`;
+	if (value === null) return "null";
+	if (typeof value !== "object") return String(value);
+	if (Array.isArray(value)) {
+		return `[${value.map(stableStringify).join(",")}]`;
+	}
+	const entries = Object.entries(value as Record<string, unknown>)
+		.sort(([a], [b]) => a.localeCompare(b))
+		.map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item)}`);
+	return `{${entries.join(",")}}`;
 }
 
 export function axesFromMatrixEvidence(
-  matrix: Record<string, unknown>,
+	matrix: Record<string, unknown>,
 ): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(matrix)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([axis, value]) => [axis, stableStringify(value)]),
-  );
+	return Object.fromEntries(
+		Object.entries(matrix)
+			.sort(([a], [b]) => a.localeCompare(b))
+			.map(([axis, value]) => [axis, stableStringify(value)]),
+	);
 }
 
 function deepEqual(a: unknown, b: unknown): boolean {
-  return stableStringify(a) === stableStringify(b);
-}
-
-function expressionNumber(value: unknown): number {
-  if (value === null) return 0;
-  if (typeof value === "boolean") return value ? 1 : 0;
-  if (typeof value === "number") return value;
-  if (typeof value === "string") {
-    if (!value.trim()) return 0;
-    const parsed = Number(value);
-    return Number.isNaN(parsed) ? Number.NaN : parsed;
-  }
-  return Number.NaN;
-}
-
-function expressionEqual(a: unknown, b: unknown): boolean {
-  if (typeof a === typeof b) {
-    if (typeof a === "string" && typeof b === "string") {
-      return a.toLowerCase() === b.toLowerCase();
-    }
-    if ((typeof a === "object" && a !== null) || Array.isArray(a)) {
-      return a === b;
-    }
-    return Object.is(a, b);
-  }
-
-  const left = expressionNumber(a);
-  const right = expressionNumber(b);
-  return !Number.isNaN(left) && !Number.isNaN(right) && left === right;
-}
-
-function expressionCompare(
-  a: unknown,
-  b: unknown,
-  operator: "<" | "<=" | ">" | ">=",
-): boolean {
-  if (typeof a === "string" && typeof b === "string") {
-    const left = a.toLowerCase();
-    const right = b.toLowerCase();
-    if (operator === "<") return left < right;
-    if (operator === "<=") return left <= right;
-    if (operator === ">") return left > right;
-    return left >= right;
-  }
-
-  const left = expressionNumber(a);
-  const right = expressionNumber(b);
-  if (Number.isNaN(left) || Number.isNaN(right)) return false;
-  if (operator === "<") return left < right;
-  if (operator === "<=") return left <= right;
-  if (operator === ">") return left > right;
-  return left >= right;
-}
-
-function githubString(value: unknown): string | undefined {
-  if (value === null) return "";
-  if (["string", "number", "boolean"].includes(typeof value)) {
-    return String(value);
-  }
-  return undefined;
+	return stableStringify(a) === stableStringify(b);
 }
 
 function hasRuntimeExpression(value: unknown): boolean {
-  if (typeof value === "string") return value.includes("${{");
-  if (Array.isArray(value)) return value.some(hasRuntimeExpression);
-  if (value && typeof value === "object") {
-    return Object.values(value as Record<string, unknown>)
-      .some(hasRuntimeExpression);
-  }
-  return false;
+	if (typeof value === "string") return value.includes("${{");
+	if (Array.isArray(value)) return value.some(hasRuntimeExpression);
+	if (value && typeof value === "object") {
+		return Object.values(value as Record<string, unknown>).some(
+			hasRuntimeExpression,
+		);
+	}
+	return false;
 }
 
 function cartesian(
-  entries: Array<[string, MatrixValue[]]>,
+	entries: Array<[string, MatrixValue[]]>,
 ): Array<Record<string, MatrixValue>> {
-  let rows: Array<Record<string, MatrixValue>> = [{}];
-  for (const [axis, values] of entries) {
-    rows = rows.flatMap((row) =>
-      values.map((value) => ({ ...row, [axis]: value })),
-    );
-  }
-  return rows;
+	let rows: Array<Record<string, MatrixValue>> = [{}];
+	for (const [axis, values] of entries) {
+		rows = rows.flatMap((row) =>
+			values.map((value) => ({ ...row, [axis]: value })),
+		);
+	}
+	return rows;
 }
 
 function matchesRule(
-  row: Record<string, MatrixValue>,
-  rule: Record<string, unknown>,
+	row: Record<string, MatrixValue>,
+	rule: Record<string, unknown>,
 ): boolean {
-  return Object.entries(rule).every(
-    ([key, value]) => key in row && deepEqual(row[key], value),
-  );
+	return Object.entries(rule).every(
+		([key, value]) => key in row && deepEqual(row[key], value),
+	);
 }
 
-function expandStaticMatrix(
-  matrix: Record<string, unknown>,
-): {
-  rows: Array<Record<string, MatrixValue>>;
-  axes: string[];
-  dynamic: boolean;
+function expandStaticMatrix(matrix: Record<string, unknown>): {
+	rows: Array<Record<string, MatrixValue>>;
+	axes: string[];
+	dynamic: boolean;
 } {
-  const axisEntries: Array<[string, MatrixValue[]]> = [];
-  const axisNames: string[] = [];
-  let dynamic =
-    ("include" in matrix && !Array.isArray(matrix.include)) ||
-    ("exclude" in matrix && !Array.isArray(matrix.exclude)) ||
-    hasRuntimeExpression(matrix.include) ||
-    hasRuntimeExpression(matrix.exclude);
+	const axisEntries: Array<[string, MatrixValue[]]> = [];
+	const axisNames: string[] = [];
+	let dynamic =
+		("include" in matrix && !Array.isArray(matrix.include)) ||
+		("exclude" in matrix && !Array.isArray(matrix.exclude)) ||
+		hasRuntimeExpression(matrix.include) ||
+		hasRuntimeExpression(matrix.exclude);
 
-  for (const [key, value] of Object.entries(matrix)) {
-    if (key === "include" || key === "exclude") continue;
-    axisNames.push(key);
-    if (!Array.isArray(value) || hasRuntimeExpression(value)) {
-      dynamic = true;
-      continue;
-    }
-    axisEntries.push([key, value as MatrixValue[]]);
-  }
+	for (const [key, value] of Object.entries(matrix)) {
+		if (key === "include" || key === "exclude") continue;
+		axisNames.push(key);
+		if (!Array.isArray(value) || hasRuntimeExpression(value)) {
+			dynamic = true;
+			continue;
+		}
+		axisEntries.push([key, value as MatrixValue[]]);
+	}
 
-  if (dynamic) {
-    return { rows: [], axes: axisNames, dynamic: true };
-  }
+	if (dynamic) {
+		return { rows: [], axes: axisNames, dynamic: true };
+	}
 
-  const originalAxes = axisNames;
-  let baseRows = cartesian(axisEntries);
+	const originalAxes = axisNames;
+	let baseRows = cartesian(axisEntries);
 
-  const exclude = Array.isArray(matrix.exclude)
-    ? matrix.exclude.filter(
-        (item): item is Record<string, unknown> =>
-          !!item && typeof item === "object" && !Array.isArray(item),
-      )
-    : [];
-  baseRows = baseRows.filter(
-    (row) => !exclude.some((rule) => matchesRule(row, rule)),
-  );
+	const exclude = Array.isArray(matrix.exclude)
+		? matrix.exclude.filter(
+				(item): item is Record<string, unknown> =>
+					!!item && typeof item === "object" && !Array.isArray(item),
+			)
+		: [];
+	baseRows = baseRows.filter(
+		(row) => !exclude.some((rule) => matchesRule(row, rule)),
+	);
 
-  const include = Array.isArray(matrix.include)
-    ? matrix.include.filter(
-        (item): item is Record<string, MatrixValue> =>
-          !!item && typeof item === "object" && !Array.isArray(item),
-      )
-    : [];
+	const include = Array.isArray(matrix.include)
+		? matrix.include.filter(
+				(item): item is Record<string, MatrixValue> =>
+					!!item && typeof item === "object" && !Array.isArray(item),
+			)
+		: [];
 
-  let rows: Array<Record<string, MatrixValue>>;
-  if (!originalAxes.length && include.length) {
-    rows = include.map((item) => ({ ...item }));
-  } else {
-    const derived = baseRows.map((original) => ({
-      original,
-      current: { ...original },
-    }));
-    const extras: Array<Record<string, MatrixValue>> = [];
+	let rows: Array<Record<string, MatrixValue>>;
+	if (!originalAxes.length && include.length) {
+		rows = include.map((item) => ({ ...item }));
+	} else {
+		const derived = baseRows.map((original) => ({
+			original,
+			current: { ...original },
+		}));
+		const extras: Array<Record<string, MatrixValue>> = [];
 
-    for (const addition of include) {
-      let applied = false;
-      for (const item of derived) {
-        const compatible = originalAxes.every(
-          (axis) =>
-            !(axis in addition) ||
-            deepEqual(item.original[axis], addition[axis]),
-        );
-        if (!compatible) continue;
-        item.current = { ...item.current, ...addition };
-        applied = true;
-      }
-      if (!applied) {
-        // GitHub does not apply later include entries to standalone include
-        // rows that could not be merged into an original matrix combination.
-        extras.push({ ...addition });
-      }
-    }
+		for (const addition of include) {
+			let applied = false;
+			for (const item of derived) {
+				const compatible = originalAxes.every(
+					(axis) =>
+						!(axis in addition) ||
+						deepEqual(item.original[axis], addition[axis]),
+				);
+				if (!compatible) continue;
+				item.current = { ...item.current, ...addition };
+				applied = true;
+			}
+			if (!applied) {
+				// GitHub does not apply later include entries to standalone include
+				// rows that could not be merged into an original matrix combination.
+				extras.push({ ...addition });
+			}
+		}
 
-    rows = [...derived.map((item) => item.current), ...extras];
-  }
+		rows = [...derived.map((item) => item.current), ...extras];
+	}
 
-  // include-only matrices are common. Treat scalar include keys as axes so
-  // their compatibility signal is not silently discarded.
-  const inferredIncludeAxes = originalAxes.length
-    ? []
-    : [...new Set(
-        rows.flatMap((row) =>
-          Object.entries(row)
-            .filter(([, value]) =>
-              value === null ||
-              ["string", "number", "boolean"].includes(typeof value)
-            )
-            .map(([key]) => key),
-        ),
-      )];
+	// include-only matrices are common. Treat scalar include keys as axes so
+	// their compatibility signal is not silently discarded.
+	const inferredIncludeAxes = originalAxes.length
+		? []
+		: [
+				...new Set(
+					rows.flatMap((row) =>
+						Object.entries(row)
+							.filter(
+								([, value]) =>
+									value === null ||
+									["string", "number", "boolean"].includes(typeof value),
+							)
+							.map(([key]) => key),
+					),
+				),
+			];
 
-  return {
-    rows,
-    axes: [...originalAxes, ...inferredIncludeAxes],
-    dynamic: false,
-  };
+	return {
+		rows,
+		axes: [...originalAxes, ...inferredIncludeAxes],
+		dynamic: false,
+	};
 }
 
-function getPath(
-  row: Record<string, MatrixValue>,
-  path: string,
-): unknown {
-  const parts = path.split(".");
-
-  function descend(value: unknown, index: number): unknown {
-    if (index >= parts.length) return value;
-    const part = parts[index]!;
-
-    if (part === "*") {
-      // GitHub permits object filters over arrays and objects, but object
-      // property order is explicitly unspecified. Only arrays are replayed
-      // here so rendered-name reconstruction stays deterministic.
-      if (!Array.isArray(value)) return undefined;
-      return value.flatMap((item) => {
-        const resolved = descend(item, index + 1);
-        return Array.isArray(resolved) ? resolved : [resolved];
-      }).filter((item) => item !== undefined);
-    }
-
-    if (!value || typeof value !== "object") return undefined;
-    return descend((value as Record<string, unknown>)[part], index + 1);
-  }
-
-  return descend(row, 0);
-}
-
-function splitArgs(text: string): string[] {
-  const result: string[] = [];
-  let start = 0;
-  let depth = 0;
-  let quote: "'" | '"' | null = null;
-
-  for (let index = 0; index < text.length; index++) {
-    const char = text[index]!;
-    if (quote) {
-      if (char === quote && text[index - 1] !== "\\") quote = null;
-      continue;
-    }
-    if (char === "'" || char === '"') {
-      quote = char;
-      continue;
-    }
-    if (char === "(") depth++;
-    if (char === ")") depth--;
-    if (char === "," && depth === 0) {
-      result.push(text.slice(start, index).trim());
-      start = index + 1;
-    }
-  }
-  result.push(text.slice(start).trim());
-  return result;
-}
-
-function hasWrappingParentheses(text: string): boolean {
-  if (!text.startsWith("(") || !text.endsWith(")")) return false;
-  let depth = 0;
-  let quote: "'" | '"' | null = null;
-
-  for (let index = 0; index < text.length; index++) {
-    const char = text[index]!;
-    if (quote) {
-      if (char === quote && text[index - 1] !== "\\") quote = null;
-      continue;
-    }
-    if (char === "'" || char === '"') {
-      quote = char;
-      continue;
-    }
-    if (char === "(") depth++;
-    if (char === ")") depth--;
-    if (depth === 0 && index < text.length - 1) return false;
-  }
-  return depth === 0;
-}
-
-function evalExpression(
-  expression: string,
-  row: Record<string, MatrixValue>,
-): unknown {
-  let expr = expression.trim();
-  while (hasWrappingParentheses(expr)) {
-    expr = expr.slice(1, -1).trim();
-  }
-
-  const fallback = splitTopLevel(expr, "||");
-  if (fallback.length > 1) {
-    let last: unknown = "";
-    for (const part of fallback) {
-      const value = evalExpression(part, row);
-      last = value;
-      if (value) return value;
-    }
-    return last;
-  }
-
-  const andParts = splitTopLevel(expr, "&&");
-  if (andParts.length > 1) {
-    let last: unknown = true;
-    for (const part of andParts) {
-      const value = evalExpression(part, row);
-      last = value;
-      if (!value) return value;
-    }
-    return last;
-  }
-
-  for (const operator of ["<=", ">=", "<", ">"] as const) {
-    const comparison = splitTopLevel(expr, operator);
-    if (comparison.length === 2) {
-      return expressionCompare(
-        evalExpression(comparison[0]!, row),
-        evalExpression(comparison[1]!, row),
-        operator,
-      );
-    }
-  }
-
-  const notEqual = splitTopLevel(expr, "!=");
-  if (notEqual.length === 2) {
-    return !expressionEqual(
-      evalExpression(notEqual[0]!, row),
-      evalExpression(notEqual[1]!, row),
-    );
-  }
-
-  const equal = splitTopLevel(expr, "==");
-  if (equal.length === 2) {
-    return expressionEqual(
-      evalExpression(equal[0]!, row),
-      evalExpression(equal[1]!, row),
-    );
-  }
-
-  if (expr.startsWith("!")) {
-    return !evalExpression(expr.slice(1), row);
-  }
-
-  const caseMatch = expr.match(/^case\((.*)\)$/s);
-  if (caseMatch) {
-    const args = splitArgs(caseMatch[1]!);
-    if (args.length < 3 || args.length % 2 === 0) return undefined;
-    for (let index = 0; index < args.length - 1; index += 2) {
-      if (evalExpression(args[index]!, row)) {
-        return evalExpression(args[index + 1]!, row);
-      }
-    }
-    return evalExpression(args.at(-1)!, row);
-  }
-
-  const containsMatch = expr.match(/^contains\((.*)\)$/s);
-  if (containsMatch) {
-    const args = splitArgs(containsMatch[1]!);
-    if (args.length !== 2) return undefined;
-    const search = evalExpression(args[0]!, row);
-    const item = evalExpression(args[1]!, row);
-    if (Array.isArray(search)) {
-      return search.some((value) => expressionEqual(value, item));
-    }
-    const searchText = githubString(search);
-    const itemText = githubString(item);
-    if (searchText === undefined || itemText === undefined) return undefined;
-    return searchText.toLowerCase().includes(itemText.toLowerCase());
-  }
-
-  const startsWithMatch = expr.match(/^startsWith\((.*)\)$/s);
-  if (startsWithMatch) {
-    const args = splitArgs(startsWithMatch[1]!);
-    if (args.length !== 2) return undefined;
-    const search = githubString(evalExpression(args[0]!, row));
-    const prefix = githubString(evalExpression(args[1]!, row));
-    if (search === undefined || prefix === undefined) return undefined;
-    return search.toLowerCase().startsWith(prefix.toLowerCase());
-  }
-
-  const endsWithMatch = expr.match(/^endsWith\((.*)\)$/s);
-  if (endsWithMatch) {
-    const args = splitArgs(endsWithMatch[1]!);
-    if (args.length !== 2) return undefined;
-    const search = githubString(evalExpression(args[0]!, row));
-    const suffix = githubString(evalExpression(args[1]!, row));
-    if (search === undefined || suffix === undefined) return undefined;
-    return search.toLowerCase().endsWith(suffix.toLowerCase());
-  }
-
-  const joinMatch = expr.match(/^join\((.*)\)$/s);
-  if (joinMatch) {
-    const args = splitArgs(joinMatch[1]!);
-    if (args.length < 1 || args.length > 2) return undefined;
-    const value = evalExpression(args[0]!, row);
-    const separator = args.length === 2
-      ? githubString(evalExpression(args[1]!, row))
-      : ",";
-    if (separator === undefined) return undefined;
-    if (Array.isArray(value)) {
-      const values = value.map(githubString);
-      if (values.some((item) => item === undefined)) return undefined;
-      return values.join(separator);
-    }
-    return githubString(value);
-  }
-
-  const fromJsonMatch = expr.match(/^fromJSON\((.*)\)$/s);
-  if (fromJsonMatch) {
-    const args = splitArgs(fromJsonMatch[1]!);
-    if (args.length !== 1) return undefined;
-    const value = evalExpression(args[0]!, row);
-    if (typeof value !== "string") return undefined;
-    try {
-      return JSON.parse(value);
-    } catch {
-      return undefined;
-    }
-  }
-
-  const toJsonMatch = expr.match(/^toJSON\((.*)\)$/s);
-  if (toJsonMatch) {
-    const args = splitArgs(toJsonMatch[1]!);
-    if (args.length !== 1) return undefined;
-    const value = evalExpression(args[0]!, row);
-    if (value === undefined) return undefined;
-    return JSON.stringify(value, null, 2);
-  }
-
-  const formatMatch = expr.match(/^format\((.*)\)$/s);
-  if (formatMatch) {
-    const args = splitArgs(formatMatch[1]!);
-    if (!args.length) return undefined;
-    const template = evalExpression(args[0]!, row);
-    if (typeof template !== "string") return undefined;
-    const values = args.slice(1).map((arg) => evalExpression(arg, row));
-    if (values.some((value) => value === undefined)) return undefined;
-    return template.replace(/\{(\d+)\}/g, (_, index) =>
-      String(values[Number(index)] ?? ""),
-    );
-  }
-
-  const matrixPath = matrixReferencePath(expr);
-  if (matrixPath) {
-    return getPath(row, matrixPath);
-  }
-
-  if (expr.startsWith("'") && expr.endsWith("'")) {
-    return expr.slice(1, -1).replace(/''/g, "'");
-  }
-  if (expr.startsWith('"') && expr.endsWith('"')) {
-    return expr.slice(1, -1);
-  }
-  if (expr === "true") return true;
-  if (expr === "false") return false;
-  if (expr === "null") return null;
-  if (/^-?0x[0-9a-f]+$/i.test(expr)) return Number(expr);
-  if (/^-?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(expr)) {
-    return Number(expr);
-  }
-
-  return undefined;
-}
-
-function splitTopLevel(text: string, operator: string): string[] {
-  const result: string[] = [];
-  let start = 0;
-  let depth = 0;
-  let quote: "'" | '"' | null = null;
-
-  for (let index = 0; index <= text.length - operator.length; index++) {
-    const char = text[index]!;
-    if (quote) {
-      if (char === quote && text[index - 1] !== "\\") quote = null;
-      continue;
-    }
-    if (char === "'" || char === '"') {
-      quote = char;
-      continue;
-    }
-    if (char === "(") depth++;
-    if (char === ")") depth--;
-    if (depth === 0 && text.slice(index, index + operator.length) === operator) {
-      result.push(text.slice(start, index).trim());
-      start = index + operator.length;
-      index += operator.length - 1;
-    }
-  }
-
-  if (!result.length) return [text.trim()];
-  result.push(text.slice(start).trim());
-  return result;
-}
-
-function renderName(
-  template: string,
-  row: Record<string, MatrixValue>,
-): string | null {
-  let failed = false;
-  const rendered = template.replace(/\$\{\{([\s\S]*?)\}\}/g, (_, expression) => {
-    const value = evalExpression(String(expression), row);
-    if (value === undefined || (value !== null && typeof value === "object")) {
-      failed = true;
-      return "";
-    }
-    return String(value ?? "");
-  });
-  return failed ? null : rendered;
-}
-
-function escapeRegex(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function matrixReferencePath(expression: string): string | null {
-  const normalized = expression.trim().replace(
-    /\[['"]([^'"]+)['"]\]/g,
-    (_, key) => `.${key}`,
-  );
-  const match = normalized.match(
-    /^matrix\.([A-Za-z0-9_*-]+(?:\.[A-Za-z0-9_*-]+)*)$/,
-  );
-  return match?.[1] ?? null;
-}
-
-function directMatrixAxis(expression: string): string | null {
-  const path = matrixReferencePath(expression);
-  return path && !path.includes("*") ? path : null;
-}
-
-function matrixAxesInTemplate(template: string): string[] {
-  const references = template.match(
-    /\bmatrix(?:\.[A-Za-z0-9_*-]+|\[['"][^'"]+['"]\])+/g,
-  ) ?? [];
-  return [...new Set(references.map(directMatrixAxis).filter(
-    (axis): axis is string => axis !== null,
-  ))];
-}
-
-function dynamicExpressionMatcher(
-  expression: string,
-): {
-  pattern: string;
-  axes: string[];
-  rejectedValues: Array<Set<string> | null>;
-} | null {
-  const direct = directMatrixAxis(expression);
-  if (direct) {
-    return { pattern: "(.+?)", axes: [direct], rejectedValues: [null] };
-  }
-
-  const fallback = splitTopLevel(expression.trim(), "||");
-  if (fallback.length === 2) {
-    const axis = directMatrixAxis(fallback[0]!);
-    const fallbackValue = evalExpression(fallback[1]!, {});
-    const fallbackText = githubString(fallbackValue);
-    if (axis && fallbackValue !== undefined && fallbackText !== undefined) {
-      return {
-        pattern: "(.+?)",
-        axes: [axis],
-        rejectedValues: [new Set([fallbackText])],
-      };
-    }
-  }
-
-  const formatMatch = expression.trim().match(/^format\((.*)\)$/s);
-  if (!formatMatch) return null;
-
-  const args = splitArgs(formatMatch[1]!);
-  if (!args.length) return null;
-  const template = evalExpression(args[0]!, {});
-  if (typeof template !== "string") return null;
-
-  const axisArgs = args.slice(1).map(directMatrixAxis);
-  if (axisArgs.some((axis) => axis === null)) return null;
-
-  let pattern = "";
-  const axes: string[] = [];
-  const rejectedValues: Array<Set<string> | null> = [];
-  let start = 0;
-  for (const match of template.matchAll(/\{(\d+)\}/g)) {
-    const index = match.index ?? 0;
-    pattern += escapeRegex(template.slice(start, index));
-    const argIndex = Number(match[1]);
-    const axis = axisArgs[argIndex];
-    if (!axis) return null;
-    pattern += "(.+?)";
-    axes.push(axis);
-    rejectedValues.push(null);
-    start = index + match[0].length;
-  }
-  pattern += escapeRegex(template.slice(start));
-  return axes.length ? { pattern, axes, rejectedValues } : null;
-}
-
-function matchDynamicNameTemplate(
-  template: string,
-  name: string,
-): Record<string, string> | null {
-  const expressionPattern = /\$\{\{([\s\S]*?)\}\}/g;
-  let pattern = "^";
-  const axes: string[] = [];
-  const rejectedValues: Array<Set<string> | null> = [];
-  let start = 0;
-  let found = false;
-
-  for (const match of template.matchAll(expressionPattern)) {
-    found = true;
-    const index = match.index ?? 0;
-    pattern += escapeRegex(template.slice(start, index));
-    const matcher = dynamicExpressionMatcher(match[1]!);
-    if (!matcher) return null;
-    pattern += matcher.pattern;
-    axes.push(...matcher.axes);
-    rejectedValues.push(...matcher.rejectedValues);
-    start = index + match[0].length;
-  }
-
-  if (!found || !axes.length) return null;
-  pattern += escapeRegex(template.slice(start));
-  pattern += "(?: / .*)?$";
-
-  const matched = name.match(new RegExp(pattern));
-  if (!matched) return null;
-
-  const result: Record<string, string> = {};
-  for (let index = 0; index < axes.length; index++) {
-    const axis = axes[index]!;
-    const value = matched[index + 1] ?? "";
-    if (rejectedValues[index]?.has(value)) return null;
-    if (axis in result && result[axis] !== value) return null;
-    result[axis] = value;
-  }
-  return result;
-}
 function axesForRow(
-  row: Record<string, MatrixValue>,
-  axisNames: string[],
+	row: Record<string, MatrixValue>,
+	axisNames: string[],
 ): Record<string, string> {
-  const result: Record<string, string> = {};
-  for (const axis of axisNames) {
-    if (!(axis in row)) continue;
-    result[axis] = stableStringify(row[axis]);
-  }
-  return result;
+	const result: Record<string, string> = {};
+	for (const axis of axisNames) {
+		if (!(axis in row)) continue;
+		result[axis] = stableStringify(row[axis]);
+	}
+	return result;
 }
 
 function defaultExpandedName(
-  label: string,
-  row: Record<string, MatrixValue>,
-  axisNames: string[],
+	label: string,
+	row: Record<string, MatrixValue>,
+	axisNames: string[],
 ): string {
-  const values = axisNames
-    .filter((axis) => axis in row)
-    .map((axis) => stableStringify(row[axis]));
-  return values.length ? `${label} (${values.join(", ")})` : label;
+	const values = axisNames
+		.filter((axis) => axis in row)
+		.map((axis) => stableStringify(row[axis]));
+	return values.length ? `${label} (${values.join(", ")})` : label;
 }
 
-function hasCaptureEvidenceStep(spec: any): boolean {
-  if (!Array.isArray(spec?.steps)) return false;
-  return spec.steps.some((step: any) =>
-    step && typeof step === "object" &&
-    String(step?.with?.mode ?? "").trim().toLowerCase() === "capture" &&
-    typeof step?.with?.matrix === "string" &&
-    step.with.matrix.includes("matrix"),
-  );
+function hasCaptureEvidenceStep(spec: unknown): boolean {
+	const record = asRecord(spec);
+	if (!Array.isArray(record?.steps)) return false;
+	return record.steps.some((rawStep) => {
+		const step = asRecord(rawStep);
+		const withConfig = asRecord(step?.with);
+		return (
+			String(withConfig?.mode ?? "")
+				.trim()
+				.toLowerCase() === "capture" &&
+			typeof withConfig?.matrix === "string" &&
+			withConfig.matrix.includes("matrix")
+		);
+	});
 }
 
 export function workflowMatrixDefinitions(text: string): MatrixDefinition[] {
-  const doc = parse(text) as Record<string, unknown> | null;
-  const jobs = (doc?.jobs ?? {}) as Record<string, any>;
-  const definitions: MatrixDefinition[] = [];
+	const doc = asRecord(parse(text));
+	const jobs = asRecord(doc?.jobs) ?? {};
+	const definitions: MatrixDefinition[] = [];
 
-  for (const [jobId, spec] of Object.entries(jobs)) {
-    const matrix = spec?.strategy?.matrix;
-    if (!matrix) continue;
+	for (const [jobId, rawSpec] of Object.entries(jobs)) {
+		const spec = asRecord(rawSpec);
+		const strategy = asRecord(spec?.strategy);
+		const matrix = strategy?.matrix;
+		if (!matrix) continue;
 
-    const rawName = typeof spec?.name === "string" ? spec.name : jobId;
-    const captureEvidence = hasCaptureEvidenceStep(spec);
-    const nameTemplate =
-      typeof spec?.name === "string" && spec.name.includes("${{")
-        ? spec.name
-        : undefined;
+		const rawName = typeof spec?.name === "string" ? spec.name : jobId;
+		const captureEvidence = hasCaptureEvidenceStep(spec);
+		const nameTemplate =
+			typeof spec?.name === "string" && spec.name.includes("${{")
+				? spec.name
+				: undefined;
 
-    if (typeof matrix !== "object" || Array.isArray(matrix)) {
-      if (typeof matrix !== "string" || !matrix.includes("${{")) continue;
-      definitions.push({
-        jobId,
-        displayName: rawName.includes("${{") ? jobId : rawName,
-        axes: nameTemplate ? matrixAxesInTemplate(nameTemplate) : [],
-        dynamic: true,
-        expectedCells: 0,
-        renderedCells: 0,
-        cells: [],
-        nameTemplate,
-        captureEvidence,
-      });
-      continue;
-    }
+		if (typeof matrix !== "object" || Array.isArray(matrix)) {
+			if (typeof matrix !== "string" || !matrix.includes("${{")) continue;
+			definitions.push({
+				jobId,
+				displayName: rawName.includes("${{") ? jobId : rawName,
+				axes: nameTemplate ? matrixAxesInTemplate(nameTemplate) : [],
+				dynamic: true,
+				expectedCells: 0,
+				renderedCells: 0,
+				cells: [],
+				nameTemplate,
+				captureEvidence,
+			});
+			continue;
+		}
 
-    const expanded = expandStaticMatrix(matrix);
-    const cells: ExpandedMatrixCell[] = [];
+		const matrixRecord = asRecord(matrix);
+		if (!matrixRecord) continue;
+		const expanded = expandStaticMatrix(matrixRecord);
+		const cells: ExpandedMatrixCell[] = [];
 
-    if (!expanded.dynamic) {
-      for (const row of expanded.rows) {
-        const name = typeof spec?.name === "string"
-          ? spec.name.includes("${{")
-            ? renderName(spec.name, row)
-            : defaultExpandedName(spec.name, row, expanded.axes)
-          : defaultExpandedName(jobId, row, expanded.axes);
-        if (!name) continue;
-        cells.push({
-          name,
-          axes: axesForRow(row, expanded.axes),
-          matrix: { ...row },
-        });
-      }
-    }
+		if (!expanded.dynamic) {
+			for (const row of expanded.rows) {
+				const name =
+					typeof spec?.name === "string"
+						? spec.name.includes("${{")
+							? renderName(spec.name, row)
+							: defaultExpandedName(spec.name, row, expanded.axes)
+						: defaultExpandedName(jobId, row, expanded.axes);
+				if (!name) continue;
+				cells.push({
+					name,
+					axes: axesForRow(row, expanded.axes),
+					matrix: { ...row },
+				});
+			}
+		}
 
-    const displayName = rawName.includes("${{") ? jobId : rawName;
-    definitions.push({
-      jobId,
-      displayName,
-      axes: expanded.axes,
-      dynamic: expanded.dynamic,
-      expectedCells: expanded.dynamic ? 0 : expanded.rows.length,
-      renderedCells: cells.length,
-      cells,
-      nameTemplate,
-      captureEvidence,
-    });
-  }
+		const displayName = rawName.includes("${{") ? jobId : rawName;
+		definitions.push({
+			jobId,
+			displayName,
+			axes: expanded.axes,
+			dynamic: expanded.dynamic,
+			expectedCells: expanded.dynamic ? 0 : expanded.rows.length,
+			renderedCells: cells.length,
+			cells,
+			nameTemplate,
+			captureEvidence,
+		});
+	}
 
-  return definitions;
+	return definitions;
 }
 
 export function inferAxesFromExpandedJobName(
-  name: string,
-  definitions: MatrixDefinition[],
+	name: string,
+	definitions: MatrixDefinition[],
 ): AxisInference {
-  const exactMatches = definitions.flatMap((definition) =>
-    definition.cells
-      .filter(
-        (cell) => cell.name === name || name.startsWith(`${cell.name} / `),
-      )
-      .map((cell) => ({ definition, cell })),
-  );
+	const exactMatches = definitions.flatMap((definition) =>
+		definition.cells
+			.filter(
+				(cell) => cell.name === name || name.startsWith(`${cell.name} / `),
+			)
+			.map((cell) => ({ definition, cell })),
+	);
 
-  if (exactMatches.length === 1) {
-    const match = exactMatches[0]!;
-    return {
-      baseJob: match.definition.jobId,
-      axes: match.cell.axes,
-      source: "workflow-rendered-name",
-    };
-  }
+	if (exactMatches.length === 1) {
+		const match = exactMatches[0]!;
+		return {
+			baseJob: match.definition.jobId,
+			axes: match.cell.axes,
+			source: "workflow-rendered-name",
+		};
+	}
 
-  const dynamicMatches = definitions.flatMap((definition) => {
-    if (!definition.dynamic || !definition.nameTemplate) return [];
-    const axes = matchDynamicNameTemplate(definition.nameTemplate, name);
-    return axes ? [{ definition, axes }] : [];
-  });
+	const dynamicMatches = definitions.flatMap((definition) => {
+		if (!definition.dynamic || !definition.nameTemplate) return [];
+		const axes = matchDynamicNameTemplate(definition.nameTemplate, name);
+		return axes ? [{ definition, axes }] : [];
+	});
 
-  if (dynamicMatches.length === 1) {
-    const match = dynamicMatches[0]!;
-    return {
-      baseJob: match.definition.jobId,
-      axes: match.axes,
-      source: "workflow-rendered-name",
-    };
-  }
+	if (dynamicMatches.length === 1) {
+		const match = dynamicMatches[0]!;
+		return {
+			baseJob: match.definition.jobId,
+			axes: match.axes,
+			source: "workflow-rendered-name",
+		};
+	}
 
-  const match = name.match(/^(.*?)\s+\((.*)\)$/);
-  if (!match) {
-    return { baseJob: name, axes: null, source: "unavailable" };
-  }
+	const match = name.match(/^(.*?)\s+\((.*)\)$/);
+	if (!match) {
+		return { baseJob: name, axes: null, source: "unavailable" };
+	}
 
-  const baseJob = match[1]!.trim();
-  const inner = match[2]!.trim();
-  const definition = definitions.find(
-    (candidate) => candidate.displayName === baseJob || candidate.jobId === baseJob,
-  );
-  if (!definition) {
-    return { baseJob, axes: null, source: "unavailable" };
-  }
-  if (!definition.axes.length) {
-    return {
-      baseJob: definition.jobId,
-      axes: null,
-      source: "unavailable",
-    };
-  }
+	const baseJob = match[1]!.trim();
+	const inner = match[2]!.trim();
+	const definition = definitions.find(
+		(candidate) =>
+			candidate.displayName === baseJob || candidate.jobId === baseJob,
+	);
+	if (!definition) {
+		return { baseJob, axes: null, source: "unavailable" };
+	}
+	if (!definition.axes.length) {
+		return {
+			baseJob: definition.jobId,
+			axes: null,
+			source: "unavailable",
+		};
+	}
 
-  const values = definition.axes.length === 1
-    ? [inner]
-    : inner.split(",").map((value) => value.trim());
+	const values =
+		definition.axes.length === 1
+			? [inner]
+			: inner.split(",").map((value) => value.trim());
 
-  if (values.length !== definition.axes.length) {
-    return { baseJob, axes: null, source: "unavailable" };
-  }
+	if (values.length !== definition.axes.length) {
+		return { baseJob, axes: null, source: "unavailable" };
+	}
 
-  return {
-    baseJob: definition.jobId,
-    axes: Object.fromEntries(
-      definition.axes.map((axis, index) => [axis, values[index] ?? ""]),
-    ),
-    source: "workflow-job-name",
-  };
+	return {
+		baseJob: definition.jobId,
+		axes: Object.fromEntries(
+			definition.axes.map((axis, index) => [axis, values[index] ?? ""]),
+		),
+		source: "workflow-job-name",
+	};
 }

@@ -16,7 +16,7 @@ MatrixTrimが見たいのは、単純なjob数ではありません。
 
 過去のfailure、実行コスト、matrix構造、holdout backtestを使って、より小さいCI matrix候補を作ることを目指しています。
 
-> **Status: v0.18 experimental.** multi-event root-cause fingerprint、過去のfailure evidence、観測済み1-wise / pairwise / t-wise構成coverage、人間が明示するkeep / compatibility constraint、exact branch-and-bound optimizer、runtime costとrunner-awareな金額推定、time-based holdout backtest、render済みmatrix job名の復元、GitHub Action、再現可能な公開OSS benchmark、明示opt-inのdraft最適化PR生成まで利用できます。
+> **Status: v0.19 experimental.** multi-event root-cause fingerprint、過去のfailure evidence、観測済み1-wise / pairwise / t-wise構成coverage、人間が明示するkeep / compatibility constraint、exact branch-and-bound optimizer、runtime costとrunner-awareな金額推定、time-based holdout backtest、render済みmatrix job名の復元、GitHub Action、再現可能な公開OSS benchmark、明示opt-inのdraft最適化PR生成まで利用できます。
 
 ## なぜ必要か
 
@@ -282,6 +282,10 @@ coreはdeterministicで、LLMは必須ではありません。
 - [x] Check Run annotationによるopt-inのdeterministic runtime matrix evidence capture
 - [x] versioned GitHub Action release＋floating major tag
 - [x] SHA-pinned workflow dependencies + Dependabot enforcement
+- [x] Retry/timeout-aware GitHub API client + complete job pagination
+- [x] Coverage/lint/type/package quality gates + aggregate protected CI check
+- [x] CodeQL, dependency review, private vulnerability reporting, immutable releases
+- [x] Brute-force oracle validation for the exact optimizer
 - [x] 明示的なkeep / compatibility constraint
 - [x] GitHub Action化＋PRコメント
 - [x] matrix-heavy OSSでの再現可能benchmark

@@ -16,7 +16,7 @@ MatrixTrim analyzes GitHub Actions matrix jobs and asks a practical question:
 
 The goal is to recommend a smaller CI matrix using **historical failure coverage, runtime cost, matrix structure, and holdout backtesting**.
 
-> **Status: v0.18 experimental.** MatrixTrim combines multi-event root-cause fingerprints, empirical failure evidence, observed 1-wise / pairwise / t-wise configuration coverage, explicit human keep / compatibility constraints, exact branch-and-bound optimization, runtime and runner-aware monetary cost, time-based holdout backtesting, static and observed dynamic matrix-name recovery, broader deterministic GitHub expression evaluation, opt-in runtime matrix evidence capture, versioned GitHub Action releases, reproducible public-OSS benchmarking, and opt-in draft optimization PR generation.
+> **Status: v0.19 experimental.** MatrixTrim combines multi-event root-cause fingerprints, empirical failure evidence, observed 1-wise / pairwise / t-wise configuration coverage, explicit human keep / compatibility constraints, exact branch-and-bound optimization, runtime and runner-aware monetary cost, time-based holdout backtesting, static and observed dynamic matrix-name recovery, broader deterministic GitHub expression evaluation, opt-in runtime matrix evidence capture, versioned GitHub Action releases, reproducible public-OSS benchmarking, and opt-in draft optimization PR generation.
 
 ## Why MatrixTrim?
 
@@ -162,7 +162,7 @@ The Action always writes a **Step Summary**. On pull requests it also creates or
 
 Use the floating `@v0` tag for normal adoption. Exact `vX.Y.Z` tags or commit SHAs are available when stricter reproducibility is required. Releases are promoted explicitly from `main`; see [Release process](docs/releases.md).
 
-MatrixTrim's own workflows pin external GitHub Actions to immutable commit SHAs rather than moving tags. Dependabot tracks both npm and GitHub Actions updates, and CI rejects new unpinned external Actions.
+MatrixTrim's own workflows pin external GitHub Actions to immutable commit SHAs rather than moving tags. Dependabot tracks both npm and GitHub Actions updates, CI rejects new unpinned external Actions, and the release/CI path is guarded by coverage, lint, dependency review, package-content checks, CodeQL, and repository security settings. See [Quality and reliability](docs/quality.md).
 
 The report includes current vs suggested cells, historical failure recall, failure-event / multi-event job counts, combinatorial coverage, estimated compute reduction, runner-aware rate-card / charge estimates, holdout recall, unseen-failure recall, and the recommended cell set.
 
@@ -286,6 +286,10 @@ The core is deterministic. No LLM is required.
 - [x] Opt-in deterministic runtime matrix evidence capture via Check Run annotations
 - [x] Versioned GitHub Action releases + floating major tag
 - [x] SHA-pinned workflow dependencies + Dependabot enforcement
+- [x] Retry/timeout-aware GitHub API client + complete job pagination
+- [x] Coverage/lint/type/package quality gates + aggregate protected CI check
+- [x] CodeQL, dependency review, private vulnerability reporting, immutable releases
+- [x] Brute-force oracle validation for the exact optimizer
 - [x] Explicit keep / compatibility constraints
 - [x] GitHub Action + PR comments
 - [x] Reproducible benchmark across matrix-heavy OSS repositories

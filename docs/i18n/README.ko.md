@@ -16,7 +16,7 @@ MatrixTrim은 단순히 job 수를 줄이는 도구가 아닙니다. 핵심 질�
 
 목표는 **과거 failure coverage, 실행 비용, matrix 구조, holdout backtest**를 바탕으로 더 작은 CI matrix 후보를 제안하는 것입니다.
 
-> **현재 상태: v0.18 experimental.** multi-event root-cause fingerprint, 과거 failure evidence, 관측된 1-wise / pairwise / t-wise configuration coverage, 사람이 명시하는 keep / compatibility constraint, exact branch-and-bound optimizer, runtime cost와 runner-aware 금액 추정, time-based holdout backtest, 렌더링된 matrix job 이름 복원, GitHub Action, 재현 가능한 공개 OSS benchmark, 명시적 opt-in draft 최적화 PR 생성까지 지원합니다.
+> **현재 상태: v0.19 experimental.** multi-event root-cause fingerprint, 과거 failure evidence, 관측된 1-wise / pairwise / t-wise configuration coverage, 사람이 명시하는 keep / compatibility constraint, exact branch-and-bound optimizer, runtime cost와 runner-aware 금액 추정, time-based holdout backtest, 렌더링된 matrix job 이름 복원, GitHub Action, 재현 가능한 공개 OSS benchmark, 명시적 opt-in draft 최적화 PR 생성까지 지원합니다.
 
 ## 왜 MatrixTrim인가?
 
@@ -282,6 +282,10 @@ timestamp, 절대 경로, UUID, duration, line number처럼 흔들리는 정보�
 - [x] Check Run annotation을 이용한 opt-in deterministic runtime matrix evidence capture
 - [x] Versioned GitHub Action releases + floating major tag
 - [x] SHA-pinned workflow dependencies + Dependabot enforcement
+- [x] Retry/timeout-aware GitHub API client + complete job pagination
+- [x] Coverage/lint/type/package quality gates + aggregate protected CI check
+- [x] CodeQL, dependency review, private vulnerability reporting, immutable releases
+- [x] Brute-force oracle validation for the exact optimizer
 - [x] 명시적 keep / compatibility constraint
 - [x] GitHub Action + PR comment
 - [x] matrix-heavy OSS 재현 가능benchmark

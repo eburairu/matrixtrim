@@ -75,3 +75,58 @@ jobs:
       - name: Verify PR-trigger safety guard
         if: github.event_name == 'pull_request'
         run: test "${{ steps.matrixtrim.outputs.optimization-pr-status }}" = "skipped"
+
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run quality
+      - run: npm run build:action
+      - name: Verify committed Action bundle
+        run: git diff --exit-code -- action-dist/index.cjs
+
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: moderate
+  ci-gate:
+    if: always()
+    needs:
+      - prepare-capture-smoke
+      - capture-smoke
+      - test
+      - action-smoke
+      - quality
+      - dependency-review
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify required CI results
+        env:
+          EVENT: ${{ github.event_name }}
+          PREPARE: ${{ needs.prepare-capture-smoke.result }}
+          CAPTURE: ${{ needs.capture-smoke.result }}
+          TEST: ${{ needs.test.result }}
+          ACTION_SMOKE: ${{ needs.action-smoke.result }}
+          QUALITY: ${{ needs.quality.result }}
+          DEPENDENCY_REVIEW: ${{ needs.dependency-review.result }}
+        run: |
+          set -euo pipefail
+          test "$PREPARE" = success
+          test "$CAPTURE" = success
+          test "$TEST" = success
+          test "$ACTION_SMOKE" = success
+          test "$QUALITY" = success
+          if [ "$EVENT" = pull_request ]; then
+            test "$DEPENDENCY_REVIEW" = success
+          else
+            test "$DEPENDENCY_REVIEW" = skipped
+          fi

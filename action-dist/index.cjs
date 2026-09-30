@@ -7363,380 +7363,85 @@ var require_dist = __commonJS({
 var import_promises = require("node:fs/promises");
 var import_node_path2 = require("node:path");
 
-// src/fingerprint.ts
-var import_node_crypto = require("node:crypto");
-var interesting = /(error|fail(?:ed|ure)?|exception|panic|assert|fatal|traceback|segmentation|timeout)/i;
-var noise = /(process completed with exit code|##\[group\]|##\[endgroup\]|post job cleanup)/i;
-var strongRootCausePatterns = [
-  /^(?:[A-Za-z_][\w.]*(?:Error|Exception|Failure)): .+/,
-  /^error(?:\[[^\]]+\])?:\s+.+/i,
-  /^fatal:\s+.+/i,
-  /^panic:\s+.+/i,
-  /panicked at/i,
-  /segmentation fault/i
-];
-var summaryRootCausePatterns = [
-  /^FAILED\s+.+/,
-  /^ERROR\s+.+/,
-  /^E\s{2,}.+/
-];
-var derivativeRootCausePatterns = [
-  /^error: could not compile\b.*\bdue to \d+ previous errors?/i,
-  /^error: aborting due to \d+ previous errors?/i,
-  /^error: test run failed$/i,
-  /^error: test failed\b.*\bto rerun\b/i
-];
-var rootCausePatterns = [
-  ...strongRootCausePatterns,
-  ...summaryRootCausePatterns
-];
-function normalizeLogLine(input2) {
-  return input2.replace(/^\uFEFF/, "").replace(/\x1b\[[0-9;]*m/g, "").replace(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\s*/, "").replace(/##\[(?:error|warning)\]/gi, "").replace(/[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[1-5][A-Fa-f0-9]{3}-[89ABab][A-Fa-f0-9]{3}-[A-Fa-f0-9]{12}/g, "<uuid>").replace(/0x[A-Fa-f0-9]+/g, "<hex>").replace(/:\d+:\d+(?=\)?(?:\s|$|:))/g, ":<line>:<col>").replace(/\bline \d+\b/gi, "line <n>").replace(
-    /(\bthread\s+'[^']+'\s+)\(\d+\)(?=\s+panicked at)/gi,
-    "$1(<thread>)"
-  ).replace(/\b\d+(?:\.\d+)?\s*(?:ms|s|sec|seconds|minutes|min)\b/gi, "<duration>").replace(/\/home\/runner\/work\/[^\s:]+/g, "<workspace>").replace(/\b[A-Za-z]:\\[^\s)]+/g, "<path>").replace(/\\Users\\[^\\\s]+\\/g, "<user>\\").replace(/\s+/g, " ").trim();
-}
-function normalizeRootCause(line) {
-  return line.replace(/\s+\((?:[A-Za-z]:\\|\/)[^)]+\)$/, " (<path>)").replace(/\s+\((?:<workspace>|<path>)\)?$/, " (<path>)").replace(/\b(?:py|node|python)\d{2,3}(?:-[\w-]+)?\b/gi, "<runtime>").replace(/\s+/g, " ").trim();
-}
-function normalizedLog(log) {
-  return log.split(/\r?\n/).map(normalizeLogLine).filter((line) => line && !noise.test(line));
-}
-function rootCauses(lines) {
-  const causes = lines.filter((line) => rootCausePatterns.some((pattern) => pattern.test(line))).map(normalizeRootCause);
-  return [...new Set(causes)].slice(-8);
-}
-function fingerprint(signature, evidence) {
-  const canonical = signature.join("\n").toLowerCase();
-  const id = (0, import_node_crypto.createHash)("sha256").update(canonical).digest("hex").slice(0, 16);
-  return { id, signature, evidence };
-}
-function embeddedSummaryRootCause(line) {
-  if (!summaryRootCausePatterns.some((pattern) => pattern.test(line))) {
-    return null;
-  }
-  const separator = line.lastIndexOf(" - ");
-  if (separator < 0) return null;
-  const tail = line.slice(separator + 3).trim();
-  if (!tail || !interesting.test(tail)) return null;
-  return normalizeRootCause(tail);
-}
-function eventRoots(lines, patterns) {
-  const bySignature = /* @__PURE__ */ new Map();
-  lines.forEach((line, index) => {
-    if (!patterns.some((pattern) => pattern.test(line))) return;
-    bySignature.set(normalizeRootCause(line), index);
-  });
-  return [...bySignature.entries()].map(([signature, index]) => ({ signature, index })).sort((a, b) => a.index - b.index).slice(-8);
-}
-function strongEventRoots(lines) {
-  const bySignature = /* @__PURE__ */ new Map();
-  lines.forEach((line, index) => {
-    const signature = strongRootCausePatterns.some(
-      (pattern) => pattern.test(line)
-    ) ? normalizeRootCause(line) : embeddedSummaryRootCause(line);
-    if (!signature) return;
-    bySignature.set(signature, index);
-  });
-  const roots = [...bySignature.entries()].map(([signature, index]) => ({ signature, index })).sort((a, b) => a.index - b.index);
-  const specific = roots.filter(
-    (root) => !derivativeRootCausePatterns.some(
-      (pattern) => pattern.test(root.signature)
-    )
-  );
-  return (specific.length ? specific : roots).slice(-8);
-}
-function eventEvidence(lines, index) {
-  const start = Math.max(0, index - 3);
-  const end = Math.min(lines.length, index + 4);
-  const nearby = lines.slice(start, end);
-  const interestingNearby = nearby.filter((line) => interesting.test(line));
-  return [...new Set(
-    interestingNearby.length ? interestingNearby : nearby
-  )].slice(-8);
-}
-function fingerprintFailures(log) {
-  const lines = normalizedLog(log);
-  const strong = strongEventRoots(lines);
-  const roots = strong.length ? strong : eventRoots(lines, summaryRootCausePatterns);
-  if (roots.length) {
-    return roots.map(
-      (root) => fingerprint(
-        [root.signature],
-        eventEvidence(lines, root.index)
-      )
-    );
-  }
-  return [fingerprintFailure(log)];
-}
-function fingerprintFailure(log) {
-  const normalized = normalizedLog(log);
-  const roots = rootCauses(normalized);
-  const candidates = normalized.filter((line) => interesting.test(line));
-  const evidenceSource = candidates.length ? candidates : normalized.slice(-20);
-  const evidence = [...new Set(evidenceSource)].slice(-16);
-  const signature = roots.length ? roots : [...new Set(evidenceSource)].slice(-6);
-  return fingerprint(signature, evidence);
-}
+// src/action-report.ts
+var percent = (value) => value === null ? "n/a" : `${(value * 100).toFixed(1)}%`;
+var seconds = (value) => value === null ? "n/a" : `${value.toFixed(1)}s`;
+var dollars = (value, digits = 3) => value === null ? "n/a" : `$${value.toFixed(digits)}`;
+function formatActionReport(repository, workflow, recommendation, backtest, backtestError) {
+  const selected = recommendation.selectedCells.map(
+    (cell) => `- \`${cell.cell}\` \u2014 failures=${cell.coveredFailures}, combinations=${cell.coveredCombinations}, median=${seconds(cell.medianRuntimeSeconds)}, list-price/run=${dollars(cell.estimatedListPriceUsdPerRun)}`
+  ).join("\n");
+  const historical = recommendation.historicalRecall === null ? "n/a (no analyzed failure fingerprints)" : `${recommendation.coveredFingerprints}/${recommendation.historicalFingerprints} (${percent(recommendation.historicalRecall)})`;
+  const combinatorial = recommendation.combinatorialCoverage === null ? "n/a" : `${recommendation.coveredCombinatorialRequirements}/${recommendation.combinatorialRequirements} (${percent(recommendation.combinatorialCoverage)})`;
+  const reduction = recommendation.estimatedComputeReductionPercent === null ? "n/a" : `${recommendation.estimatedComputeReductionPercent.toFixed(1)}%`;
+  const listPricePerRun = recommendation.currentEstimatedListPriceUsdPerRun === null || recommendation.selectedEstimatedListPriceUsdPerRun === null ? "n/a" : `${dollars(recommendation.currentEstimatedListPriceUsdPerRun)} \u2192 ${dollars(recommendation.selectedEstimatedListPriceUsdPerRun)}`;
+  const listPriceReduction = recommendation.estimatedListPriceReductionPercent === null ? "n/a" : `${recommendation.estimatedListPriceReductionPercent.toFixed(1)}%`;
+  const projected30d = recommendation.currentProjectedListPriceUsd30Days === null || recommendation.selectedProjectedListPriceUsd30Days === null || recommendation.projectedRunsPer30Days === null ? "n/a" : `${dollars(recommendation.currentProjectedListPriceUsd30Days, 2)} \u2192 ${dollars(recommendation.selectedProjectedListPriceUsd30Days, 2)} (${recommendation.projectedRunsPer30Days.toFixed(1)} runs)`;
+  const estimatedChargePerRun = recommendation.pricing.currentEstimatedChargeUsdPerRun === null || recommendation.pricing.selectedEstimatedChargeUsdPerRun === null ? "n/a" : `${dollars(recommendation.pricing.currentEstimatedChargeUsdPerRun)} \u2192 ${dollars(recommendation.pricing.selectedEstimatedChargeUsdPerRun)}`;
+  const estimatedChargeReduction = recommendation.pricing.estimatedChargeReductionPercent === null ? "n/a" : `${recommendation.pricing.estimatedChargeReductionPercent.toFixed(1)}%`;
+  const projectedCharge30d = recommendation.pricing.currentEstimatedChargeUsdPer30Days === null || recommendation.pricing.selectedEstimatedChargeUsdPer30Days === null || recommendation.pricing.projectedRunsPer30Days === null ? "n/a" : `${dollars(recommendation.pricing.currentEstimatedChargeUsdPer30Days, 2)} \u2192 ${dollars(recommendation.pricing.selectedEstimatedChargeUsdPer30Days, 2)} (${recommendation.pricing.projectedRunsPer30Days.toFixed(1)} runs)`;
+  const repositoryVisibility = recommendation.pricing.repositoryVisibility ?? "unknown";
+  const backtestRows = backtest ? [
+    `| Holdout optimizer | ${backtest.optimizerAlgorithm} (optimal=${backtest.optimizerOptimal ?? "n/a"}, nodes=${backtest.optimizerSearchNodes}) |`,
+    `| Holdout failure recall | ${backtest.coveredHoldoutFingerprints}/${backtest.holdoutFingerprints} (${percent(backtest.holdoutRecall)}) |`,
+    `| Unseen-failure recall | ${backtest.unseenHoldoutRecall === null ? "n/a" : `${backtest.coveredUnseenHoldoutFingerprints}/${backtest.unseenHoldoutFingerprints} (${percent(backtest.unseenHoldoutRecall)})`} |`,
+    `| Holdout combinatorial coverage | ${backtest.holdoutCombinatorialCoverage === null ? "n/a" : `${backtest.coveredHoldoutCombinatorialRequirements}/${backtest.holdoutCombinatorialRequirements} (${percent(backtest.holdoutCombinatorialCoverage)})`} |`
+  ].join("\n") : `| Backtest | unavailable${backtestError ? `: ${backtestError}` : ""} |`;
+  const warnings = recommendation.warnings.map((warning2) => `- \u26A0\uFE0F ${warning2}`).join("\n");
+  return `<!-- matrixtrim-report -->
+## MatrixTrim analysis
 
-// src/github.ts
-var GitHubHttpError = class extends Error {
-  constructor(status, message) {
-    super(message);
-    this.status = status;
-    this.name = "GitHubHttpError";
-  }
-  status;
-};
-function repoPath(repo) {
-  const parts = repo.split("/");
-  if (parts.length !== 2 || parts.some((part) => !part)) {
-    throw new Error("repository must be in owner/repo form");
-  }
-  return parts.map(encodeURIComponent).join("/");
+**Repository:** \`${repository}\`<br>
+**Workflow:** \`${workflow ?? "all"}\`<br>
+**Coverage strength:** ${recommendation.coverageStrength}
+
+| Metric | Result |
+| --- | ---: |
+| Current matrix cells | ${recommendation.currentCells} |
+| Suggested cells | ${recommendation.selectedCells.length} |
+| Optimizer | ${recommendation.algorithm} (mode=${recommendation.optimizerMode}, optimal=${recommendation.optimizerOptimal ?? "n/a"}, nodes=${recommendation.optimizerSearchNodes}) |
+| Optimizer improvement vs greedy | ${recommendation.optimizerImprovementPercent.toFixed(1)}% |
+| Historical failure recall | ${historical} |
+| Failure events | ${recommendation.failureEvents} |
+| Failed jobs with events | ${recommendation.failedJobsWithEvents} |
+| Multi-event jobs | ${recommendation.multiEventJobs} |
+| Observed combinatorial coverage | ${combinatorial} |
+| Explicit hard constraints | ${recommendation.coveredConstraintRequirements}/${recommendation.constraintRequirements} |
+| Estimated compute | ${seconds(recommendation.currentEstimatedSeconds)} \u2192 ${seconds(recommendation.selectedEstimatedSeconds)} |
+| Estimated compute reduction | ${reduction} |
+| Pricing coverage | ${percent(recommendation.pricingCoverage)} |
+| Repository visibility | ${repositoryVisibility} |
+| Standard runner rate-card / run | ${listPricePerRun} |
+| Rate-card reduction | ${listPriceReduction} |
+| Projected 30-day rate-card equivalent | ${projected30d} |
+| Estimated GitHub charge / run | ${estimatedChargePerRun} |
+| Estimated GitHub charge reduction | ${estimatedChargeReduction} |
+| Projected 30-day GitHub charge | ${projectedCharge30d} |
+${backtestRows}
+
+<details>
+<summary>Suggested cells</summary>
+
+${selected || "_No cells selected._"}
+
+</details>
+
+### Interpretation
+
+MatrixTrim measures the historical failure-detection value of CI configurations. A recommendation is **evidence, not proof that removed configurations can never catch a future failure**.
+
+**Billing note:** ${recommendation.pricing.note}
+
+${warnings}
+
+_Generated by MatrixTrim._
+`;
 }
-function refPath(ref) {
-  return ref.split("/").filter(Boolean).map(encodeURIComponent).join("/");
-}
-var GitHubClient = class {
-  constructor(repo, token) {
-    this.repo = repo;
-    this.token = token;
-  }
-  repo;
-  token;
-  headers() {
-    return {
-      Accept: "application/vnd.github+json",
-      "User-Agent": "matrixtrim",
-      "X-GitHub-Api-Version": "2022-11-28",
-      ...this.token ? { Authorization: `Bearer ${this.token}` } : {}
-    };
-  }
-  async json(path, init = {}) {
-    const response = await fetch(`https://api.github.com${path}`, {
-      ...init,
-      headers: {
-        ...this.headers(),
-        ...init.headers ?? {}
-      }
-    });
-    if (!response.ok) {
-      throw new GitHubHttpError(
-        response.status,
-        `GitHub API ${response.status}: ${await response.text()}`
-      );
-    }
-    return await response.json();
-  }
-  async repositoryInfo() {
-    return await this.json(
-      `/repos/${repoPath(this.repo)}`
-    );
-  }
-  async getRun(runId) {
-    return await this.json(
-      `/repos/${repoPath(this.repo)}/actions/runs/${runId}`
-    );
-  }
-  async listRuns(limit, workflow) {
-    const result = [];
-    const base = workflow ? `/repos/${repoPath(this.repo)}/actions/workflows/${encodeURIComponent(workflow)}/runs` : `/repos/${repoPath(this.repo)}/actions/runs`;
-    for (let page = 1; result.length < limit; page++) {
-      const perPage = Math.min(100, limit - result.length);
-      const data = await this.json(
-        `${base}?status=completed&per_page=${perPage}&page=${page}`
-      );
-      result.push(...data.workflow_runs);
-      if (data.workflow_runs.length < perPage) break;
-    }
-    return result.slice(0, limit);
-  }
-  async listJobs(runId) {
-    const result = [];
-    for (let page = 1; page <= 3; page++) {
-      const data = await this.json(
-        `/repos/${repoPath(this.repo)}/actions/runs/${runId}/jobs?filter=all&per_page=100&page=${page}`
-      );
-      result.push(...data.jobs);
-      if (data.jobs.length < 100) break;
-    }
-    return result;
-  }
-  async listCheckRunAnnotations(checkRunId) {
-    const result = [];
-    for (let page = 1; page <= 10; page++) {
-      const items = await this.json(
-        `/repos/${repoPath(this.repo)}/check-runs/${checkRunId}/annotations?per_page=100&page=${page}`
-      );
-      result.push(...items);
-      if (items.length < 100) break;
-    }
-    return result;
-  }
-  async file(path, ref) {
-    const encodedPath = path.split("/").filter(Boolean).map(encodeURIComponent).join("/");
-    const refQuery = ref ? `?ref=${encodeURIComponent(ref)}` : "";
-    const data = await this.json(
-      `/repos/${repoPath(this.repo)}/contents/${encodedPath}${refQuery}`
-    );
-    if (data.encoding !== "base64") {
-      throw new Error(`unsupported GitHub content encoding: ${data.encoding}`);
-    }
-    return {
-      text: Buffer.from(data.content.replace(/\n/g, ""), "base64").toString("utf8"),
-      sha: data.sha
-    };
-  }
-  async fileText(path, ref) {
-    return (await this.file(path, ref)).text;
-  }
-  async refSha(branch) {
-    try {
-      const data = await this.json(
-        `/repos/${repoPath(this.repo)}/git/ref/heads/${refPath(branch)}`
-      );
-      return data.object.sha;
-    } catch (error) {
-      if (error instanceof GitHubHttpError && error.status === 404) {
-        return null;
-      }
-      throw error;
-    }
-  }
-  async createBranch(branch, sha) {
-    await this.json(
-      `/repos/${repoPath(this.repo)}/git/refs`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ref: `refs/heads/${branch}`,
-          sha
-        })
-      }
-    );
-  }
-  async updateBranch(branch, sha) {
-    await this.json(
-      `/repos/${repoPath(this.repo)}/git/refs/heads/${refPath(branch)}`,
-      {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sha, force: true })
-      }
-    );
-  }
-  async updateFile(path, branch, sha, text, message) {
-    const encodedPath = path.split("/").filter(Boolean).map(encodeURIComponent).join("/");
-    await this.json(
-      `/repos/${repoPath(this.repo)}/contents/${encodedPath}`,
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message,
-          content: Buffer.from(text, "utf8").toString("base64"),
-          sha,
-          branch
-        })
-      }
-    );
-  }
-  async listOpenPullRequests(branch, base) {
-    const owner = this.repo.split("/")[0];
-    return await this.json(
-      `/repos/${repoPath(this.repo)}/pulls?state=open&head=${encodeURIComponent(`${owner}:${branch}`)}&base=${encodeURIComponent(base)}&per_page=20`
-    );
-  }
-  async createPullRequest(title, head, base, body) {
-    return await this.json(
-      `/repos/${repoPath(this.repo)}/pulls`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title,
-          head,
-          base,
-          body,
-          draft: true
-        })
-      }
-    );
-  }
-  async updatePullRequest(number, title, body) {
-    return await this.json(
-      `/repos/${repoPath(this.repo)}/pulls/${number}`,
-      {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, body })
-      }
-    );
-  }
-  async listIssueComments(issueNumber) {
-    const result = [];
-    for (let page = 1; page <= 10; page++) {
-      const items = await this.json(
-        `/repos/${repoPath(this.repo)}/issues/${issueNumber}/comments?per_page=100&page=${page}`
-      );
-      result.push(...items);
-      if (items.length < 100) break;
-    }
-    return result;
-  }
-  async createIssueComment(issueNumber, body) {
-    return await this.json(
-      `/repos/${repoPath(this.repo)}/issues/${issueNumber}/comments`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body })
-      }
-    );
-  }
-  async updateIssueComment(commentId, body) {
-    return await this.json(
-      `/repos/${repoPath(this.repo)}/issues/comments/${commentId}`,
-      {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body })
-      }
-    );
-  }
-  async jobLog(jobId) {
-    const response = await fetch(
-      `https://api.github.com/repos/${repoPath(this.repo)}/actions/jobs/${jobId}/logs`,
-      { headers: this.headers(), redirect: "follow" }
-    );
-    if (!response.ok) {
-      throw new GitHubHttpError(response.status, `job log ${response.status}`);
-    }
-    return await response.text();
-  }
-};
 
 // src/axes.ts
 var import_yaml = __toESM(require_dist(), 1);
-function stableStringify(value) {
-  if (value === null) return "null";
-  if (typeof value !== "object") return String(value);
-  if (Array.isArray(value)) {
-    return `[${value.map(stableStringify).join(",")}]`;
-  }
-  const entries = Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item)}`);
-  return `{${entries.join(",")}}`;
-}
-function axesFromMatrixEvidence(matrix) {
-  return Object.fromEntries(
-    Object.entries(matrix).sort(([a], [b]) => a.localeCompare(b)).map(([axis, value]) => [axis, stableStringify(value)])
-  );
-}
-function deepEqual(a, b) {
-  return stableStringify(a) === stableStringify(b);
-}
+
+// src/expression.ts
 function expressionNumber(value) {
   if (value === null) return 0;
   if (typeof value === "boolean") return value ? 1 : 0;
@@ -7785,93 +7490,6 @@ function githubString(value) {
     return String(value);
   }
   return void 0;
-}
-function hasRuntimeExpression(value) {
-  if (typeof value === "string") return value.includes("${{");
-  if (Array.isArray(value)) return value.some(hasRuntimeExpression);
-  if (value && typeof value === "object") {
-    return Object.values(value).some(hasRuntimeExpression);
-  }
-  return false;
-}
-function cartesian(entries) {
-  let rows = [{}];
-  for (const [axis, values] of entries) {
-    rows = rows.flatMap(
-      (row) => values.map((value) => ({ ...row, [axis]: value }))
-    );
-  }
-  return rows;
-}
-function matchesRule(row, rule) {
-  return Object.entries(rule).every(
-    ([key, value]) => key in row && deepEqual(row[key], value)
-  );
-}
-function expandStaticMatrix(matrix) {
-  const axisEntries = [];
-  const axisNames = [];
-  let dynamic = "include" in matrix && !Array.isArray(matrix.include) || "exclude" in matrix && !Array.isArray(matrix.exclude) || hasRuntimeExpression(matrix.include) || hasRuntimeExpression(matrix.exclude);
-  for (const [key, value] of Object.entries(matrix)) {
-    if (key === "include" || key === "exclude") continue;
-    axisNames.push(key);
-    if (!Array.isArray(value) || hasRuntimeExpression(value)) {
-      dynamic = true;
-      continue;
-    }
-    axisEntries.push([key, value]);
-  }
-  if (dynamic) {
-    return { rows: [], axes: axisNames, dynamic: true };
-  }
-  const originalAxes = axisNames;
-  let baseRows = cartesian(axisEntries);
-  const exclude = Array.isArray(matrix.exclude) ? matrix.exclude.filter(
-    (item) => !!item && typeof item === "object" && !Array.isArray(item)
-  ) : [];
-  baseRows = baseRows.filter(
-    (row) => !exclude.some((rule) => matchesRule(row, rule))
-  );
-  const include = Array.isArray(matrix.include) ? matrix.include.filter(
-    (item) => !!item && typeof item === "object" && !Array.isArray(item)
-  ) : [];
-  let rows;
-  if (!originalAxes.length && include.length) {
-    rows = include.map((item) => ({ ...item }));
-  } else {
-    const derived = baseRows.map((original) => ({
-      original,
-      current: { ...original }
-    }));
-    const extras = [];
-    for (const addition of include) {
-      let applied = false;
-      for (const item of derived) {
-        const compatible = originalAxes.every(
-          (axis) => !(axis in addition) || deepEqual(item.original[axis], addition[axis])
-        );
-        if (!compatible) continue;
-        item.current = { ...item.current, ...addition };
-        applied = true;
-      }
-      if (!applied) {
-        extras.push({ ...addition });
-      }
-    }
-    rows = [...derived.map((item) => item.current), ...extras];
-  }
-  const inferredIncludeAxes = originalAxes.length ? [] : [...new Set(
-    rows.flatMap(
-      (row) => Object.entries(row).filter(
-        ([, value]) => value === null || ["string", "number", "boolean"].includes(typeof value)
-      ).map(([key]) => key)
-    )
-  )];
-  return {
-    rows,
-    axes: [...originalAxes, ...inferredIncludeAxes],
-    dynamic: false
-  };
 }
 function getPath(row, path) {
   const parts = path.split(".");
@@ -8125,24 +7743,24 @@ function splitTopLevel(text, operator) {
 }
 function renderName(template, row) {
   let failed = false;
-  const rendered = template.replace(/\$\{\{([\s\S]*?)\}\}/g, (_, expression) => {
-    const value = evalExpression(String(expression), row);
-    if (value === void 0 || value !== null && typeof value === "object") {
-      failed = true;
-      return "";
+  const rendered = template.replace(
+    /\$\{\{([\s\S]*?)\}\}/g,
+    (_, expression) => {
+      const value = evalExpression(String(expression), row);
+      if (value === void 0 || value !== null && typeof value === "object") {
+        failed = true;
+        return "";
+      }
+      return String(value ?? "");
     }
-    return String(value ?? "");
-  });
+  );
   return failed ? null : rendered;
 }
 function escapeRegex(text) {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 function matrixReferencePath(expression) {
-  const normalized = expression.trim().replace(
-    /\[['"]([^'"]+)['"]\]/g,
-    (_, key) => `.${key}`
-  );
+  const normalized = expression.trim().replace(/\[['"]([^'"]+)['"]\]/g, (_, key) => `.${key}`);
   const match = normalized.match(
     /^matrix\.([A-Za-z0-9_*-]+(?:\.[A-Za-z0-9_*-]+)*)$/
   );
@@ -8153,12 +7771,12 @@ function directMatrixAxis(expression) {
   return path && !path.includes("*") ? path : null;
 }
 function matrixAxesInTemplate(template) {
-  const references = template.match(
-    /\bmatrix(?:\.[A-Za-z0-9_*-]+|\[['"][^'"]+['"]\])+/g
-  ) ?? [];
-  return [...new Set(references.map(directMatrixAxis).filter(
-    (axis) => axis !== null
-  ))];
+  const references = template.match(/\bmatrix(?:\.[A-Za-z0-9_*-]+|\[['"][^'"]+['"]\])+/g) ?? [];
+  return [
+    ...new Set(
+      references.map(directMatrixAxis).filter((axis) => axis !== null)
+    )
+  ];
 }
 function dynamicExpressionMatcher(expression) {
   const direct = directMatrixAxis(expression);
@@ -8237,6 +7855,121 @@ function matchDynamicNameTemplate(template, name) {
   }
   return result;
 }
+
+// src/object.ts
+function asRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+
+// src/axes.ts
+function stableStringify(value) {
+  if (value === null) return "null";
+  if (typeof value !== "object") return String(value);
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(",")}]`;
+  }
+  const entries = Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item)}`);
+  return `{${entries.join(",")}}`;
+}
+function axesFromMatrixEvidence(matrix) {
+  return Object.fromEntries(
+    Object.entries(matrix).sort(([a], [b]) => a.localeCompare(b)).map(([axis, value]) => [axis, stableStringify(value)])
+  );
+}
+function deepEqual(a, b) {
+  return stableStringify(a) === stableStringify(b);
+}
+function hasRuntimeExpression(value) {
+  if (typeof value === "string") return value.includes("${{");
+  if (Array.isArray(value)) return value.some(hasRuntimeExpression);
+  if (value && typeof value === "object") {
+    return Object.values(value).some(
+      hasRuntimeExpression
+    );
+  }
+  return false;
+}
+function cartesian(entries) {
+  let rows = [{}];
+  for (const [axis, values] of entries) {
+    rows = rows.flatMap(
+      (row) => values.map((value) => ({ ...row, [axis]: value }))
+    );
+  }
+  return rows;
+}
+function matchesRule(row, rule) {
+  return Object.entries(rule).every(
+    ([key, value]) => key in row && deepEqual(row[key], value)
+  );
+}
+function expandStaticMatrix(matrix) {
+  const axisEntries = [];
+  const axisNames = [];
+  let dynamic = "include" in matrix && !Array.isArray(matrix.include) || "exclude" in matrix && !Array.isArray(matrix.exclude) || hasRuntimeExpression(matrix.include) || hasRuntimeExpression(matrix.exclude);
+  for (const [key, value] of Object.entries(matrix)) {
+    if (key === "include" || key === "exclude") continue;
+    axisNames.push(key);
+    if (!Array.isArray(value) || hasRuntimeExpression(value)) {
+      dynamic = true;
+      continue;
+    }
+    axisEntries.push([key, value]);
+  }
+  if (dynamic) {
+    return { rows: [], axes: axisNames, dynamic: true };
+  }
+  const originalAxes = axisNames;
+  let baseRows = cartesian(axisEntries);
+  const exclude = Array.isArray(matrix.exclude) ? matrix.exclude.filter(
+    (item) => !!item && typeof item === "object" && !Array.isArray(item)
+  ) : [];
+  baseRows = baseRows.filter(
+    (row) => !exclude.some((rule) => matchesRule(row, rule))
+  );
+  const include = Array.isArray(matrix.include) ? matrix.include.filter(
+    (item) => !!item && typeof item === "object" && !Array.isArray(item)
+  ) : [];
+  let rows;
+  if (!originalAxes.length && include.length) {
+    rows = include.map((item) => ({ ...item }));
+  } else {
+    const derived = baseRows.map((original) => ({
+      original,
+      current: { ...original }
+    }));
+    const extras = [];
+    for (const addition of include) {
+      let applied = false;
+      for (const item of derived) {
+        const compatible = originalAxes.every(
+          (axis) => !(axis in addition) || deepEqual(item.original[axis], addition[axis])
+        );
+        if (!compatible) continue;
+        item.current = { ...item.current, ...addition };
+        applied = true;
+      }
+      if (!applied) {
+        extras.push({ ...addition });
+      }
+    }
+    rows = [...derived.map((item) => item.current), ...extras];
+  }
+  const inferredIncludeAxes = originalAxes.length ? [] : [
+    ...new Set(
+      rows.flatMap(
+        (row) => Object.entries(row).filter(
+          ([, value]) => value === null || ["string", "number", "boolean"].includes(typeof value)
+        ).map(([key]) => key)
+      )
+    )
+  ];
+  return {
+    rows,
+    axes: [...originalAxes, ...inferredIncludeAxes],
+    dynamic: false
+  };
+}
 function axesForRow(row, axisNames) {
   const result = {};
   for (const axis of axisNames) {
@@ -8250,17 +7983,22 @@ function defaultExpandedName(label, row, axisNames) {
   return values.length ? `${label} (${values.join(", ")})` : label;
 }
 function hasCaptureEvidenceStep(spec) {
-  if (!Array.isArray(spec?.steps)) return false;
-  return spec.steps.some(
-    (step) => step && typeof step === "object" && String(step?.with?.mode ?? "").trim().toLowerCase() === "capture" && typeof step?.with?.matrix === "string" && step.with.matrix.includes("matrix")
-  );
+  const record = asRecord(spec);
+  if (!Array.isArray(record?.steps)) return false;
+  return record.steps.some((rawStep) => {
+    const step = asRecord(rawStep);
+    const withConfig = asRecord(step?.with);
+    return String(withConfig?.mode ?? "").trim().toLowerCase() === "capture" && typeof withConfig?.matrix === "string" && withConfig.matrix.includes("matrix");
+  });
 }
 function workflowMatrixDefinitions(text) {
-  const doc = (0, import_yaml.parse)(text);
-  const jobs = doc?.jobs ?? {};
+  const doc = asRecord((0, import_yaml.parse)(text));
+  const jobs = asRecord(doc?.jobs) ?? {};
   const definitions = [];
-  for (const [jobId, spec] of Object.entries(jobs)) {
-    const matrix = spec?.strategy?.matrix;
+  for (const [jobId, rawSpec] of Object.entries(jobs)) {
+    const spec = asRecord(rawSpec);
+    const strategy = asRecord(spec?.strategy);
+    const matrix = strategy?.matrix;
     if (!matrix) continue;
     const rawName = typeof spec?.name === "string" ? spec.name : jobId;
     const captureEvidence = hasCaptureEvidenceStep(spec);
@@ -8280,7 +8018,9 @@ function workflowMatrixDefinitions(text) {
       });
       continue;
     }
-    const expanded = expandStaticMatrix(matrix);
+    const matrixRecord = asRecord(matrix);
+    if (!matrixRecord) continue;
+    const expanded = expandStaticMatrix(matrixRecord);
     const cells = [];
     if (!expanded.dynamic) {
       for (const row of expanded.rows) {
@@ -8367,65 +8107,7 @@ function inferAxesFromExpandedJobName(name, definitions) {
   };
 }
 
-// src/evidence.ts
-var MATRIX_EVIDENCE_PREFIX = "matrixtrim-evidence:v1:";
-function isObject(value) {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}
-function encodeMatrixEvidence(jobId, matrixJson) {
-  if (!jobId.trim()) throw new Error("GITHUB_JOB is required in capture mode");
-  let matrix;
-  try {
-    matrix = JSON.parse(matrixJson);
-  } catch {
-    throw new Error("matrix input must be valid JSON from toJSON(matrix)");
-  }
-  if (!isObject(matrix)) {
-    throw new Error("matrix input must decode to a JSON object");
-  }
-  const payload = {
-    version: 1,
-    jobId: jobId.trim(),
-    matrix
-  };
-  const serialized = JSON.stringify(payload);
-  if (Buffer.byteLength(serialized, "utf8") > 24 * 1024) {
-    throw new Error("matrix evidence exceeds the 24 KiB capture limit");
-  }
-  return MATRIX_EVIDENCE_PREFIX + Buffer.from(serialized, "utf8").toString("base64url");
-}
-function decodeMatrixEvidence(message) {
-  const index = message.indexOf(MATRIX_EVIDENCE_PREFIX);
-  if (index < 0) return null;
-  const encoded = message.slice(index + MATRIX_EVIDENCE_PREFIX.length).trim().match(/^[A-Za-z0-9_-]+/)?.[0];
-  if (!encoded) return null;
-  try {
-    const value = JSON.parse(
-      Buffer.from(encoded, "base64url").toString("utf8")
-    );
-    if (!isObject(value)) return null;
-    if (value.version !== 1 || typeof value.jobId !== "string") return null;
-    if (!isObject(value.matrix)) return null;
-    return {
-      version: 1,
-      jobId: value.jobId,
-      matrix: value.matrix
-    };
-  } catch {
-    return null;
-  }
-}
-
-// src/analyze.ts
-function splitJobName(name) {
-  const match = name.match(/^(.*?)\s+\((.+)\)$/);
-  return match ? { baseJob: match[1].trim(), cell: name, matrixLike: true } : { baseJob: name, cell: name, matrixLike: false };
-}
-function durationSeconds(startedAt, completedAt) {
-  if (!startedAt || !completedAt) return null;
-  const value = (Date.parse(completedAt) - Date.parse(startedAt)) / 1e3;
-  return Number.isFinite(value) && value >= 0 ? value : null;
-}
+// src/analysis-summary.ts
 function isConclusiveConclusion(conclusion) {
   return ["success", "failure", "timed_out", "neutral"].includes(
     conclusion ?? ""
@@ -8436,21 +8118,6 @@ function median(values) {
   const sorted = [...values].sort((a, b) => a - b);
   const middle = Math.floor(sorted.length / 2);
   return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
-}
-async function mapLimit(items, concurrency, fn) {
-  const results = new Array(items.length);
-  let next = 0;
-  async function worker() {
-    while (true) {
-      const index = next++;
-      if (index >= items.length) return;
-      results[index] = await fn(items[index], index);
-    }
-  }
-  await Promise.all(
-    Array.from({ length: Math.min(concurrency, items.length) }, () => worker())
-  );
-  return results;
 }
 function applyCapturedMatrixEvidence(observation, evidence) {
   const axes = axesFromMatrixEvidence(evidence.matrix);
@@ -8551,6 +8218,546 @@ function summarizeCells(matrixJobs, observations) {
     (a, b) => b.uniqueFailures - a.uniqueFailures || b.distinctFailures - a.distinctFailures || a.cell.localeCompare(b.cell)
   );
 }
+
+// src/evidence.ts
+var MATRIX_EVIDENCE_PREFIX = "matrixtrim-evidence:v1:";
+function isObject(value) {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+function encodeMatrixEvidence(jobId, matrixJson) {
+  if (!jobId.trim()) throw new Error("GITHUB_JOB is required in capture mode");
+  let matrix;
+  try {
+    matrix = JSON.parse(matrixJson);
+  } catch {
+    throw new Error("matrix input must be valid JSON from toJSON(matrix)");
+  }
+  if (!isObject(matrix)) {
+    throw new Error("matrix input must decode to a JSON object");
+  }
+  const payload = {
+    version: 1,
+    jobId: jobId.trim(),
+    matrix
+  };
+  const serialized = JSON.stringify(payload);
+  if (Buffer.byteLength(serialized, "utf8") > 24 * 1024) {
+    throw new Error("matrix evidence exceeds the 24 KiB capture limit");
+  }
+  return MATRIX_EVIDENCE_PREFIX + Buffer.from(serialized, "utf8").toString("base64url");
+}
+function decodeMatrixEvidence(message) {
+  const index = message.indexOf(MATRIX_EVIDENCE_PREFIX);
+  if (index < 0) return null;
+  const encoded = message.slice(index + MATRIX_EVIDENCE_PREFIX.length).trim().match(/^[A-Za-z0-9_-]+/)?.[0];
+  if (!encoded) return null;
+  try {
+    const value = JSON.parse(
+      Buffer.from(encoded, "base64url").toString("utf8")
+    );
+    if (!isObject(value)) return null;
+    if (value.version !== 1 || typeof value.jobId !== "string") return null;
+    if (!isObject(value.matrix)) return null;
+    return {
+      version: 1,
+      jobId: value.jobId,
+      matrix: value.matrix
+    };
+  } catch {
+    return null;
+  }
+}
+
+// src/fingerprint.ts
+var import_node_crypto = require("node:crypto");
+var interesting = /(error|fail(?:ed|ure)?|exception|panic|assert|fatal|traceback|segmentation|timeout)/i;
+var noise = /(process completed with exit code|##\[group\]|##\[endgroup\]|post job cleanup)/i;
+var ansiColorPattern = new RegExp(
+  `${String.fromCharCode(27)}\\[[0-9;]*m`,
+  "g"
+);
+var strongRootCausePatterns = [
+  /^(?:[A-Za-z_][\w.]*(?:Error|Exception|Failure)): .+/,
+  /^error(?:\[[^\]]+\])?:\s+.+/i,
+  /^fatal:\s+.+/i,
+  /^panic:\s+.+/i,
+  /panicked at/i,
+  /segmentation fault/i
+];
+var summaryRootCausePatterns = [/^FAILED\s+.+/, /^ERROR\s+.+/, /^E\s{2,}.+/];
+var derivativeRootCausePatterns = [
+  /^error: could not compile\b.*\bdue to \d+ previous errors?/i,
+  /^error: aborting due to \d+ previous errors?/i,
+  /^error: test run failed$/i,
+  /^error: test failed\b.*\bto rerun\b/i
+];
+var rootCausePatterns = [
+  ...strongRootCausePatterns,
+  ...summaryRootCausePatterns
+];
+function normalizeLogLine(input2) {
+  return input2.replace(/^\uFEFF/, "").replace(ansiColorPattern, "").replace(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\s*/, "").replace(/##\[(?:error|warning)\]/gi, "").replace(
+    /[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[1-5][A-Fa-f0-9]{3}-[89ABab][A-Fa-f0-9]{3}-[A-Fa-f0-9]{12}/g,
+    "<uuid>"
+  ).replace(/0x[A-Fa-f0-9]+/g, "<hex>").replace(/:\d+:\d+(?=\)?(?:\s|$|:))/g, ":<line>:<col>").replace(/\bline \d+\b/gi, "line <n>").replace(
+    /(\bthread\s+'[^']+'\s+)\(\d+\)(?=\s+panicked at)/gi,
+    "$1(<thread>)"
+  ).replace(
+    /\b\d+(?:\.\d+)?\s*(?:ms|s|sec|seconds|minutes|min)\b/gi,
+    "<duration>"
+  ).replace(/\/home\/runner\/work\/[^\s:]+/g, "<workspace>").replace(/\b[A-Za-z]:\\[^\s)]+/g, "<path>").replace(/\\Users\\[^\\\s]+\\/g, "<user>\\").replace(/\s+/g, " ").trim();
+}
+function normalizeRootCause(line) {
+  return line.replace(/\s+\((?:[A-Za-z]:\\|\/)[^)]+\)$/, " (<path>)").replace(/\s+\((?:<workspace>|<path>)\)?$/, " (<path>)").replace(/\b(?:py|node|python)\d{2,3}(?:-[\w-]+)?\b/gi, "<runtime>").replace(/\s+/g, " ").trim();
+}
+function normalizedLog(log) {
+  return log.split(/\r?\n/).map(normalizeLogLine).filter((line) => line && !noise.test(line));
+}
+function rootCauses(lines) {
+  const causes = lines.filter((line) => rootCausePatterns.some((pattern) => pattern.test(line))).map(normalizeRootCause);
+  return [...new Set(causes)].slice(-8);
+}
+function fingerprint(signature, evidence) {
+  const canonical = signature.join("\n").toLowerCase();
+  const id = (0, import_node_crypto.createHash)("sha256").update(canonical).digest("hex").slice(0, 16);
+  return { id, signature, evidence };
+}
+function embeddedSummaryRootCause(line) {
+  if (!summaryRootCausePatterns.some((pattern) => pattern.test(line))) {
+    return null;
+  }
+  const separator = line.lastIndexOf(" - ");
+  if (separator < 0) return null;
+  const tail = line.slice(separator + 3).trim();
+  if (!tail || !interesting.test(tail)) return null;
+  return normalizeRootCause(tail);
+}
+function eventRoots(lines, patterns) {
+  const bySignature = /* @__PURE__ */ new Map();
+  lines.forEach((line, index) => {
+    if (!patterns.some((pattern) => pattern.test(line))) return;
+    bySignature.set(normalizeRootCause(line), index);
+  });
+  return [...bySignature.entries()].map(([signature, index]) => ({ signature, index })).sort((a, b) => a.index - b.index).slice(-8);
+}
+function strongEventRoots(lines) {
+  const bySignature = /* @__PURE__ */ new Map();
+  lines.forEach((line, index) => {
+    const signature = strongRootCausePatterns.some(
+      (pattern) => pattern.test(line)
+    ) ? normalizeRootCause(line) : embeddedSummaryRootCause(line);
+    if (!signature) return;
+    bySignature.set(signature, index);
+  });
+  const roots = [...bySignature.entries()].map(([signature, index]) => ({ signature, index })).sort((a, b) => a.index - b.index);
+  const specific = roots.filter(
+    (root) => !derivativeRootCausePatterns.some(
+      (pattern) => pattern.test(root.signature)
+    )
+  );
+  return (specific.length ? specific : roots).slice(-8);
+}
+function eventEvidence(lines, index) {
+  const start = Math.max(0, index - 3);
+  const end = Math.min(lines.length, index + 4);
+  const nearby = lines.slice(start, end);
+  const interestingNearby = nearby.filter((line) => interesting.test(line));
+  return [
+    ...new Set(interestingNearby.length ? interestingNearby : nearby)
+  ].slice(-8);
+}
+function fingerprintFailures(log) {
+  const lines = normalizedLog(log);
+  const strong = strongEventRoots(lines);
+  const roots = strong.length ? strong : eventRoots(lines, summaryRootCausePatterns);
+  if (roots.length) {
+    return roots.map(
+      (root) => fingerprint([root.signature], eventEvidence(lines, root.index))
+    );
+  }
+  return [fingerprintFailure(log)];
+}
+function fingerprintFailure(log) {
+  const normalized = normalizedLog(log);
+  const roots = rootCauses(normalized);
+  const candidates = normalized.filter((line) => interesting.test(line));
+  const evidenceSource = candidates.length ? candidates : normalized.slice(-20);
+  const evidence = [...new Set(evidenceSource)].slice(-16);
+  const signature = roots.length ? roots : [...new Set(evidenceSource)].slice(-6);
+  return fingerprint(signature, evidence);
+}
+
+// src/github.ts
+var GitHubHttpError = class extends Error {
+  constructor(status, message) {
+    super(message);
+    this.status = status;
+    this.name = "GitHubHttpError";
+  }
+  status;
+};
+var MAX_PAGINATION_PAGES = 1e3;
+function defaultSleep(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+function retryAfterMilliseconds(response) {
+  const retryAfter = response.headers.get("retry-after");
+  if (retryAfter) {
+    const seconds2 = Number(retryAfter);
+    if (Number.isFinite(seconds2) && seconds2 >= 0) {
+      return seconds2 * 1e3;
+    }
+    const timestamp = Date.parse(retryAfter);
+    if (Number.isFinite(timestamp)) {
+      return Math.max(0, timestamp - Date.now());
+    }
+  }
+  if (response.headers.get("x-ratelimit-remaining") === "0") {
+    const reset = Number(response.headers.get("x-ratelimit-reset"));
+    if (Number.isFinite(reset) && reset > 0) {
+      return Math.max(0, reset * 1e3 - Date.now());
+    }
+  }
+  return null;
+}
+function repoPath(repo) {
+  const parts = repo.split("/");
+  if (parts.length !== 2 || parts.some((part) => !part)) {
+    throw new Error("repository must be in owner/repo form");
+  }
+  return parts.map(encodeURIComponent).join("/");
+}
+function refPath(ref) {
+  return ref.split("/").filter(Boolean).map(encodeURIComponent).join("/");
+}
+var GitHubClient = class {
+  constructor(repo, token, options = {}) {
+    this.repo = repo;
+    this.token = token;
+    this.fetchImpl = options.fetchImpl ?? fetch;
+    this.sleep = options.sleep ?? defaultSleep;
+    this.timeoutMs = options.timeoutMs ?? 3e4;
+    this.maxRetries = options.maxRetries ?? 4;
+    this.retryBaseMs = options.retryBaseMs ?? 500;
+    this.maxRetryDelayMs = options.maxRetryDelayMs ?? 3e4;
+    if (!Number.isFinite(this.timeoutMs) || this.timeoutMs <= 0) {
+      throw new Error("GitHub request timeoutMs must be positive");
+    }
+    if (!Number.isInteger(this.maxRetries) || this.maxRetries < 0) {
+      throw new Error("GitHub maxRetries must be a non-negative integer");
+    }
+  }
+  repo;
+  token;
+  fetchImpl;
+  sleep;
+  timeoutMs;
+  maxRetries;
+  retryBaseMs;
+  maxRetryDelayMs;
+  headers() {
+    return {
+      Accept: "application/vnd.github+json",
+      "User-Agent": "matrixtrim",
+      "X-GitHub-Api-Version": "2022-11-28",
+      ...this.token ? { Authorization: `Bearer ${this.token}` } : {}
+    };
+  }
+  retryableResponse(response) {
+    if ([429, 500, 502, 503, 504].includes(response.status)) return true;
+    return response.status === 403 && (response.headers.has("retry-after") || response.headers.get("x-ratelimit-remaining") === "0");
+  }
+  retryDelay(response, attempt) {
+    const explicit = response ? retryAfterMilliseconds(response) : null;
+    const exponential = this.retryBaseMs * 2 ** attempt;
+    return Math.min(explicit ?? exponential, this.maxRetryDelayMs);
+  }
+  async request(path, init, parse3) {
+    const attempts = this.maxRetries + 1;
+    let lastError;
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      const controller = new AbortController();
+      const externalSignal = init.signal;
+      const forwardAbort = () => controller.abort();
+      if (externalSignal?.aborted) controller.abort();
+      else
+        externalSignal?.addEventListener("abort", forwardAbort, { once: true });
+      const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+      let response = null;
+      try {
+        response = await this.fetchImpl(`https://api.github.com${path}`, {
+          ...init,
+          headers: {
+            ...this.headers(),
+            ...init.headers ?? {}
+          },
+          signal: controller.signal
+        });
+        if (response.ok) {
+          return await parse3(response);
+        }
+        const body = await response.text();
+        const retryable = this.retryableResponse(response);
+        if (!retryable || attempt === attempts - 1) {
+          throw new GitHubHttpError(
+            response.status,
+            `GitHub API ${response.status}: ${body}`
+          );
+        }
+        const explicitDelay = retryAfterMilliseconds(response);
+        if (explicitDelay !== null && explicitDelay > this.maxRetryDelayMs) {
+          throw new GitHubHttpError(
+            response.status,
+            `GitHub API ${response.status}: retry delay ${explicitDelay}ms exceeds ${this.maxRetryDelayMs}ms limit: ${body}`
+          );
+        }
+        await this.sleep(this.retryDelay(response, attempt));
+      } catch (error) {
+        if (error instanceof GitHubHttpError) throw error;
+        if (response) throw error;
+        lastError = error;
+        if (attempt === attempts - 1) {
+          const timedOut = controller.signal.aborted && !externalSignal?.aborted;
+          const reason = timedOut ? `timed out after ${this.timeoutMs}ms` : error instanceof Error ? error.message : String(error);
+          throw new Error(
+            `GitHub API request failed after ${attempts} attempt(s): ${path}: ${reason}`,
+            { cause: error }
+          );
+        }
+        await this.sleep(this.retryDelay(null, attempt));
+      } finally {
+        clearTimeout(timer);
+        externalSignal?.removeEventListener("abort", forwardAbort);
+      }
+    }
+    throw new Error("unreachable GitHub request state", { cause: lastError });
+  }
+  async json(path, init = {}) {
+    return await this.request(
+      path,
+      init,
+      async (response) => await response.json()
+    );
+  }
+  async repositoryInfo() {
+    return await this.json(`/repos/${repoPath(this.repo)}`);
+  }
+  async getRun(runId) {
+    return await this.json(
+      `/repos/${repoPath(this.repo)}/actions/runs/${runId}`
+    );
+  }
+  async listRuns(limit, workflow) {
+    const result = [];
+    const base = workflow ? `/repos/${repoPath(this.repo)}/actions/workflows/${encodeURIComponent(workflow)}/runs` : `/repos/${repoPath(this.repo)}/actions/runs`;
+    for (let page = 1; result.length < limit; page++) {
+      const perPage = Math.min(100, limit - result.length);
+      const data = await this.json(
+        `${base}?status=completed&per_page=${perPage}&page=${page}`
+      );
+      result.push(...data.workflow_runs);
+      if (data.workflow_runs.length < perPage) break;
+    }
+    return result.slice(0, limit);
+  }
+  async listJobs(runId) {
+    const result = [];
+    let totalCount = null;
+    for (let page = 1; page <= MAX_PAGINATION_PAGES; page++) {
+      const data = await this.json(
+        `/repos/${repoPath(this.repo)}/actions/runs/${runId}/jobs?filter=all&per_page=100&page=${page}`
+      );
+      totalCount ??= data.total_count;
+      result.push(...data.jobs);
+      if (result.length >= data.total_count) {
+        return result.slice(0, data.total_count);
+      }
+      if (!data.jobs.length) break;
+    }
+    if (totalCount !== null && result.length < totalCount) {
+      throw new Error(
+        `GitHub jobs pagination incomplete for run ${runId}: expected ${totalCount}, received ${result.length}`
+      );
+    }
+    return result;
+  }
+  async listCheckRunAnnotations(checkRunId) {
+    const result = [];
+    for (let page = 1; page <= MAX_PAGINATION_PAGES; page++) {
+      const items = await this.json(
+        `/repos/${repoPath(this.repo)}/check-runs/${checkRunId}/annotations?per_page=100&page=${page}`
+      );
+      result.push(...items);
+      if (items.length < 100) return result;
+    }
+    throw new Error(
+      `GitHub check annotation pagination exceeded ${MAX_PAGINATION_PAGES} pages for check ${checkRunId}`
+    );
+  }
+  async file(path, ref) {
+    const encodedPath = path.split("/").filter(Boolean).map(encodeURIComponent).join("/");
+    const refQuery = ref ? `?ref=${encodeURIComponent(ref)}` : "";
+    const data = await this.json(
+      `/repos/${repoPath(this.repo)}/contents/${encodedPath}${refQuery}`
+    );
+    if (data.encoding !== "base64") {
+      throw new Error(`unsupported GitHub content encoding: ${data.encoding}`);
+    }
+    return {
+      text: Buffer.from(data.content.replace(/\n/g, ""), "base64").toString(
+        "utf8"
+      ),
+      sha: data.sha
+    };
+  }
+  async fileText(path, ref) {
+    return (await this.file(path, ref)).text;
+  }
+  async refSha(branch) {
+    try {
+      const data = await this.json(
+        `/repos/${repoPath(this.repo)}/git/ref/heads/${refPath(branch)}`
+      );
+      return data.object.sha;
+    } catch (error) {
+      if (error instanceof GitHubHttpError && error.status === 404) {
+        return null;
+      }
+      throw error;
+    }
+  }
+  async createBranch(branch, sha) {
+    await this.json(`/repos/${repoPath(this.repo)}/git/refs`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ref: `refs/heads/${branch}`,
+        sha
+      })
+    });
+  }
+  async updateBranch(branch, sha) {
+    await this.json(
+      `/repos/${repoPath(this.repo)}/git/refs/heads/${refPath(branch)}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sha, force: true })
+      }
+    );
+  }
+  async updateFile(path, branch, sha, text, message) {
+    const encodedPath = path.split("/").filter(Boolean).map(encodeURIComponent).join("/");
+    await this.json(`/repos/${repoPath(this.repo)}/contents/${encodedPath}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message,
+        content: Buffer.from(text, "utf8").toString("base64"),
+        sha,
+        branch
+      })
+    });
+  }
+  async listOpenPullRequests(branch, base) {
+    const owner = this.repo.split("/")[0];
+    return await this.json(
+      `/repos/${repoPath(this.repo)}/pulls?state=open&head=${encodeURIComponent(`${owner}:${branch}`)}&base=${encodeURIComponent(base)}&per_page=20`
+    );
+  }
+  async createPullRequest(title, head, base, body) {
+    return await this.json(
+      `/repos/${repoPath(this.repo)}/pulls`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          head,
+          base,
+          body,
+          draft: true
+        })
+      }
+    );
+  }
+  async updatePullRequest(number, title, body) {
+    return await this.json(
+      `/repos/${repoPath(this.repo)}/pulls/${number}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, body })
+      }
+    );
+  }
+  async listIssueComments(issueNumber) {
+    const result = [];
+    for (let page = 1; page <= MAX_PAGINATION_PAGES; page++) {
+      const items = await this.json(
+        `/repos/${repoPath(this.repo)}/issues/${issueNumber}/comments?per_page=100&page=${page}`
+      );
+      result.push(...items);
+      if (items.length < 100) return result;
+    }
+    throw new Error(
+      `GitHub issue comment pagination exceeded ${MAX_PAGINATION_PAGES} pages for issue ${issueNumber}`
+    );
+  }
+  async createIssueComment(issueNumber, body) {
+    return await this.json(
+      `/repos/${repoPath(this.repo)}/issues/${issueNumber}/comments`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body })
+      }
+    );
+  }
+  async updateIssueComment(commentId, body) {
+    return await this.json(
+      `/repos/${repoPath(this.repo)}/issues/comments/${commentId}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body })
+      }
+    );
+  }
+  async jobLog(jobId) {
+    return await this.request(
+      `/repos/${repoPath(this.repo)}/actions/jobs/${jobId}/logs`,
+      { redirect: "follow" },
+      async (response) => await response.text()
+    );
+  }
+};
+
+// src/analyze.ts
+function splitJobName(name) {
+  const match = name.match(/^(.*?)\s+\((.+)\)$/);
+  return match ? { baseJob: match[1].trim(), cell: name, matrixLike: true } : { baseJob: name, cell: name, matrixLike: false };
+}
+function durationSeconds(startedAt, completedAt) {
+  if (!startedAt || !completedAt) return null;
+  const value = (Date.parse(completedAt) - Date.parse(startedAt)) / 1e3;
+  return Number.isFinite(value) && value >= 0 ? value : null;
+}
+async function mapLimit(items, concurrency, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (true) {
+      const index = next++;
+      if (index >= items.length) return;
+      results[index] = await fn(items[index], index);
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, () => worker())
+  );
+  return results;
+}
 async function analyzeRepository(repository, options) {
   const client = new GitHubClient(repository, options.token);
   const concurrency = options.concurrency ?? 4;
@@ -8561,9 +8768,15 @@ async function analyzeRepository(repository, options) {
   } catch {
     repositoryVisibility = void 0;
   }
-  const runs = options.runIds?.length ? await mapLimit(options.runIds, concurrency, (runId) => client.getRun(runId)) : options.runId ? [await client.getRun(options.runId)] : await client.listRuns(options.limit, options.workflow);
+  const runs = options.runIds?.length ? await mapLimit(
+    options.runIds,
+    concurrency,
+    (runId) => client.getRun(runId)
+  ) : options.runId ? [await client.getRun(options.runId)] : await client.listRuns(options.limit, options.workflow);
   let workflowPath;
-  const workflowPaths = [...new Set(runs.map((run) => run.path).filter(Boolean))];
+  const workflowPaths = [
+    ...new Set(runs.map((run) => run.path).filter(Boolean))
+  ];
   if (workflowPaths.length === 1) {
     workflowPath = workflowPaths[0];
   }
@@ -8590,9 +8803,11 @@ async function analyzeRepository(repository, options) {
   const defaultDefinitionsByPath = new Map(
     defaultDefinitionResults.map((item) => [item.path, item])
   );
-  const definitionInputs = [...new Map(
-    runs.filter((run) => run.path && run.head_sha).map((run) => [`${run.path}@${run.head_sha}`, run])
-  ).values()];
+  const definitionInputs = [
+    ...new Map(
+      runs.filter((run) => run.path && run.head_sha).map((run) => [`${run.path}@${run.head_sha}`, run])
+    ).values()
+  ];
   const definitionResults = await mapLimit(
     definitionInputs,
     concurrency,
@@ -8728,7 +8943,9 @@ async function analyzeRepository(repository, options) {
     Math.min(concurrency, 4),
     async (observation) => {
       try {
-        const annotations = await client.listCheckRunAnnotations(observation.jobId);
+        const annotations = await client.listCheckRunAnnotations(
+          observation.jobId
+        );
         const matches = annotations.map((annotation) => decodeMatrixEvidence(annotation.message)).filter(
           (evidence) => evidence !== null && evidence.jobId === observation.baseJob
         );
@@ -8765,16 +8982,18 @@ async function analyzeRepository(repository, options) {
       if (!matrixJob) {
         throw new Error(`matrix job metadata missing for job ${job.id}`);
       }
-      return fingerprints.map((fingerprint2) => ({
-        runId: run.id,
-        runNumber: run.run_number,
-        jobId: job.id,
-        cell: matrixJob.cell,
-        baseJob: matrixJob.baseJob,
-        fingerprint: fingerprint2.id,
-        signature: fingerprint2.signature,
-        evidence: fingerprint2.evidence
-      }));
+      return fingerprints.map(
+        (fingerprint2) => ({
+          runId: run.id,
+          runNumber: run.run_number,
+          jobId: job.id,
+          cell: matrixJob.cell,
+          baseJob: matrixJob.baseJob,
+          fingerprint: fingerprint2.id,
+          signature: fingerprint2.signature,
+          evidence: fingerprint2.evidence
+        })
+      );
     } catch (error) {
       if (error instanceof GitHubHttpError && error.status === 410) {
         expiredLogs++;
@@ -8835,102 +9054,6 @@ async function analyzeRepository(repository, options) {
   };
 }
 
-// src/config.ts
-var import_yaml2 = __toESM(require_dist(), 1);
-var EMPTY_CONSTRAINTS = {
-  keep: [],
-  require: []
-};
-function stringRecord(value, context) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error(`${context} must be a mapping`);
-  }
-  const result = {};
-  for (const [key, raw] of Object.entries(value)) {
-    if (!key.trim()) {
-      throw new Error(`${context} contains an empty axis name`);
-    }
-    if (typeof raw !== "string" && typeof raw !== "number" && typeof raw !== "boolean") {
-      throw new Error(
-        `${context}.${key} must be a string, number, or boolean`
-      );
-    }
-    result[key] = String(raw);
-  }
-  if (!Object.keys(result).length) {
-    throw new Error(`${context} must contain at least one axis`);
-  }
-  return result;
-}
-function parseMatrixTrimConfig(text) {
-  const raw = (0, import_yaml2.parse)(text);
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    throw new Error("MatrixTrim config must be a YAML mapping");
-  }
-  const root = raw;
-  const version = root.version ?? 1;
-  if (version !== 1) {
-    throw new Error(`unsupported MatrixTrim config version: ${String(version)}`);
-  }
-  const constraintsRaw = root.constraints ?? {};
-  if (!constraintsRaw || typeof constraintsRaw !== "object" || Array.isArray(constraintsRaw)) {
-    throw new Error("constraints must be a mapping");
-  }
-  const constraintsObject = constraintsRaw;
-  const keepRaw = constraintsObject.keep ?? [];
-  if (!Array.isArray(keepRaw)) {
-    throw new Error("constraints.keep must be a list of exact cell names");
-  }
-  const keep = keepRaw.map((item, index) => {
-    if (typeof item !== "string" || !item.trim()) {
-      throw new Error(
-        `constraints.keep[${index}] must be a non-empty cell name`
-      );
-    }
-    return item.trim();
-  });
-  const requireRaw = constraintsObject.require ?? [];
-  if (!Array.isArray(requireRaw)) {
-    throw new Error("constraints.require must be a list of selectors");
-  }
-  const require2 = requireRaw.map((item, index) => {
-    if (!item || typeof item !== "object" || Array.isArray(item)) {
-      throw new Error(`constraints.require[${index}] must be a mapping`);
-    }
-    const selector = item;
-    const baseJobRaw = selector.baseJob;
-    if (baseJobRaw !== void 0 && (typeof baseJobRaw !== "string" || !baseJobRaw.trim())) {
-      throw new Error(
-        `constraints.require[${index}].baseJob must be a non-empty string`
-      );
-    }
-    return {
-      ...typeof baseJobRaw === "string" ? { baseJob: baseJobRaw.trim() } : {},
-      axes: stringRecord(
-        selector.axes,
-        `constraints.require[${index}].axes`
-      )
-    };
-  });
-  return {
-    version: 1,
-    constraints: {
-      keep: [...new Set(keep)],
-      require: require2
-    }
-  };
-}
-async function loadRepositoryConfig(client, path = ".matrixtrim.yml", required = false) {
-  try {
-    return parseMatrixTrimConfig(await client.fileText(path));
-  } catch (error) {
-    if (!required && error instanceof GitHubHttpError && error.status === 404) {
-      return null;
-    }
-    throw error;
-  }
-}
-
 // src/coverage.ts
 function combinations(items, size) {
   if (size <= 0) return [[]];
@@ -8954,7 +9077,9 @@ function tWiseCoverageForCell(cell, strength = 2) {
   return combinations(entries, strength).map((combo) => {
     const axes = combo.map(([axis]) => axis);
     const values = combo.map(([, value]) => value);
-    const encoded = combo.map(([axis, value]) => `${encodeURIComponent(axis)}=${encodeURIComponent(value)}`).join("&");
+    const encoded = combo.map(
+      ([axis, value]) => `${encodeURIComponent(axis)}=${encodeURIComponent(value)}`
+    ).join("&");
     return {
       id: `tw:${strength}:${encodeURIComponent(cell.baseJob)}:${encoded}`,
       baseJob: cell.baseJob,
@@ -8992,6 +9117,99 @@ function observedCombinatorialCoverage(cells, maxStrength = 2) {
     unresolvedCells,
     eligibleCells
   };
+}
+
+// src/config.ts
+var import_yaml2 = __toESM(require_dist(), 1);
+var EMPTY_CONSTRAINTS = {
+  keep: [],
+  require: []
+};
+function stringRecord(value, context) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${context} must be a mapping`);
+  }
+  const result = {};
+  for (const [key, raw] of Object.entries(value)) {
+    if (!key.trim()) {
+      throw new Error(`${context} contains an empty axis name`);
+    }
+    if (typeof raw !== "string" && typeof raw !== "number" && typeof raw !== "boolean") {
+      throw new Error(`${context}.${key} must be a string, number, or boolean`);
+    }
+    result[key] = String(raw);
+  }
+  if (!Object.keys(result).length) {
+    throw new Error(`${context} must contain at least one axis`);
+  }
+  return result;
+}
+function parseMatrixTrimConfig(text) {
+  const raw = (0, import_yaml2.parse)(text);
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("MatrixTrim config must be a YAML mapping");
+  }
+  const root = raw;
+  const version = root.version ?? 1;
+  if (version !== 1) {
+    throw new Error(
+      `unsupported MatrixTrim config version: ${String(version)}`
+    );
+  }
+  const constraintsRaw = root.constraints ?? {};
+  if (!constraintsRaw || typeof constraintsRaw !== "object" || Array.isArray(constraintsRaw)) {
+    throw new Error("constraints must be a mapping");
+  }
+  const constraintsObject = constraintsRaw;
+  const keepRaw = constraintsObject.keep ?? [];
+  if (!Array.isArray(keepRaw)) {
+    throw new Error("constraints.keep must be a list of exact cell names");
+  }
+  const keep = keepRaw.map((item, index) => {
+    if (typeof item !== "string" || !item.trim()) {
+      throw new Error(
+        `constraints.keep[${index}] must be a non-empty cell name`
+      );
+    }
+    return item.trim();
+  });
+  const requireRaw = constraintsObject.require ?? [];
+  if (!Array.isArray(requireRaw)) {
+    throw new Error("constraints.require must be a list of selectors");
+  }
+  const require2 = requireRaw.map((item, index) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      throw new Error(`constraints.require[${index}] must be a mapping`);
+    }
+    const selector = item;
+    const baseJobRaw = selector.baseJob;
+    if (baseJobRaw !== void 0 && (typeof baseJobRaw !== "string" || !baseJobRaw.trim())) {
+      throw new Error(
+        `constraints.require[${index}].baseJob must be a non-empty string`
+      );
+    }
+    return {
+      ...typeof baseJobRaw === "string" ? { baseJob: baseJobRaw.trim() } : {},
+      axes: stringRecord(selector.axes, `constraints.require[${index}].axes`)
+    };
+  });
+  return {
+    version: 1,
+    constraints: {
+      keep: [...new Set(keep)],
+      require: require2
+    }
+  };
+}
+async function loadRepositoryConfig(client, path = ".matrixtrim.yml", required = false) {
+  try {
+    return parseMatrixTrimConfig(await client.fileText(path));
+  } catch (error) {
+    if (!required && error instanceof GitHubHttpError && error.status === 404) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 // src/optimizer.ts
@@ -9150,7 +9368,9 @@ function exactWeightedSetCover(candidates, requirements, options = {}) {
     let pivot;
     let pivotCandidates = [];
     for (const requirement of [...uncovered].sort(compareIds)) {
-      const eligible = (requirementCandidates.get(requirement) ?? []).filter((index) => !selectedSet.has(index));
+      const eligible = (requirementCandidates.get(requirement) ?? []).filter(
+        (index) => !selectedSet.has(index)
+      );
       if (!eligible.length) return;
       if (pivot === void 0 || eligible.length < pivotCandidates.length) {
         pivot = requirement;
@@ -9201,7 +9421,9 @@ function exactWeightedSetCover(candidates, requirements, options = {}) {
   recurse(new Set(requirements), [], /* @__PURE__ */ new Set(), 0);
   for (const id of best.selected) {
     if (!candidateById.has(id)) {
-      throw new Error(`initial set-cover solution references unknown candidate: ${id}`);
+      throw new Error(
+        `initial set-cover solution references unknown candidate: ${id}`
+      );
     }
   }
   return {
@@ -9371,16 +9593,8 @@ function monthly(perRun, projectedRunsPer30Days) {
 function estimatePricing(report, selectedCells) {
   const prices = cellPrices(report);
   const currentNames = report.cells.map((cell) => cell.cell);
-  const currentRateCardUsdPerRun = totalFor(
-    currentNames,
-    prices,
-    "rateCard"
-  );
-  const selectedRateCardUsdPerRun = totalFor(
-    selectedCells,
-    prices,
-    "rateCard"
-  );
+  const currentRateCardUsdPerRun = totalFor(currentNames, prices, "rateCard");
+  const selectedRateCardUsdPerRun = totalFor(selectedCells, prices, "rateCard");
   const currentEstimatedChargeUsdPerRun = totalFor(
     currentNames,
     prices,
@@ -9636,14 +9850,8 @@ function recommendMatrix(report, options = {}) {
   const selectedKnown = selected.every(
     (cell) => cell.medianRuntimeSeconds !== null
   );
-  const currentEstimatedSeconds = currentKnown ? report.cells.reduce(
-    (sum, cell) => sum + cell.medianRuntimeSeconds,
-    0
-  ) : null;
-  const selectedEstimatedSeconds = selectedKnown ? selected.reduce(
-    (sum, cell) => sum + cell.medianRuntimeSeconds,
-    0
-  ) : null;
+  const currentEstimatedSeconds = currentKnown ? report.cells.reduce((sum, cell) => sum + cell.medianRuntimeSeconds, 0) : null;
+  const selectedEstimatedSeconds = selectedKnown ? selected.reduce((sum, cell) => sum + cell.medianRuntimeSeconds, 0) : null;
   const reduction = currentEstimatedSeconds !== null && selectedEstimatedSeconds !== null && currentEstimatedSeconds > 0 ? (1 - selectedEstimatedSeconds / currentEstimatedSeconds) * 100 : null;
   const pricing = estimatePricing(
     report,
@@ -9656,9 +9864,7 @@ function recommendMatrix(report, options = {}) {
   const projectedRunsPer30Days = pricing.projectedRunsPer30Days;
   const currentProjectedListPriceUsd30Days = pricing.currentRateCardUsdPer30Days;
   const selectedProjectedListPriceUsd30Days = pricing.selectedRateCardUsdPer30Days;
-  const failureRuns = new Set(
-    report.observations.map((item) => item.runId)
-  ).size;
+  const failureRuns = new Set(report.observations.map((item) => item.runId)).size;
   const eventCountsByJob = /* @__PURE__ */ new Map();
   for (const item of report.observations) {
     eventCountsByJob.set(
@@ -9811,9 +10017,6 @@ function clustersFor(observations) {
 }
 function subsetReport(source, observations, runIds) {
   const clusters = clustersFor(observations);
-  const byFingerprint = new Map(
-    clusters.map((cluster) => [cluster.fingerprint, new Set(cluster.cells)])
-  );
   const byCell = /* @__PURE__ */ new Map();
   for (const item of observations) {
     const list = byCell.get(item.cell) ?? [];
@@ -9838,14 +10041,18 @@ function backtestRecommendation(report, holdoutPercent = 25, coverageStrength = 
     throw new Error("holdoutPercent must be between 0 and 100");
   }
   const conclusive = (value) => value === void 0 || ["success", "failure", "timed_out", "neutral"].includes(value ?? "");
-  const runs = [...new Map(
-    report.matrixJobs.filter((item) => conclusive(item.runConclusion)).map((item) => [
-      item.runId,
-      { runId: item.runId, runNumber: item.runNumber }
-    ])
-  ).values()].sort((a, b) => a.runNumber - b.runNumber || a.runId - b.runId);
+  const runs = [
+    ...new Map(
+      report.matrixJobs.filter((item) => conclusive(item.runConclusion)).map((item) => [
+        item.runId,
+        { runId: item.runId, runNumber: item.runNumber }
+      ])
+    ).values()
+  ].sort((a, b) => a.runNumber - b.runNumber || a.runId - b.runId);
   if (runs.length < 2) {
-    throw new Error("backtest requires at least two completed matrix workflow runs");
+    throw new Error(
+      "backtest requires at least two completed matrix workflow runs"
+    );
   }
   const holdoutCount = Math.max(
     1,
@@ -9854,8 +10061,12 @@ function backtestRecommendation(report, holdoutPercent = 25, coverageStrength = 
   const split = runs.length - holdoutCount;
   const trainingRunIds = new Set(runs.slice(0, split).map((run) => run.runId));
   const holdoutRunIds = new Set(runs.slice(split).map((run) => run.runId));
-  const training = report.observations.filter((item) => trainingRunIds.has(item.runId));
-  const holdout = report.observations.filter((item) => holdoutRunIds.has(item.runId));
+  const training = report.observations.filter(
+    (item) => trainingRunIds.has(item.runId)
+  );
+  const holdout = report.observations.filter(
+    (item) => holdoutRunIds.has(item.runId)
+  );
   if (!training.length || !holdout.length) {
     throw new Error(
       "backtest needs at least one analyzable failure in both the training and holdout windows"
@@ -9868,8 +10079,12 @@ function backtestRecommendation(report, holdoutPercent = 25, coverageStrength = 
     constraints,
     ...optimizerOptions
   });
-  const selected = new Set(recommendation.selectedCells.map((cell) => cell.cell));
-  const trainingFingerprints = new Set(training.map((item) => item.fingerprint));
+  const selected = new Set(
+    recommendation.selectedCells.map((cell) => cell.cell)
+  );
+  const trainingFingerprints = new Set(
+    training.map((item) => item.fingerprint)
+  );
   const holdoutClusters = clustersFor(holdout);
   const holdoutCombinatorial = observedCombinatorialCoverage(
     holdoutReport.cells,
@@ -9941,79 +10156,6 @@ function backtestRecommendation(report, holdoutPercent = 25, coverageStrength = 
   };
 }
 
-// src/action-report.ts
-var percent = (value) => value === null ? "n/a" : `${(value * 100).toFixed(1)}%`;
-var seconds = (value) => value === null ? "n/a" : `${value.toFixed(1)}s`;
-var dollars = (value, digits = 3) => value === null ? "n/a" : `$${value.toFixed(digits)}`;
-function formatActionReport(repository, workflow, recommendation, backtest, backtestError) {
-  const selected = recommendation.selectedCells.map((cell) => `- \`${cell.cell}\` \u2014 failures=${cell.coveredFailures}, combinations=${cell.coveredCombinations}, median=${seconds(cell.medianRuntimeSeconds)}, list-price/run=${dollars(cell.estimatedListPriceUsdPerRun)}`).join("\n");
-  const historical = recommendation.historicalRecall === null ? "n/a (no analyzed failure fingerprints)" : `${recommendation.coveredFingerprints}/${recommendation.historicalFingerprints} (${percent(recommendation.historicalRecall)})`;
-  const combinatorial = recommendation.combinatorialCoverage === null ? "n/a" : `${recommendation.coveredCombinatorialRequirements}/${recommendation.combinatorialRequirements} (${percent(recommendation.combinatorialCoverage)})`;
-  const reduction = recommendation.estimatedComputeReductionPercent === null ? "n/a" : `${recommendation.estimatedComputeReductionPercent.toFixed(1)}%`;
-  const listPricePerRun = recommendation.currentEstimatedListPriceUsdPerRun === null || recommendation.selectedEstimatedListPriceUsdPerRun === null ? "n/a" : `${dollars(recommendation.currentEstimatedListPriceUsdPerRun)} \u2192 ${dollars(recommendation.selectedEstimatedListPriceUsdPerRun)}`;
-  const listPriceReduction = recommendation.estimatedListPriceReductionPercent === null ? "n/a" : `${recommendation.estimatedListPriceReductionPercent.toFixed(1)}%`;
-  const projected30d = recommendation.currentProjectedListPriceUsd30Days === null || recommendation.selectedProjectedListPriceUsd30Days === null || recommendation.projectedRunsPer30Days === null ? "n/a" : `${dollars(recommendation.currentProjectedListPriceUsd30Days, 2)} \u2192 ${dollars(recommendation.selectedProjectedListPriceUsd30Days, 2)} (${recommendation.projectedRunsPer30Days.toFixed(1)} runs)`;
-  const estimatedChargePerRun = recommendation.pricing.currentEstimatedChargeUsdPerRun === null || recommendation.pricing.selectedEstimatedChargeUsdPerRun === null ? "n/a" : `${dollars(recommendation.pricing.currentEstimatedChargeUsdPerRun)} \u2192 ${dollars(recommendation.pricing.selectedEstimatedChargeUsdPerRun)}`;
-  const estimatedChargeReduction = recommendation.pricing.estimatedChargeReductionPercent === null ? "n/a" : `${recommendation.pricing.estimatedChargeReductionPercent.toFixed(1)}%`;
-  const projectedCharge30d = recommendation.pricing.currentEstimatedChargeUsdPer30Days === null || recommendation.pricing.selectedEstimatedChargeUsdPer30Days === null || recommendation.pricing.projectedRunsPer30Days === null ? "n/a" : `${dollars(recommendation.pricing.currentEstimatedChargeUsdPer30Days, 2)} \u2192 ${dollars(recommendation.pricing.selectedEstimatedChargeUsdPer30Days, 2)} (${recommendation.pricing.projectedRunsPer30Days.toFixed(1)} runs)`;
-  const repositoryVisibility = recommendation.pricing.repositoryVisibility ?? "unknown";
-  const backtestRows = backtest ? [
-    `| Holdout optimizer | ${backtest.optimizerAlgorithm} (optimal=${backtest.optimizerOptimal ?? "n/a"}, nodes=${backtest.optimizerSearchNodes}) |`,
-    `| Holdout failure recall | ${backtest.coveredHoldoutFingerprints}/${backtest.holdoutFingerprints} (${percent(backtest.holdoutRecall)}) |`,
-    `| Unseen-failure recall | ${backtest.unseenHoldoutRecall === null ? "n/a" : `${backtest.coveredUnseenHoldoutFingerprints}/${backtest.unseenHoldoutFingerprints} (${percent(backtest.unseenHoldoutRecall)})`} |`,
-    `| Holdout combinatorial coverage | ${backtest.holdoutCombinatorialCoverage === null ? "n/a" : `${backtest.coveredHoldoutCombinatorialRequirements}/${backtest.holdoutCombinatorialRequirements} (${percent(backtest.holdoutCombinatorialCoverage)})`} |`
-  ].join("\n") : `| Backtest | unavailable${backtestError ? `: ${backtestError}` : ""} |`;
-  const warnings = recommendation.warnings.map((warning2) => `- \u26A0\uFE0F ${warning2}`).join("\n");
-  return `<!-- matrixtrim-report -->
-## MatrixTrim analysis
-
-**Repository:** \`${repository}\`  
-**Workflow:** \`${workflow ?? "all"}\`  
-**Coverage strength:** ${recommendation.coverageStrength}
-
-| Metric | Result |
-| --- | ---: |
-| Current matrix cells | ${recommendation.currentCells} |
-| Suggested cells | ${recommendation.selectedCells.length} |
-| Optimizer | ${recommendation.algorithm} (mode=${recommendation.optimizerMode}, optimal=${recommendation.optimizerOptimal ?? "n/a"}, nodes=${recommendation.optimizerSearchNodes}) |
-| Optimizer improvement vs greedy | ${recommendation.optimizerImprovementPercent.toFixed(1)}% |
-| Historical failure recall | ${historical} |
-| Failure events | ${recommendation.failureEvents} |
-| Failed jobs with events | ${recommendation.failedJobsWithEvents} |
-| Multi-event jobs | ${recommendation.multiEventJobs} |
-| Observed combinatorial coverage | ${combinatorial} |
-| Explicit hard constraints | ${recommendation.coveredConstraintRequirements}/${recommendation.constraintRequirements} |
-| Estimated compute | ${seconds(recommendation.currentEstimatedSeconds)} \u2192 ${seconds(recommendation.selectedEstimatedSeconds)} |
-| Estimated compute reduction | ${reduction} |
-| Pricing coverage | ${percent(recommendation.pricingCoverage)} |
-| Repository visibility | ${repositoryVisibility} |
-| Standard runner rate-card / run | ${listPricePerRun} |
-| Rate-card reduction | ${listPriceReduction} |
-| Projected 30-day rate-card equivalent | ${projected30d} |
-| Estimated GitHub charge / run | ${estimatedChargePerRun} |
-| Estimated GitHub charge reduction | ${estimatedChargeReduction} |
-| Projected 30-day GitHub charge | ${projectedCharge30d} |
-${backtestRows}
-
-<details>
-<summary>Suggested cells</summary>
-
-${selected || "_No cells selected._"}
-
-</details>
-
-### Interpretation
-
-MatrixTrim measures the historical failure-detection value of CI configurations. A recommendation is **evidence, not proof that removed configurations can never catch a future failure**.
-
-**Billing note:** ${recommendation.pricing.note}
-
-${warnings}
-
-_Generated by MatrixTrim._
-`;
-}
-
 // src/optimization-pr.ts
 var import_node_path = require("node:path");
 
@@ -10081,10 +10223,9 @@ function rewriteWorkflowToSelectedCells(workflowText, observedCellNames, selecte
     }
     if (selected.length === definition.cells.length) continue;
     const include = selected.map((cell) => cell.matrix);
-    document.setIn(
-      ["jobs", definition.jobId, "strategy", "matrix"],
-      { include }
-    );
+    document.setIn(["jobs", definition.jobId, "strategy", "matrix"], {
+      include
+    });
     jobs.push({
       jobId: definition.jobId,
       beforeCells: definition.cells.length,
@@ -10208,18 +10349,17 @@ Review and run the repository's normal CI before merging.
 `;
 }
 async function createOrUpdateOptimizationPullRequest(client, analysis, recommendation, backtest, backtestError) {
-  const reason = optimizationSafetyReason(
-    analysis,
-    recommendation,
-    backtest
-  );
+  const reason = optimizationSafetyReason(analysis, recommendation, backtest);
   if (reason) {
     return { status: "skipped", reason };
   }
   const repository = await client.repositoryInfo();
   const base = repository.default_branch;
   if (!base) {
-    return { status: "skipped", reason: "repository default branch is unavailable" };
+    return {
+      status: "skipped",
+      reason: "repository default branch is unavailable"
+    };
   }
   const workflowPath = analysis.workflowPath;
   const baseFile = await client.file(workflowPath, base);
@@ -10348,8 +10488,12 @@ async function main() {
   }
   if (mode === "capture") {
     const matrixJson = input("matrix");
-    if (!matrixJson) throw new Error("matrix input is required in capture mode");
-    const evidence = encodeMatrixEvidence(process.env.GITHUB_JOB ?? "", matrixJson);
+    if (!matrixJson)
+      throw new Error("matrix input is required in capture mode");
+    const evidence = encodeMatrixEvidence(
+      process.env.GITHUB_JOB ?? "",
+      matrixJson
+    );
     notice(evidence);
     await writeOutput("capture-status", "captured");
     return;
@@ -10367,12 +10511,7 @@ async function main() {
     throw new Error("optimizer must be auto, exact, or greedy");
   }
   const optimizer = optimizerRaw;
-  const exactMaxNodes = intInput(
-    "exact-max-nodes",
-    25e4,
-    1,
-    1e7
-  );
+  const exactMaxNodes = intInput("exact-max-nodes", 25e4, 1, 1e7);
   const configPath = input("config") || ".matrixtrim.yml";
   const comment = boolInput("comment", true);
   const createPr = boolInput("create-pr", false);
@@ -10528,10 +10667,7 @@ async function main() {
     "constraint-coverage",
     recommendation.constraintRequirements ? (recommendation.coveredConstraintRequirements / recommendation.constraintRequirements).toFixed(4) : "1.0000"
   );
-  await writeOutput(
-    "holdout-recall",
-    backtest?.holdoutRecall.toFixed(4) ?? ""
-  );
+  await writeOutput("holdout-recall", backtest?.holdoutRecall.toFixed(4) ?? "");
   await writeOutput(
     "unseen-failure-recall",
     backtest?.unseenHoldoutRecall?.toFixed(4) ?? ""
