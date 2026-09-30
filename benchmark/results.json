@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-30T10:07:41.199Z",
+  "generatedAt": "2026-09-30T11:41:53.961Z",
   "snapshotCapturedAt": "2026-09-30T04:29:07.793Z",
   "snapshotPath": "benchmark/snapshot.json",
   "limit": 20,
@@ -135,7 +135,7 @@
       "selectedEstimatedChargeUsdPer30Days": null,
       "backtest": null,
       "backtestReason": "backtest needs at least one analyzable failure in both the training and holdout windows",
-      "elapsedSeconds": 22.116018459000003
+      "elapsedSeconds": 16.107704291
     },
     {
       "repository": "numpy/numpy",
@@ -264,7 +264,7 @@
       "selectedEstimatedChargeUsdPer30Days": null,
       "backtest": null,
       "backtestReason": "backtest needs at least one analyzable failure in both the training and holdout windows",
-      "elapsedSeconds": 14.123417791
+      "elapsedSeconds": 11.149005165999998
     },
     {
       "repository": "pandas-dev/pandas",
@@ -402,7 +402,7 @@
         "unseenHoldoutFingerprints": 3,
         "holdoutCombinatorialCoverage": 1
       },
-      "elapsedSeconds": 38.739734041999995
+      "elapsedSeconds": 29.519914708
     },
     {
       "repository": "pydantic/pydantic",
@@ -531,7 +531,7 @@
       "selectedEstimatedChargeUsdPer30Days": null,
       "backtest": null,
       "backtestReason": "backtest needs at least one analyzable failure in both the training and holdout windows",
-      "elapsedSeconds": 61.179352791000014
+      "elapsedSeconds": 40.937685958
     },
     {
       "repository": "encode/httpx",
@@ -660,7 +660,7 @@
       "selectedEstimatedChargeUsdPer30Days": 0,
       "backtest": null,
       "backtestReason": "backtest needs at least one analyzable failure in both the training and holdout windows",
-      "elapsedSeconds": 10.531821083000017
+      "elapsedSeconds": 9.625611833999995
     },
     {
       "repository": "pallets/flask",
@@ -789,7 +789,7 @@
       "selectedEstimatedChargeUsdPer30Days": 0,
       "backtest": null,
       "backtestReason": "backtest needs at least one analyzable failure in both the training and holdout windows",
-      "elapsedSeconds": 14.334779375000013
+      "elapsedSeconds": 11.099682167000006
     },
     {
       "repository": "aio-libs/aiohttp",
@@ -919,7 +919,7 @@
       "backtest": null,
       "backtestReason": "backtest needs at least one analyzable failure in both the training and holdout windows",
       "reason": "17 observed cell(s) have unresolved axes.",
-      "elapsedSeconds": 20.15718762499999
+      "elapsedSeconds": 13.100703042000008
     },
     {
       "repository": "tokio-rs/tokio",
@@ -998,7 +998,7 @@
       "optimizerRequested": "auto",
       "exactMaxNodes": 250000,
       "runsAnalyzed": 20,
-      "matrixCells": 51,
+      "matrixCells": 53,
       "fingerprints": 0,
       "failedJobs": 0,
       "failureEvents": 0,
@@ -1008,34 +1008,34 @@
       "logErrors": 0,
       "workflowDefinitionFallbacks": 0,
       "workflowDefinitionErrors": 0,
-      "workflowStaticDefinitionCells": 1040,
-      "workflowRenderedDefinitionCells": 1040,
+      "workflowStaticDefinitionCells": 1000,
+      "workflowRenderedDefinitionCells": 1000,
       "workflowRenderCoverage": 1,
-      "workflowExpectedMatrixCells": 931,
-      "workflowMatchedMatrixCells": 836,
-      "workflowMatchCoverage": 0.8979591836734694,
-      "inactiveStaticMatrixFamilies": 57,
-      "dynamicMatrixDefinitions": 0,
+      "workflowExpectedMatrixCells": 893,
+      "workflowMatchedMatrixCells": 817,
+      "workflowMatchCoverage": 0.9148936170212766,
+      "inactiveStaticMatrixFamilies": 56,
+      "dynamicMatrixDefinitions": 20,
       "failureEvidenceRuns": 0,
-      "selectedCells": 51,
-      "axisResolvedCells": 47,
-      "axisResolvedPercent": 92.15686274509804,
+      "selectedCells": 53,
+      "axisResolvedCells": 49,
+      "axisResolvedPercent": 92.45283018867924,
       "historicalRecall": null,
       "combinatorialCoverage": 1,
       "optimizerAlgorithm": "exact-branch-and-bound",
       "optimizerMode": "auto",
       "optimizerOptimal": true,
-      "optimizerSearchNodes": 52,
+      "optimizerSearchNodes": 54,
       "optimizerFallbackReason": null,
-      "greedyObjectiveCost": 9827,
-      "selectedObjectiveCost": 9827,
+      "greedyObjectiveCost": 10550,
+      "selectedObjectiveCost": 10550,
       "optimizerImprovementPercent": 0,
       "computeReductionPercent": null,
       "currentEstimatedSeconds": null,
       "selectedEstimatedSeconds": null,
-      "combinatorialRequirements": 96,
+      "combinatorialRequirements": 98,
       "repositoryVisibility": "public",
-      "pricingCoverage": 0.9803921568627451,
+      "pricingCoverage": 0.9622641509433962,
       "currentRateCardUsdPerRun": null,
       "selectedRateCardUsdPerRun": null,
       "rateCardReductionPercent": null,
@@ -1049,7 +1049,7 @@
       "backtest": null,
       "backtestReason": "backtest needs at least one analyzable failure in both the training and holdout windows",
       "reason": "4 observed cell(s) have unresolved axes.",
-      "elapsedSeconds": 39.244043125
+      "elapsedSeconds": 20.527008333000005
     },
     {
       "repository": "serde-rs/serde",
@@ -1178,7 +1178,7 @@
       "selectedEstimatedChargeUsdPer30Days": 0,
       "backtest": null,
       "backtestReason": "backtest needs at least one analyzable failure in both the training and holdout windows",
-      "elapsedSeconds": 10.879115707999997
+      "elapsedSeconds": 7.868544667000009
     },
     {
       "repository": "diesel-rs/diesel",
@@ -1316,7 +1316,7 @@
         "unseenHoldoutFingerprints": 0,
         "holdoutCombinatorialCoverage": 1
       },
-      "elapsedSeconds": 37.65403662500001
+      "elapsedSeconds": 31.300314209000003
     },
     {
       "repository": "pnpm/pnpm",
@@ -1445,7 +1445,7 @@
       "selectedEstimatedChargeUsdPer30Days": null,
       "backtest": null,
       "backtestReason": "backtest needs at least one analyzable failure in both the training and holdout windows",
-      "elapsedSeconds": 10.609206417000038
+      "elapsedSeconds": 9.202105500000005
     },
     {
       "repository": "vitejs/vite",
@@ -1583,7 +1583,7 @@
         "unseenHoldoutFingerprints": 10,
         "holdoutCombinatorialCoverage": 1
       },
-      "elapsedSeconds": 13.867367417
+      "elapsedSeconds": 11.237807207999984
     }
   ]
 }

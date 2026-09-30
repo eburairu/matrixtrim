@@ -1,6 +1,6 @@
 {
   "name": "matrixtrim",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "description": "Evidence-based GitHub Actions matrix diagnostics and optimization.",
   "type": "module",
   "bin": {

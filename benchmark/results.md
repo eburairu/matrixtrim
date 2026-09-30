@@ -27,7 +27,7 @@ Validated non-zero reductions in this snapshot:
 | encode/httpx | resolved | 5 | 5 | 100% | 100% | 100% | 6 | 1 | 0 | 1 | exact ✓ (6 nodes) | 0.0% | 100.0% | n/a | n/a | 0.0% | 100.0% | $0.048 → $0.048 | $0.000 → $0.000 |
 | pallets/flask | resolved | 12 | 10 | 100% | 100% | 100% | 4 | 4 | 0 | 4 | exact ✓ (11 nodes) | 0.0% | 100.0% | n/a | n/a | 13.6% | 100.0% | $0.132 → $0.120 | $0.000 → $0.000 |
 | aio-libs/aiohttp | partial | 29 | 29 | 41% | 75% | 42% | 0 | 0 | 0 | 0 | exact ✓ (30 nodes) | 0.0% | n/a | n/a | n/a | 0.0% | 100.0% | $2.221 → $2.221 | $0.000 → $0.000 |
-| tokio-rs/tokio | partial | 51 | 51 | 92% | 100% | 90% | 0 | 0 | 0 | 0 | exact ✓ (52 nodes) | 0.0% | n/a | n/a | n/a | n/a | 98.0% | n/a | n/a |
+| tokio-rs/tokio | partial | 53 | 53 | 92% | 100% | 91% | 0 | 0 | 0 | 0 | exact ✓ (54 nodes) | 0.0% | n/a | n/a | n/a | n/a | 96.2% | n/a | n/a |
 | serde-rs/serde | resolved | 6 | 6 | 100% | 100% | 100% | 0 | 0 | 0 | 0 | exact ✓ (7 nodes) | 0.0% | n/a | n/a | n/a | 0.0% | 100.0% | $0.064 → $0.064 | $0.000 → $0.000 |
 | diesel-rs/diesel | resolved | 28 | 25 | 100% | 100% | 100% | 40 | 40 | 0 | 1 | exact ✓ (26 nodes) | 1.2% | 100.0% | 100.0% | n/a | 8.3% | 100.0% | $11.624 → $11.438 | $0.000 → $0.000 |
 | pnpm/pnpm | resolved | 3 | 3 | 100% | 100% | 100% | 1 | 1 | 0 | 1 | exact ✓ (4 nodes) | 0.0% | 100.0% | n/a | n/a | 0.0% | 0.0% | n/a | n/a |

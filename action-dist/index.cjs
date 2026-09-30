@@ -7721,6 +7721,55 @@ function stableStringify(value) {
 function deepEqual(a, b) {
   return stableStringify(a) === stableStringify(b);
 }
+function expressionNumber(value) {
+  if (value === null) return 0;
+  if (typeof value === "boolean") return value ? 1 : 0;
+  if (typeof value === "number") return value;
+  if (typeof value === "string") {
+    if (!value.trim()) return 0;
+    const parsed = Number(value);
+    return Number.isNaN(parsed) ? Number.NaN : parsed;
+  }
+  return Number.NaN;
+}
+function expressionEqual(a, b) {
+  if (typeof a === typeof b) {
+    if (typeof a === "string" && typeof b === "string") {
+      return a.toLowerCase() === b.toLowerCase();
+    }
+    if (typeof a === "object" && a !== null || Array.isArray(a)) {
+      return a === b;
+    }
+    return Object.is(a, b);
+  }
+  const left = expressionNumber(a);
+  const right = expressionNumber(b);
+  return !Number.isNaN(left) && !Number.isNaN(right) && left === right;
+}
+function expressionCompare(a, b, operator) {
+  if (typeof a === "string" && typeof b === "string") {
+    const left2 = a.toLowerCase();
+    const right2 = b.toLowerCase();
+    if (operator === "<") return left2 < right2;
+    if (operator === "<=") return left2 <= right2;
+    if (operator === ">") return left2 > right2;
+    return left2 >= right2;
+  }
+  const left = expressionNumber(a);
+  const right = expressionNumber(b);
+  if (Number.isNaN(left) || Number.isNaN(right)) return false;
+  if (operator === "<") return left < right;
+  if (operator === "<=") return left <= right;
+  if (operator === ">") return left > right;
+  return left >= right;
+}
+function githubString(value) {
+  if (value === null) return "";
+  if (["string", "number", "boolean"].includes(typeof value)) {
+    return String(value);
+  }
+  return void 0;
+}
 function hasRuntimeExpression(value) {
   if (typeof value === "string") return value.includes("${{");
   if (Array.isArray(value)) return value.some(hasRuntimeExpression);
@@ -7810,12 +7859,20 @@ function expandStaticMatrix(matrix) {
 }
 function getPath(row, path) {
   const parts = path.split(".");
-  let value = row;
-  for (const part of parts) {
+  function descend(value, index) {
+    if (index >= parts.length) return value;
+    const part = parts[index];
+    if (part === "*") {
+      if (!Array.isArray(value)) return void 0;
+      return value.flatMap((item) => {
+        const resolved = descend(item, index + 1);
+        return Array.isArray(resolved) ? resolved : [resolved];
+      }).filter((item) => item !== void 0);
+    }
     if (!value || typeof value !== "object") return void 0;
-    value = value[part];
+    return descend(value[part], index + 1);
   }
-  return value;
+  return descend(row, 0);
 }
 function splitArgs(text) {
   const result = [];
@@ -7887,22 +7944,109 @@ function evalExpression(expression, row) {
     }
     return last;
   }
+  for (const operator of ["<=", ">=", "<", ">"]) {
+    const comparison = splitTopLevel(expr, operator);
+    if (comparison.length === 2) {
+      return expressionCompare(
+        evalExpression(comparison[0], row),
+        evalExpression(comparison[1], row),
+        operator
+      );
+    }
+  }
   const notEqual = splitTopLevel(expr, "!=");
   if (notEqual.length === 2) {
-    return !deepEqual(
+    return !expressionEqual(
       evalExpression(notEqual[0], row),
       evalExpression(notEqual[1], row)
     );
   }
   const equal = splitTopLevel(expr, "==");
   if (equal.length === 2) {
-    return deepEqual(
+    return expressionEqual(
       evalExpression(equal[0], row),
       evalExpression(equal[1], row)
     );
   }
   if (expr.startsWith("!")) {
     return !evalExpression(expr.slice(1), row);
+  }
+  const caseMatch = expr.match(/^case\((.*)\)$/s);
+  if (caseMatch) {
+    const args = splitArgs(caseMatch[1]);
+    if (args.length < 3 || args.length % 2 === 0) return void 0;
+    for (let index = 0; index < args.length - 1; index += 2) {
+      if (evalExpression(args[index], row)) {
+        return evalExpression(args[index + 1], row);
+      }
+    }
+    return evalExpression(args.at(-1), row);
+  }
+  const containsMatch = expr.match(/^contains\((.*)\)$/s);
+  if (containsMatch) {
+    const args = splitArgs(containsMatch[1]);
+    if (args.length !== 2) return void 0;
+    const search = evalExpression(args[0], row);
+    const item = evalExpression(args[1], row);
+    if (Array.isArray(search)) {
+      return search.some((value) => expressionEqual(value, item));
+    }
+    const searchText = githubString(search);
+    const itemText = githubString(item);
+    if (searchText === void 0 || itemText === void 0) return void 0;
+    return searchText.toLowerCase().includes(itemText.toLowerCase());
+  }
+  const startsWithMatch = expr.match(/^startsWith\((.*)\)$/s);
+  if (startsWithMatch) {
+    const args = splitArgs(startsWithMatch[1]);
+    if (args.length !== 2) return void 0;
+    const search = githubString(evalExpression(args[0], row));
+    const prefix = githubString(evalExpression(args[1], row));
+    if (search === void 0 || prefix === void 0) return void 0;
+    return search.toLowerCase().startsWith(prefix.toLowerCase());
+  }
+  const endsWithMatch = expr.match(/^endsWith\((.*)\)$/s);
+  if (endsWithMatch) {
+    const args = splitArgs(endsWithMatch[1]);
+    if (args.length !== 2) return void 0;
+    const search = githubString(evalExpression(args[0], row));
+    const suffix = githubString(evalExpression(args[1], row));
+    if (search === void 0 || suffix === void 0) return void 0;
+    return search.toLowerCase().endsWith(suffix.toLowerCase());
+  }
+  const joinMatch = expr.match(/^join\((.*)\)$/s);
+  if (joinMatch) {
+    const args = splitArgs(joinMatch[1]);
+    if (args.length < 1 || args.length > 2) return void 0;
+    const value = evalExpression(args[0], row);
+    const separator = args.length === 2 ? githubString(evalExpression(args[1], row)) : ",";
+    if (separator === void 0) return void 0;
+    if (Array.isArray(value)) {
+      const values = value.map(githubString);
+      if (values.some((item) => item === void 0)) return void 0;
+      return values.join(separator);
+    }
+    return githubString(value);
+  }
+  const fromJsonMatch = expr.match(/^fromJSON\((.*)\)$/s);
+  if (fromJsonMatch) {
+    const args = splitArgs(fromJsonMatch[1]);
+    if (args.length !== 1) return void 0;
+    const value = evalExpression(args[0], row);
+    if (typeof value !== "string") return void 0;
+    try {
+      return JSON.parse(value);
+    } catch {
+      return void 0;
+    }
+  }
+  const toJsonMatch = expr.match(/^toJSON\((.*)\)$/s);
+  if (toJsonMatch) {
+    const args = splitArgs(toJsonMatch[1]);
+    if (args.length !== 1) return void 0;
+    const value = evalExpression(args[0], row);
+    if (value === void 0) return void 0;
+    return JSON.stringify(value, null, 2);
   }
   const formatMatch = expr.match(/^format\((.*)\)$/s);
   if (formatMatch) {
@@ -7917,17 +8061,23 @@ function evalExpression(expression, row) {
       (_, index) => String(values[Number(index)] ?? "")
     );
   }
-  const matrixMatch = expr.match(/^matrix\.([A-Za-z0-9_.-]+)$/);
-  if (matrixMatch) {
-    return getPath(row, matrixMatch[1]);
+  const matrixPath = matrixReferencePath(expr);
+  if (matrixPath) {
+    return getPath(row, matrixPath);
   }
-  if (expr.startsWith("'") && expr.endsWith("'") || expr.startsWith('"') && expr.endsWith('"')) {
+  if (expr.startsWith("'") && expr.endsWith("'")) {
+    return expr.slice(1, -1).replace(/''/g, "'");
+  }
+  if (expr.startsWith('"') && expr.endsWith('"')) {
     return expr.slice(1, -1);
   }
   if (expr === "true") return true;
   if (expr === "false") return false;
   if (expr === "null") return null;
-  if (/^-?\d+(?:\.\d+)?$/.test(expr)) return Number(expr);
+  if (/^-?0x[0-9a-f]+$/i.test(expr)) return Number(expr);
+  if (/^-?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(expr)) {
+    return Number(expr);
+  }
   return void 0;
 }
 function splitTopLevel(text, operator) {
@@ -7972,19 +8122,45 @@ function renderName(template, row) {
 function escapeRegex(text) {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
-function directMatrixAxis(expression) {
-  const match = expression.trim().match(/^matrix\.([A-Za-z0-9_.-]+)$/);
+function matrixReferencePath(expression) {
+  const normalized = expression.trim().replace(
+    /\[['"]([^'"]+)['"]\]/g,
+    (_, key) => `.${key}`
+  );
+  const match = normalized.match(
+    /^matrix\.([A-Za-z0-9_*-]+(?:\.[A-Za-z0-9_*-]+)*)$/
+  );
   return match?.[1] ?? null;
 }
+function directMatrixAxis(expression) {
+  const path = matrixReferencePath(expression);
+  return path && !path.includes("*") ? path : null;
+}
 function matrixAxesInTemplate(template) {
-  return [...new Set(
-    [...template.matchAll(/\bmatrix\.([A-Za-z0-9_.-]+)/g)].map((match) => match[1]).filter(Boolean)
-  )];
+  const references = template.match(
+    /\bmatrix(?:\.[A-Za-z0-9_*-]+|\[['"][^'"]+['"]\])+/g
+  ) ?? [];
+  return [...new Set(references.map(directMatrixAxis).filter(
+    (axis) => axis !== null
+  ))];
 }
 function dynamicExpressionMatcher(expression) {
   const direct = directMatrixAxis(expression);
   if (direct) {
-    return { pattern: "(.+?)", axes: [direct] };
+    return { pattern: "(.+?)", axes: [direct], rejectedValues: [null] };
+  }
+  const fallback = splitTopLevel(expression.trim(), "||");
+  if (fallback.length === 2) {
+    const axis = directMatrixAxis(fallback[0]);
+    const fallbackValue = evalExpression(fallback[1], {});
+    const fallbackText = githubString(fallbackValue);
+    if (axis && fallbackValue !== void 0 && fallbackText !== void 0) {
+      return {
+        pattern: "(.+?)",
+        axes: [axis],
+        rejectedValues: [/* @__PURE__ */ new Set([fallbackText])]
+      };
+    }
   }
   const formatMatch = expression.trim().match(/^format\((.*)\)$/s);
   if (!formatMatch) return null;
@@ -7996,6 +8172,7 @@ function dynamicExpressionMatcher(expression) {
   if (axisArgs.some((axis) => axis === null)) return null;
   let pattern = "";
   const axes = [];
+  const rejectedValues = [];
   let start = 0;
   for (const match of template.matchAll(/\{(\d+)\}/g)) {
     const index = match.index ?? 0;
@@ -8005,15 +8182,17 @@ function dynamicExpressionMatcher(expression) {
     if (!axis) return null;
     pattern += "(.+?)";
     axes.push(axis);
+    rejectedValues.push(null);
     start = index + match[0].length;
   }
   pattern += escapeRegex(template.slice(start));
-  return axes.length ? { pattern, axes } : null;
+  return axes.length ? { pattern, axes, rejectedValues } : null;
 }
 function matchDynamicNameTemplate(template, name) {
   const expressionPattern = /\$\{\{([\s\S]*?)\}\}/g;
   let pattern = "^";
   const axes = [];
+  const rejectedValues = [];
   let start = 0;
   let found = false;
   for (const match of template.matchAll(expressionPattern)) {
@@ -8024,6 +8203,7 @@ function matchDynamicNameTemplate(template, name) {
     if (!matcher) return null;
     pattern += matcher.pattern;
     axes.push(...matcher.axes);
+    rejectedValues.push(...matcher.rejectedValues);
     start = index + match[0].length;
   }
   if (!found || !axes.length) return null;
@@ -8035,6 +8215,7 @@ function matchDynamicNameTemplate(template, name) {
   for (let index = 0; index < axes.length; index++) {
     const axis = axes[index];
     const value = matched[index + 1] ?? "";
+    if (rejectedValues[index]?.has(value)) return null;
     if (axis in result && result[axis] !== value) return null;
     result[axis] = value;
   }
@@ -8079,7 +8260,7 @@ function workflowMatrixDefinitions(text) {
     const cells = [];
     if (!expanded.dynamic) {
       for (const row of expanded.rows) {
-        const name = typeof spec?.name === "string" ? spec.name.includes("matrix.") ? renderName(spec.name, row) : defaultExpandedName(spec.name, row, expanded.axes) : defaultExpandedName(jobId, row, expanded.axes);
+        const name = typeof spec?.name === "string" ? spec.name.includes("${{") ? renderName(spec.name, row) : defaultExpandedName(spec.name, row, expanded.axes) : defaultExpandedName(jobId, row, expanded.axes);
         if (!name) continue;
         cells.push({
           name,

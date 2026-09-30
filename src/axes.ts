@@ -41,6 +41,65 @@ function deepEqual(a: unknown, b: unknown): boolean {
   return stableStringify(a) === stableStringify(b);
 }
 
+function expressionNumber(value: unknown): number {
+  if (value === null) return 0;
+  if (typeof value === "boolean") return value ? 1 : 0;
+  if (typeof value === "number") return value;
+  if (typeof value === "string") {
+    if (!value.trim()) return 0;
+    const parsed = Number(value);
+    return Number.isNaN(parsed) ? Number.NaN : parsed;
+  }
+  return Number.NaN;
+}
+
+function expressionEqual(a: unknown, b: unknown): boolean {
+  if (typeof a === typeof b) {
+    if (typeof a === "string" && typeof b === "string") {
+      return a.toLowerCase() === b.toLowerCase();
+    }
+    if ((typeof a === "object" && a !== null) || Array.isArray(a)) {
+      return a === b;
+    }
+    return Object.is(a, b);
+  }
+
+  const left = expressionNumber(a);
+  const right = expressionNumber(b);
+  return !Number.isNaN(left) && !Number.isNaN(right) && left === right;
+}
+
+function expressionCompare(
+  a: unknown,
+  b: unknown,
+  operator: "<" | "<=" | ">" | ">=",
+): boolean {
+  if (typeof a === "string" && typeof b === "string") {
+    const left = a.toLowerCase();
+    const right = b.toLowerCase();
+    if (operator === "<") return left < right;
+    if (operator === "<=") return left <= right;
+    if (operator === ">") return left > right;
+    return left >= right;
+  }
+
+  const left = expressionNumber(a);
+  const right = expressionNumber(b);
+  if (Number.isNaN(left) || Number.isNaN(right)) return false;
+  if (operator === "<") return left < right;
+  if (operator === "<=") return left <= right;
+  if (operator === ">") return left > right;
+  return left >= right;
+}
+
+function githubString(value: unknown): string | undefined {
+  if (value === null) return "";
+  if (["string", "number", "boolean"].includes(typeof value)) {
+    return String(value);
+  }
+  return undefined;
+}
+
 function hasRuntimeExpression(value: unknown): boolean {
   if (typeof value === "string") return value.includes("${{");
   if (Array.isArray(value)) return value.some(hasRuntimeExpression);
@@ -180,12 +239,27 @@ function getPath(
   path: string,
 ): unknown {
   const parts = path.split(".");
-  let value: unknown = row;
-  for (const part of parts) {
+
+  function descend(value: unknown, index: number): unknown {
+    if (index >= parts.length) return value;
+    const part = parts[index]!;
+
+    if (part === "*") {
+      // GitHub permits object filters over arrays and objects, but object
+      // property order is explicitly unspecified. Only arrays are replayed
+      // here so rendered-name reconstruction stays deterministic.
+      if (!Array.isArray(value)) return undefined;
+      return value.flatMap((item) => {
+        const resolved = descend(item, index + 1);
+        return Array.isArray(resolved) ? resolved : [resolved];
+      }).filter((item) => item !== undefined);
+    }
+
     if (!value || typeof value !== "object") return undefined;
-    value = (value as Record<string, unknown>)[part];
+    return descend((value as Record<string, unknown>)[part], index + 1);
   }
-  return value;
+
+  return descend(row, 0);
 }
 
 function splitArgs(text: string): string[] {
@@ -268,9 +342,20 @@ function evalExpression(
     return last;
   }
 
+  for (const operator of ["<=", ">=", "<", ">"] as const) {
+    const comparison = splitTopLevel(expr, operator);
+    if (comparison.length === 2) {
+      return expressionCompare(
+        evalExpression(comparison[0]!, row),
+        evalExpression(comparison[1]!, row),
+        operator,
+      );
+    }
+  }
+
   const notEqual = splitTopLevel(expr, "!=");
   if (notEqual.length === 2) {
-    return !deepEqual(
+    return !expressionEqual(
       evalExpression(notEqual[0]!, row),
       evalExpression(notEqual[1]!, row),
     );
@@ -278,7 +363,7 @@ function evalExpression(
 
   const equal = splitTopLevel(expr, "==");
   if (equal.length === 2) {
-    return deepEqual(
+    return expressionEqual(
       evalExpression(equal[0]!, row),
       evalExpression(equal[1]!, row),
     );
@@ -286,6 +371,92 @@ function evalExpression(
 
   if (expr.startsWith("!")) {
     return !evalExpression(expr.slice(1), row);
+  }
+
+  const caseMatch = expr.match(/^case\((.*)\)$/s);
+  if (caseMatch) {
+    const args = splitArgs(caseMatch[1]!);
+    if (args.length < 3 || args.length % 2 === 0) return undefined;
+    for (let index = 0; index < args.length - 1; index += 2) {
+      if (evalExpression(args[index]!, row)) {
+        return evalExpression(args[index + 1]!, row);
+      }
+    }
+    return evalExpression(args.at(-1)!, row);
+  }
+
+  const containsMatch = expr.match(/^contains\((.*)\)$/s);
+  if (containsMatch) {
+    const args = splitArgs(containsMatch[1]!);
+    if (args.length !== 2) return undefined;
+    const search = evalExpression(args[0]!, row);
+    const item = evalExpression(args[1]!, row);
+    if (Array.isArray(search)) {
+      return search.some((value) => expressionEqual(value, item));
+    }
+    const searchText = githubString(search);
+    const itemText = githubString(item);
+    if (searchText === undefined || itemText === undefined) return undefined;
+    return searchText.toLowerCase().includes(itemText.toLowerCase());
+  }
+
+  const startsWithMatch = expr.match(/^startsWith\((.*)\)$/s);
+  if (startsWithMatch) {
+    const args = splitArgs(startsWithMatch[1]!);
+    if (args.length !== 2) return undefined;
+    const search = githubString(evalExpression(args[0]!, row));
+    const prefix = githubString(evalExpression(args[1]!, row));
+    if (search === undefined || prefix === undefined) return undefined;
+    return search.toLowerCase().startsWith(prefix.toLowerCase());
+  }
+
+  const endsWithMatch = expr.match(/^endsWith\((.*)\)$/s);
+  if (endsWithMatch) {
+    const args = splitArgs(endsWithMatch[1]!);
+    if (args.length !== 2) return undefined;
+    const search = githubString(evalExpression(args[0]!, row));
+    const suffix = githubString(evalExpression(args[1]!, row));
+    if (search === undefined || suffix === undefined) return undefined;
+    return search.toLowerCase().endsWith(suffix.toLowerCase());
+  }
+
+  const joinMatch = expr.match(/^join\((.*)\)$/s);
+  if (joinMatch) {
+    const args = splitArgs(joinMatch[1]!);
+    if (args.length < 1 || args.length > 2) return undefined;
+    const value = evalExpression(args[0]!, row);
+    const separator = args.length === 2
+      ? githubString(evalExpression(args[1]!, row))
+      : ",";
+    if (separator === undefined) return undefined;
+    if (Array.isArray(value)) {
+      const values = value.map(githubString);
+      if (values.some((item) => item === undefined)) return undefined;
+      return values.join(separator);
+    }
+    return githubString(value);
+  }
+
+  const fromJsonMatch = expr.match(/^fromJSON\((.*)\)$/s);
+  if (fromJsonMatch) {
+    const args = splitArgs(fromJsonMatch[1]!);
+    if (args.length !== 1) return undefined;
+    const value = evalExpression(args[0]!, row);
+    if (typeof value !== "string") return undefined;
+    try {
+      return JSON.parse(value);
+    } catch {
+      return undefined;
+    }
+  }
+
+  const toJsonMatch = expr.match(/^toJSON\((.*)\)$/s);
+  if (toJsonMatch) {
+    const args = splitArgs(toJsonMatch[1]!);
+    if (args.length !== 1) return undefined;
+    const value = evalExpression(args[0]!, row);
+    if (value === undefined) return undefined;
+    return JSON.stringify(value, null, 2);
   }
 
   const formatMatch = expr.match(/^format\((.*)\)$/s);
@@ -301,21 +472,24 @@ function evalExpression(
     );
   }
 
-  const matrixMatch = expr.match(/^matrix\.([A-Za-z0-9_.-]+)$/);
-  if (matrixMatch) {
-    return getPath(row, matrixMatch[1]!);
+  const matrixPath = matrixReferencePath(expr);
+  if (matrixPath) {
+    return getPath(row, matrixPath);
   }
 
-  if (
-    (expr.startsWith("'") && expr.endsWith("'")) ||
-    (expr.startsWith('"') && expr.endsWith('"'))
-  ) {
+  if (expr.startsWith("'") && expr.endsWith("'")) {
+    return expr.slice(1, -1).replace(/''/g, "'");
+  }
+  if (expr.startsWith('"') && expr.endsWith('"')) {
     return expr.slice(1, -1);
   }
   if (expr === "true") return true;
   if (expr === "false") return false;
   if (expr === "null") return null;
-  if (/^-?\d+(?:\.\d+)?$/.test(expr)) return Number(expr);
+  if (/^-?0x[0-9a-f]+$/i.test(expr)) return Number(expr);
+  if (/^-?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(expr)) {
+    return Number(expr);
+  }
 
   return undefined;
 }
@@ -370,25 +544,55 @@ function escapeRegex(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function directMatrixAxis(expression: string): string | null {
-  const match = expression.trim().match(/^matrix\.([A-Za-z0-9_.-]+)$/);
+function matrixReferencePath(expression: string): string | null {
+  const normalized = expression.trim().replace(
+    /\[['"]([^'"]+)['"]\]/g,
+    (_, key) => `.${key}`,
+  );
+  const match = normalized.match(
+    /^matrix\.([A-Za-z0-9_*-]+(?:\.[A-Za-z0-9_*-]+)*)$/,
+  );
   return match?.[1] ?? null;
 }
 
+function directMatrixAxis(expression: string): string | null {
+  const path = matrixReferencePath(expression);
+  return path && !path.includes("*") ? path : null;
+}
+
 function matrixAxesInTemplate(template: string): string[] {
-  return [...new Set(
-    [...template.matchAll(/\bmatrix\.([A-Za-z0-9_.-]+)/g)]
-      .map((match) => match[1]!)
-      .filter(Boolean),
-  )];
+  const references = template.match(
+    /\bmatrix(?:\.[A-Za-z0-9_*-]+|\[['"][^'"]+['"]\])+/g,
+  ) ?? [];
+  return [...new Set(references.map(directMatrixAxis).filter(
+    (axis): axis is string => axis !== null,
+  ))];
 }
 
 function dynamicExpressionMatcher(
   expression: string,
-): { pattern: string; axes: string[] } | null {
+): {
+  pattern: string;
+  axes: string[];
+  rejectedValues: Array<Set<string> | null>;
+} | null {
   const direct = directMatrixAxis(expression);
   if (direct) {
-    return { pattern: "(.+?)", axes: [direct] };
+    return { pattern: "(.+?)", axes: [direct], rejectedValues: [null] };
+  }
+
+  const fallback = splitTopLevel(expression.trim(), "||");
+  if (fallback.length === 2) {
+    const axis = directMatrixAxis(fallback[0]!);
+    const fallbackValue = evalExpression(fallback[1]!, {});
+    const fallbackText = githubString(fallbackValue);
+    if (axis && fallbackValue !== undefined && fallbackText !== undefined) {
+      return {
+        pattern: "(.+?)",
+        axes: [axis],
+        rejectedValues: [new Set([fallbackText])],
+      };
+    }
   }
 
   const formatMatch = expression.trim().match(/^format\((.*)\)$/s);
@@ -404,6 +608,7 @@ function dynamicExpressionMatcher(
 
   let pattern = "";
   const axes: string[] = [];
+  const rejectedValues: Array<Set<string> | null> = [];
   let start = 0;
   for (const match of template.matchAll(/\{(\d+)\}/g)) {
     const index = match.index ?? 0;
@@ -413,10 +618,11 @@ function dynamicExpressionMatcher(
     if (!axis) return null;
     pattern += "(.+?)";
     axes.push(axis);
+    rejectedValues.push(null);
     start = index + match[0].length;
   }
   pattern += escapeRegex(template.slice(start));
-  return axes.length ? { pattern, axes } : null;
+  return axes.length ? { pattern, axes, rejectedValues } : null;
 }
 
 function matchDynamicNameTemplate(
@@ -426,6 +632,7 @@ function matchDynamicNameTemplate(
   const expressionPattern = /\$\{\{([\s\S]*?)\}\}/g;
   let pattern = "^";
   const axes: string[] = [];
+  const rejectedValues: Array<Set<string> | null> = [];
   let start = 0;
   let found = false;
 
@@ -437,6 +644,7 @@ function matchDynamicNameTemplate(
     if (!matcher) return null;
     pattern += matcher.pattern;
     axes.push(...matcher.axes);
+    rejectedValues.push(...matcher.rejectedValues);
     start = index + match[0].length;
   }
 
@@ -451,6 +659,7 @@ function matchDynamicNameTemplate(
   for (let index = 0; index < axes.length; index++) {
     const axis = axes[index]!;
     const value = matched[index + 1] ?? "";
+    if (rejectedValues[index]?.has(value)) return null;
     if (axis in result && result[axis] !== value) return null;
     result[axis] = value;
   }
@@ -515,7 +724,7 @@ export function workflowMatrixDefinitions(text: string): MatrixDefinition[] {
     if (!expanded.dynamic) {
       for (const row of expanded.rows) {
         const name = typeof spec?.name === "string"
-          ? spec.name.includes("matrix.")
+          ? spec.name.includes("${{")
             ? renderName(spec.name, row)
             : defaultExpandedName(spec.name, row, expanded.axes)
           : defaultExpandedName(jobId, row, expanded.axes);

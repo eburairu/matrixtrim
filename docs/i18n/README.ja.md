@@ -16,7 +16,7 @@ MatrixTrimが見たいのは、単純なjob数ではありません。
 
 過去のfailure、実行コスト、matrix構造、holdout backtestを使って、より小さいCI matrix候補を作ることを目指しています。
 
-> **Status: v0.14 experimental.** multi-event root-cause fingerprint、過去のfailure evidence、観測済み1-wise / pairwise / t-wise構成coverage、人間が明示するkeep / compatibility constraint、exact branch-and-bound optimizer、runtime costとrunner-awareな金額推定、time-based holdout backtest、render済みmatrix job名の復元、GitHub Action、再現可能な公開OSS benchmark、明示opt-inのdraft最適化PR生成まで利用できます。
+> **Status: v0.15 experimental.** multi-event root-cause fingerprint、過去のfailure evidence、観測済み1-wise / pairwise / t-wise構成coverage、人間が明示するkeep / compatibility constraint、exact branch-and-bound optimizer、runtime costとrunner-awareな金額推定、time-based holdout backtest、render済みmatrix job名の復元、GitHub Action、再現可能な公開OSS benchmark、明示opt-inのdraft最適化PR生成まで利用できます。
 
 ## なぜ必要か
 
@@ -85,7 +85,7 @@ os=ubuntu-latest
 node=22
 ```
 
-static matrixでは、直接の `matrix.*` 参照、`format(...)`、`matrix.name || matrix.python` のようなfallback式、include-only matrixからrender済みjob名を復元できます。v0.14ではdynamic matrixも、観測済みjobを安全に識別できる場合は分析対象に含めます。部分的dynamic matrixの既知axis順序、またはcustom job名に現れる直接の `matrix.*` / `format(...)` からaxis値を復元します。runtimeでしか得られない値は推測せず unresolved のまま保持し、dynamic matrixの自動rewriteは行いません。
+v0.15では、direct / bracket形式の `matrix.*` 参照に加えて、比較・論理演算子、`format`、`contains`、`startsWith`、`endsWith`、`join`、`toJSON`、`fromJSON`、`case`、object filterまでdeterministicに評価します。dynamic matrixも観測済みjobを安全に識別できる場合は分析対象に含めますが、runtimeでしか得られない値は推測せず unresolved のまま保持し、自動rewriteも行いません。
 
 ## matrix縮約候補を出す
 
@@ -278,7 +278,8 @@ coreはdeterministicで、LLMは必須ではありません。
 - [x] time-based holdout backtest
 - [x] static `include` / `exclude` 展開＋render済みjob名復元
 - [x] 観測済みdynamic matrix分析＋既知axis順序 / job名templateからの安全なaxis復元
-- [ ] opaqueなruntime output復元＋GitHub式サポート拡大
+- [x] deterministicなGitHub式関数＋bracket / object-filter対応
+- [ ] opaque runtime outputのdeterministic evidence source
 - [x] 明示的なkeep / compatibility constraint
 - [x] GitHub Action化＋PRコメント
 - [x] matrix-heavy OSSでの再現可能benchmark

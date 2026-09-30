@@ -262,6 +262,35 @@ describe("matrix axis inference", () => {
       });
   });
 
+  it("recovers observed values from mixed literal/runtime axis arrays", () => {
+    const workflow = [
+      "jobs:",
+      "  test:",
+      "    name: Test io_uring on Linux ${{ matrix.kernel_version }}",
+      "    strategy:",
+      "      matrix:",
+      "        kernel_version:",
+      "          - ${{ needs.prepare.outputs.kernel_version }}",
+      "          - '4.19.325'",
+    ].join("\n");
+
+    const definitions = workflowMatrixDefinitions(workflow);
+    expect(definitions[0]).toMatchObject({
+      jobId: "test",
+      dynamic: true,
+      axes: ["kernel_version"],
+      expectedCells: 0,
+    });
+    expect(inferAxesFromExpandedJobName(
+      "Test io_uring on Linux 7.2.8 / build",
+      definitions,
+    )).toEqual({
+      baseJob: "test",
+      axes: { kernel_version: "7.2.8" },
+      source: "workflow-rendered-name",
+    });
+  });
+
   it("recovers known axis order for partially dynamic matrices", () => {
     const workflow = [
       "jobs:",
@@ -324,5 +353,112 @@ describe("matrix axis inference", () => {
     });
     expect(inferAxesFromExpandedJobName("test (windows, 22)", definitions).axes)
       .toEqual({ os: "windows", node: "22" });
+  });
+
+  it("supports common GitHub expression functions in static job names", () => {
+    const workflow = [
+      "jobs:",
+      "  test:",
+      "    name: ${{ contains(matrix.os, 'win') && 'Windows' || 'Other' }}-${{ startsWith(matrix.node, '2') }}-${{ endsWith(matrix.node, '2') }}-${{ join(fromJSON(matrix.tags), '+') }}-${{ fromJSON(matrix.enabled) && 'on' || 'off' }}",
+      "    strategy:",
+      "      matrix:",
+      "        os: [windows]",
+      "        node: ['22']",
+      "        tags: ['[\"fast\",\"unit\"]']",
+      "        enabled: ['true']",
+    ].join("\n");
+
+    const [definition] = workflowMatrixDefinitions(workflow);
+    expect(definition?.cells.map((cell) => cell.name)).toEqual([
+      "Windows-true-true-fast+unit-on",
+    ]);
+  });
+
+  it("supports relational operators, case(), and object filters", () => {
+    const workflow = [
+      "jobs:",
+      "  test:",
+      "    name: ${{ case(fromJSON(matrix.node) >= 22, join(matrix.target.variants.*.name, '+'), 'legacy') }}",
+      "    strategy:",
+      "      matrix:",
+      "        node: ['22']",
+      "        target:",
+      "          - variants:",
+      "              - {name: linux}",
+      "              - {name: arm64}",
+    ].join("\n");
+
+    const [definition] = workflowMatrixDefinitions(workflow);
+    expect(definition?.cells.map((cell) => cell.name)).toEqual([
+      "linux+arm64",
+    ]);
+  });
+
+  it("uses GitHub-style case-insensitive string equality and toJSON", () => {
+    const workflow = [
+      "jobs:",
+      "  test:",
+      "    name: ${{ matrix.os == 'WINDOWS' && toJSON(matrix.enabled) || 'no' }}",
+      "    strategy:",
+      "      matrix:",
+      "        os: [windows]",
+      "        enabled: [true]",
+    ].join("\n");
+
+    const [definition] = workflowMatrixDefinitions(workflow);
+    expect(definition?.cells.map((cell) => cell.name)).toEqual(["true"]);
+  });
+
+  it("parses escaped single-quote and extended numeric literals", () => {
+    const workflow = [
+      "jobs:",
+      "  test:",
+      "    name: ${{ 0x10 == 16 && 1e2 >= 100 && 'It''s valid' || 'bad' }}",
+      "    strategy:",
+      "      matrix:",
+      "        only: [one]",
+    ].join("\n");
+
+    const [definition] = workflowMatrixDefinitions(workflow);
+    expect(definition?.cells.map((cell) => cell.name)).toEqual(["It's valid"]);
+  });
+
+  it("supports bracket matrix references", () => {
+    const workflow = [
+      "jobs:",
+      "  test:",
+      "    name: Python ${{ matrix['python-version'] }} on ${{ matrix[\"os\"] }}",
+      "    strategy:",
+      "      matrix:",
+      "        python-version: ['3.13']",
+      "        os: [ubuntu]",
+    ].join("\n");
+
+    const definitions = workflowMatrixDefinitions(workflow);
+    expect(inferAxesFromExpandedJobName("Python 3.13 on ubuntu", definitions))
+      .toEqual({
+        baseJob: "test",
+        axes: { "python-version": "3.13", os: "ubuntu" },
+        source: "workflow-rendered-name",
+      });
+  });
+
+  it("safely inverts a dynamic axis with a literal fallback", () => {
+    const workflow = [
+      "jobs:",
+      "  test:",
+      "    name: Runtime ${{ matrix.runtime || 'default' }}",
+      "    strategy:",
+      "      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}",
+    ].join("\n");
+
+    const definitions = workflowMatrixDefinitions(workflow);
+    expect(inferAxesFromExpandedJobName("Runtime node22", definitions)).toEqual({
+      baseJob: "test",
+      axes: { runtime: "node22" },
+      source: "workflow-rendered-name",
+    });
+    expect(inferAxesFromExpandedJobName("Runtime default", definitions).axes)
+      .toBeNull();
   });
 });
