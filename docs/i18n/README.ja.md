@@ -16,7 +16,7 @@ MatrixTrimが見たいのは、単純なjob数ではありません。
 
 過去のfailure、実行コスト、matrix構造、holdout backtestを使って、より小さいCI matrix候補を作ることを目指しています。
 
-> **Status: v0.16 experimental.** multi-event root-cause fingerprint、過去のfailure evidence、観測済み1-wise / pairwise / t-wise構成coverage、人間が明示するkeep / compatibility constraint、exact branch-and-bound optimizer、runtime costとrunner-awareな金額推定、time-based holdout backtest、render済みmatrix job名の復元、GitHub Action、再現可能な公開OSS benchmark、明示opt-inのdraft最適化PR生成まで利用できます。
+> **Status: v0.17 experimental.** multi-event root-cause fingerprint、過去のfailure evidence、観測済み1-wise / pairwise / t-wise構成coverage、人間が明示するkeep / compatibility constraint、exact branch-and-bound optimizer、runtime costとrunner-awareな金額推定、time-based holdout backtest、render済みmatrix job名の復元、GitHub Action、再現可能な公開OSS benchmark、明示opt-inのdraft最適化PR生成まで利用できます。
 
 ## なぜ必要か
 
@@ -149,7 +149,7 @@ permissions:
   pull-requests: write
 
 steps:
-  - uses: eburairu/matrixtrim@main
+  - uses: eburairu/matrixtrim@v0
     with:
       workflow: ci.yml
       limit: "100"
@@ -173,7 +173,7 @@ permissions:
   pull-requests: write
 
 steps:
-  - uses: eburairu/matrixtrim@main
+  - uses: eburairu/matrixtrim@v0
     with:
       workflow: ci.yml
       limit: "100"
@@ -280,6 +280,7 @@ coreはdeterministicで、LLMは必須ではありません。
 - [x] 観測済みdynamic matrix分析＋既知axis順序 / job名templateからの安全なaxis復元
 - [x] deterministicなGitHub式関数＋bracket / object-filter対応
 - [x] Check Run annotationによるopt-inのdeterministic runtime matrix evidence capture
+- [x] versioned GitHub Action release＋floating major tag
 - [x] 明示的なkeep / compatibility constraint
 - [x] GitHub Action化＋PRコメント
 - [x] matrix-heavy OSSでの再現可能benchmark

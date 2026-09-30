@@ -266,6 +266,7 @@ describe("matrix axis inference", () => {
     const workflow = [
       "jobs:",
       "  test:",
+      "    name: opaque runtime cell",
       "    strategy:",
       "      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}",
       "    steps:",
@@ -275,12 +276,19 @@ describe("matrix axis inference", () => {
       "          matrix: ${{ toJSON(matrix) }}",
     ].join("\n");
 
-    const [definition] = workflowMatrixDefinitions(workflow);
+    const definitions = workflowMatrixDefinitions(workflow);
+    const [definition] = definitions;
     expect(definition).toMatchObject({
       jobId: "test",
       dynamic: true,
       captureEvidence: true,
     });
+    expect(inferAxesFromExpandedJobName("test (node22, safe)", definitions))
+      .toMatchObject({
+        baseJob: "test",
+        axes: null,
+        source: "unavailable",
+      });
   });
 
   it("recovers observed values from mixed literal/runtime axis arrays", () => {

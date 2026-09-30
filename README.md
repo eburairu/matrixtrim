@@ -16,7 +16,7 @@ MatrixTrim analyzes GitHub Actions matrix jobs and asks a practical question:
 
 The goal is to recommend a smaller CI matrix using **historical failure coverage, runtime cost, matrix structure, and holdout backtesting**.
 
-> **Status: v0.16 experimental.** MatrixTrim combines multi-event root-cause fingerprints, empirical failure evidence, observed 1-wise / pairwise / t-wise configuration coverage, explicit human keep / compatibility constraints, exact branch-and-bound optimization, runtime and runner-aware monetary cost, time-based holdout backtesting, static and observed dynamic matrix-name recovery, broader deterministic GitHub expression evaluation, opt-in runtime matrix evidence capture, a GitHub Action, reproducible public-OSS benchmarking, and opt-in draft optimization PR generation.
+> **Status: v0.17 experimental.** MatrixTrim combines multi-event root-cause fingerprints, empirical failure evidence, observed 1-wise / pairwise / t-wise configuration coverage, explicit human keep / compatibility constraints, exact branch-and-bound optimization, runtime and runner-aware monetary cost, time-based holdout backtesting, static and observed dynamic matrix-name recovery, broader deterministic GitHub expression evaluation, opt-in runtime matrix evidence capture, versioned GitHub Action releases, reproducible public-OSS benchmarking, and opt-in draft optimization PR generation.
 
 ## Why MatrixTrim?
 
@@ -149,7 +149,7 @@ permissions:
   pull-requests: write
 
 steps:
-  - uses: eburairu/matrixtrim@main
+  - uses: eburairu/matrixtrim@v0
     with:
       workflow: ci.yml
       limit: "100"
@@ -159,6 +159,8 @@ steps:
 ```
 
 The Action always writes a **Step Summary**. On pull requests it also creates or updates a single MatrixTrim comment when permissions allow it. If a fork PR has a read-only token, comment creation is skipped with a warning while the analysis still succeeds.
+
+Use the floating `@v0` tag for normal adoption. Exact `vX.Y.Z` tags or commit SHAs are available when stricter reproducibility is required. Releases are promoted explicitly from `main`; see [Release process](docs/releases.md).
 
 The report includes current vs suggested cells, historical failure recall, failure-event / multi-event job counts, combinatorial coverage, estimated compute reduction, runner-aware rate-card / charge estimates, holdout recall, unseen-failure recall, and the recommended cell set.
 
@@ -173,7 +175,7 @@ permissions:
   pull-requests: write
 
 steps:
-  - uses: eburairu/matrixtrim@main
+  - uses: eburairu/matrixtrim@v0
     with:
       workflow: ci.yml
       limit: "100"
@@ -230,7 +232,7 @@ To avoid validating MatrixTrim only on hand-picked examples, we pinned **20 conc
 - The exact optimizer proved optimality for **12/12 benchmark repositories**, used **0 greedy fallbacks**, and explored at most **102 search nodes**. It matched greedy on 11 repositories; on Diesel it improved the greedy runtime objective by **1.15%**, raising compute reduction from about **7.6% to 8.3%**. pandas and Vite kept **100% holdout recall and 100% unseen-failure recall** in the available backtest windows. Diesel kept **100% holdout recall**; its holdout contained no unseen fingerprint, so unseen-failure recall is **n/a**.
 - Event-level extraction is exercised by real logs in the fixed snapshot: **pandas 59 failed jobs → 151 events → 5 distinct root-cause fingerprints**, **Vite 8 → 25 → 23**, while Rust volatility/derivative-summary normalization collapses **Diesel 40 → 40 → 1**.
 - **7 of the 10 fully resolved repositories were intentionally left unchanged** because the safety constraints did not justify a reduction.
-- aiohttp and Tokio remain partial. With unresolved cells retained as safety constraints, the current recommendation keeps **aiohttp 29 → 29** and **Tokio 51 → 51** in this snapshot; neither is counted as a validated reduction.
+- aiohttp and Tokio remain partial. With unresolved cells retained as safety constraints, the current recommendation keeps **aiohttp 29 → 29** and **Tokio 53 → 53** in this snapshot; neither is counted as a validated reduction.
 
 The exact run IDs are pinned in [benchmark/snapshot.json](benchmark/snapshot.json), and the complete results are in [benchmark/results.md](benchmark/results.md). These measurements describe that fixed snapshot; they are not universal promises about future CI behavior.
 
@@ -280,6 +282,7 @@ The core is deterministic. No LLM is required.
 - [x] Observed dynamic matrix analysis + safe axis recovery from known axis order / job-name templates
 - [x] Broader deterministic GitHub expression functions + bracket/object-filter support
 - [x] Opt-in deterministic runtime matrix evidence capture via Check Run annotations
+- [x] Versioned GitHub Action releases + floating major tag
 - [x] Explicit keep / compatibility constraints
 - [x] GitHub Action + PR comments
 - [x] Reproducible benchmark across matrix-heavy OSS repositories

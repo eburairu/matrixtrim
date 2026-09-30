@@ -823,8 +823,15 @@ export function inferAxesFromExpandedJobName(
   const definition = definitions.find(
     (candidate) => candidate.displayName === baseJob || candidate.jobId === baseJob,
   );
-  if (!definition || !definition.axes.length) {
+  if (!definition) {
     return { baseJob, axes: null, source: "unavailable" };
+  }
+  if (!definition.axes.length) {
+    return {
+      baseJob: definition.jobId,
+      axes: null,
+      source: "unavailable",
+    };
   }
 
   const values = definition.axes.length === 1

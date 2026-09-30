@@ -149,17 +149,6 @@ async function mapLimit<T, R>(
   return results;
 }
 
-function knownMatrixBase(
-  baseJob: string,
-  definitions: MatrixDefinition[],
-): boolean {
-  if (!definitions.length) return true;
-  return definitions.some(
-    (definition) =>
-      definition.displayName === baseJob || definition.jobId === baseJob,
-  );
-}
-
 export function applyCapturedMatrixEvidence(
   observation: MatrixJobObservation,
   evidence: MatrixEvidence,
@@ -475,8 +464,13 @@ export async function analyzeRepository(
       const parsed = splitJobName(job.name);
       const inferred = inferAxesFromExpandedJobName(job.name, definitions);
       const renderedMatch = inferred.source !== "unavailable";
+      const fallbackDefinition = definitions.find(
+        (definition) =>
+          definition.displayName === parsed.baseJob ||
+          definition.jobId === parsed.baseJob,
+      );
       const defaultNameFallback =
-        parsed.matrixLike && knownMatrixBase(parsed.baseJob, definitions);
+        parsed.matrixLike && (!definitions.length || !!fallbackDefinition);
       const exactDynamicDefinition = definitions.find(
         (definition) =>
           definition.dynamic &&
@@ -496,7 +490,7 @@ export async function analyzeRepository(
         cell: job.name,
         baseJob: renderedMatch
           ? inferred.baseJob
-          : exactDynamicDefinition?.jobId ?? parsed.baseJob,
+          : exactDynamicDefinition?.jobId ?? fallbackDefinition?.jobId ?? parsed.baseJob,
         axes: inferred.axes,
         axisSource: inferred.source,
         conclusion: job.conclusion,

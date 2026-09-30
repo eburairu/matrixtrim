@@ -1,0 +1,79 @@
+name: Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm run build:action
+      - name: Verify committed Action bundle
+        run: git diff --exit-code -- action-dist/index.cjs
+
+      - name: Resolve release version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./package.json').version")"
+          LOCK_VERSION="$(node -p "require('./package-lock.json').version")"
+          ROOT_LOCK_VERSION="$(node -p "require('./package-lock.json').packages[''].version")"
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          test "$LOCK_VERSION" = "$VERSION"
+          test "$ROOT_LOCK_VERSION" = "$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          echo "major=v${VERSION%%.*}" >> "$GITHUB_OUTPUT"
+
+      - name: Create exact version tag
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --tags --force
+          if git rev-parse "$TAG^{commit}" >/dev/null 2>&1; then
+            EXISTING="$(git rev-parse "$TAG^{commit}")"
+            test "$EXISTING" = "$GITHUB_SHA"
+          else
+            git config user.name github-actions[bot]
+            git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+            git tag -a "$TAG" -m "MatrixTrim $TAG" "$GITHUB_SHA"
+            git push origin "$TAG"
+          fi
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --verify-tag --generate-notes --title "MatrixTrim $TAG"
+          fi
+
+      - name: Update floating major tag
+        env:
+          MAJOR: ${{ steps.version.outputs.major }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git tag -f "$MAJOR" "$GITHUB_SHA"
+          git push origin "refs/tags/$MAJOR" --force

@@ -8344,8 +8344,15 @@ function inferAxesFromExpandedJobName(name, definitions) {
   const definition = definitions.find(
     (candidate) => candidate.displayName === baseJob || candidate.jobId === baseJob
   );
-  if (!definition || !definition.axes.length) {
+  if (!definition) {
     return { baseJob, axes: null, source: "unavailable" };
+  }
+  if (!definition.axes.length) {
+    return {
+      baseJob: definition.jobId,
+      axes: null,
+      source: "unavailable"
+    };
   }
   const values = definition.axes.length === 1 ? [inner] : inner.split(",").map((value) => value.trim());
   if (values.length !== definition.axes.length) {
@@ -8444,12 +8451,6 @@ async function mapLimit(items, concurrency, fn) {
     Array.from({ length: Math.min(concurrency, items.length) }, () => worker())
   );
   return results;
-}
-function knownMatrixBase(baseJob, definitions) {
-  if (!definitions.length) return true;
-  return definitions.some(
-    (definition) => definition.displayName === baseJob || definition.jobId === baseJob
-  );
 }
 function applyCapturedMatrixEvidence(observation, evidence) {
   const axes = axesFromMatrixEvidence(evidence.matrix);
@@ -8686,7 +8687,10 @@ async function analyzeRepository(repository, options) {
       const parsed = splitJobName(job.name);
       const inferred = inferAxesFromExpandedJobName(job.name, definitions);
       const renderedMatch = inferred.source !== "unavailable";
-      const defaultNameFallback = parsed.matrixLike && knownMatrixBase(parsed.baseJob, definitions);
+      const fallbackDefinition = definitions.find(
+        (definition) => definition.displayName === parsed.baseJob || definition.jobId === parsed.baseJob
+      );
+      const defaultNameFallback = parsed.matrixLike && (!definitions.length || !!fallbackDefinition);
       const exactDynamicDefinition = definitions.find(
         (definition) => definition.dynamic && definition.captureEvidence && (definition.displayName === job.name || definition.jobId === job.name)
       );
@@ -8699,7 +8703,7 @@ async function analyzeRepository(repository, options) {
         runConclusion: run.conclusion,
         jobId: job.id,
         cell: job.name,
-        baseJob: renderedMatch ? inferred.baseJob : exactDynamicDefinition?.jobId ?? parsed.baseJob,
+        baseJob: renderedMatch ? inferred.baseJob : exactDynamicDefinition?.jobId ?? fallbackDefinition?.jobId ?? parsed.baseJob,
         axes: inferred.axes,
         axisSource: inferred.source,
         conclusion: job.conclusion,
@@ -10422,6 +10426,15 @@ async function main() {
   } else {
     console.log(report);
   }
+  await writeOutput(
+    "capture-evidence-candidates",
+    analysis.captureEvidenceCandidates ?? 0
+  );
+  await writeOutput("capture-evidence-jobs", analysis.captureEvidenceJobs ?? 0);
+  await writeOutput(
+    "capture-evidence-errors",
+    analysis.captureEvidenceErrors ?? 0
+  );
   await writeOutput("current-cells", recommendation.currentCells);
   await writeOutput("selected-cells", recommendation.selectedCells.length);
   await writeOutput("optimizer-algorithm", recommendation.algorithm);

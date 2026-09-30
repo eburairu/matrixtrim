@@ -170,6 +170,15 @@ async function main(): Promise<void> {
     console.log(report);
   }
 
+  await writeOutput(
+    "capture-evidence-candidates",
+    analysis.captureEvidenceCandidates ?? 0,
+  );
+  await writeOutput("capture-evidence-jobs", analysis.captureEvidenceJobs ?? 0);
+  await writeOutput(
+    "capture-evidence-errors",
+    analysis.captureEvidenceErrors ?? 0,
+  );
   await writeOutput("current-cells", recommendation.currentCells);
   await writeOutput("selected-cells", recommendation.selectedCells.length);
   await writeOutput("optimizer-algorithm", recommendation.algorithm);

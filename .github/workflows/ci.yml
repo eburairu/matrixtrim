@@ -69,6 +69,9 @@ jobs:
           test -n "${{ steps.matrixtrim.outputs.optimizer-search-nodes }}"
           test "${{ steps.matrixtrim.outputs.constraint-requirements }}" = "1"
           test "${{ steps.matrixtrim.outputs.constraint-coverage }}" = "1.0000"
+          test "${{ steps.matrixtrim.outputs.capture-evidence-candidates }}" -ge 2
+          test "${{ steps.matrixtrim.outputs.capture-evidence-jobs }}" -ge 2
+          test "${{ steps.matrixtrim.outputs.capture-evidence-errors }}" = "0"
       - name: Verify PR-trigger safety guard
         if: github.event_name == 'pull_request'
         run: test "${{ steps.matrixtrim.outputs.optimization-pr-status }}" = "skipped"

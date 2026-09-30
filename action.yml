@@ -57,6 +57,12 @@ inputs:
 outputs:
   capture-status:
     description: captured when mode=capture successfully emitted runtime matrix evidence.
+  capture-evidence-candidates:
+    description: Number of opted-in unresolved dynamic jobs checked for runtime matrix evidence.
+  capture-evidence-jobs:
+    description: Number of jobs whose runtime matrix axes were restored from capture evidence.
+  capture-evidence-errors:
+    description: Number of annotation lookups or conflicting evidence payloads that failed.
   current-cells:
     description: Number of matrix cells observed.
   selected-cells:
