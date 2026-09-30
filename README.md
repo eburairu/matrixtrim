@@ -8,7 +8,7 @@
 
 **English** | [简体中文](docs/i18n/README.zh-CN.md) | [繁體中文](docs/i18n/README.zh-TW.md) | [日本語](docs/i18n/README.ja.md) | [한국어](docs/i18n/README.ko.md) | [Español](docs/i18n/README.es.md)
 
-**Shrink GitHub Actions matrices without throwing away the failure signals that matter.**
+**Measure which GitHub Actions matrix jobs are actually earning their keep before you remove anything.**
 
 MatrixTrim analyzes GitHub Actions matrix jobs and asks a practical question:
 

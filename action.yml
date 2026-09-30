@@ -1,5 +1,5 @@
 name: MatrixTrim
-description: Find redundant GitHub Actions matrix jobs using historical failure coverage, runtime cost, and holdout backtesting.
+description: Measure which GitHub Actions matrix jobs add unique failure signal using history, runtime cost, and holdout backtesting.
 author: eburairu
 
 branding:
