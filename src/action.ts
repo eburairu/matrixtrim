@@ -1,5 +1,10 @@
 import { appendFile, readFile } from "node:fs/promises";
 import { basename } from "node:path";
+import {
+	actionInput,
+	boolActionInput,
+	intActionInput,
+} from "./action-input.js";
 import { formatActionReport } from "./action-report.js";
 import { analyzeRepository } from "./analyze.js";
 import { backtestRecommendation } from "./backtest.js";
@@ -8,35 +13,6 @@ import { encodeMatrixEvidence } from "./evidence.js";
 import { GitHubClient } from "./github.js";
 import { createOrUpdateOptimizationPullRequest } from "./optimization-pr.js";
 import { type OptimizerMode, recommendMatrix } from "./recommend.js";
-
-function input(name: string): string {
-	return (
-		process.env[`INPUT_${name.toUpperCase().replace(/-/g, "_")}`]?.trim() ?? ""
-	);
-}
-
-function intInput(
-	name: string,
-	fallback: number,
-	min: number,
-	max: number,
-): number {
-	const raw = input(name);
-	if (!raw) return fallback;
-	const value = Number.parseInt(raw, 10);
-	if (!Number.isInteger(value) || value < min || value > max) {
-		throw new Error(`${name} must be an integer from ${min} to ${max}`);
-	}
-	return value;
-}
-
-function boolInput(name: string, fallback: boolean): boolean {
-	const raw = input(name).toLowerCase();
-	if (!raw) return fallback;
-	if (["true", "1", "yes", "on"].includes(raw)) return true;
-	if (["false", "0", "no", "off"].includes(raw)) return false;
-	throw new Error(`${name} must be true or false`);
-}
 
 function inferWorkflowFile(repository: string): string | undefined {
 	const ref = process.env.GITHUB_WORKFLOW_REF;
@@ -85,13 +61,13 @@ function notice(message: string): void {
 }
 
 async function main(): Promise<void> {
-	const mode = input("mode") || "analyze";
+	const mode = actionInput("mode") || "analyze";
 	if (!["analyze", "capture"].includes(mode)) {
 		throw new Error("mode must be analyze or capture");
 	}
 
 	if (mode === "capture") {
-		const matrixJson = input("matrix");
+		const matrixJson = actionInput("matrix");
 		if (!matrixJson)
 			throw new Error("matrix input is required in capture mode");
 		const evidence = encodeMatrixEvidence(
@@ -106,22 +82,27 @@ async function main(): Promise<void> {
 	const repository = process.env.GITHUB_REPOSITORY;
 	if (!repository) throw new Error("GITHUB_REPOSITORY is not available");
 
-	const token = input("token") || process.env.GITHUB_TOKEN || "";
+	const token = actionInput("token") || process.env.GITHUB_TOKEN || "";
 	if (!token) throw new Error("token input or GITHUB_TOKEN is required");
 
-	const workflow = input("workflow") || inferWorkflowFile(repository);
-	const limit = intInput("limit", 100, 2, 500);
-	const holdout = intInput("holdout", 25, 5, 50);
-	const strength = intInput("strength", 2, 1, 4);
-	const optimizerRaw = input("optimizer") || "auto";
+	const workflow = actionInput("workflow") || inferWorkflowFile(repository);
+	const limit = intActionInput("limit", 100, 2, 500);
+	const holdout = intActionInput("holdout", 25, 5, 50);
+	const strength = intActionInput("strength", 2, 1, 4);
+	const optimizerRaw = actionInput("optimizer") || "auto";
 	if (!["auto", "exact", "greedy"].includes(optimizerRaw)) {
 		throw new Error("optimizer must be auto, exact, or greedy");
 	}
 	const optimizer = optimizerRaw as OptimizerMode;
-	const exactMaxNodes = intInput("exact-max-nodes", 250_000, 1, 10_000_000);
-	const configPath = input("config") || ".matrixtrim.yml";
-	const comment = boolInput("comment", true);
-	const createPr = boolInput("create-pr", false);
+	const exactMaxNodes = intActionInput(
+		"exact-max-nodes",
+		250_000,
+		1,
+		10_000_000,
+	);
+	const configPath = actionInput("config") || ".matrixtrim.yml";
+	const comment = boolActionInput("comment", true);
+	const createPr = boolActionInput("create-pr", false);
 	const github = new GitHubClient(repository, token);
 	const config = await loadRepositoryConfig(
 		github,
