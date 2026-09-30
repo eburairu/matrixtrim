@@ -8278,6 +8278,9 @@ function median2(values) {
 function costFor(cell, fallback) {
   return Math.max(cell.medianRuntimeSeconds ?? fallback, 0.1);
 }
+function stableCompare(a, b) {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
 function recommendMatrix(report, options = {}) {
   if (!report.cells.length) {
     throw new Error("no matrix cells were observed");
@@ -8322,6 +8325,9 @@ function recommendMatrix(report, options = {}) {
     for (const token of combinatorial.byCell.get(cell.cell) ?? []) {
       coverage.add(token);
     }
+    if (unresolvedSafetyCells.has(cell.cell)) {
+      coverage.add(`unresolved:${cell.cell}`);
+    }
     coverageByCell.set(cell.cell, coverage);
   }
   const uncovered = new Set(universe);
@@ -8335,7 +8341,7 @@ function recommendMatrix(report, options = {}) {
       const newlyCovered = [...coverageByCell.get(cell.cell) ?? []].filter((item) => uncovered.has(item));
       if (!newlyCovered.length) continue;
       const score = newlyCovered.length / costFor(cell, fallbackCost);
-      if (score > bestScore || score === bestScore && newlyCovered.length > bestNew.length || score === bestScore && newlyCovered.length === bestNew.length && best && cell.cell.localeCompare(best.cell) < 0) {
+      if (score > bestScore || score === bestScore && newlyCovered.length > bestNew.length || score === bestScore && newlyCovered.length === bestNew.length && best && stableCompare(cell.cell, best.cell) < 0) {
         best = cell;
         bestNew = newlyCovered;
         bestScore = score;
@@ -8346,16 +8352,30 @@ function recommendMatrix(report, options = {}) {
     remaining.delete(best.cell);
     for (const item of bestNew) uncovered.delete(item);
   }
-  for (let index = selected.length - 1; index >= 0; index--) {
-    const without = selected.filter((_, i) => i !== index);
-    const covered = /* @__PURE__ */ new Set();
-    for (const cell of without) {
-      for (const item of coverageByCell.get(cell.cell) ?? []) {
-        covered.add(item);
+  let pruned = true;
+  while (pruned) {
+    pruned = false;
+    const candidates = [...selected].sort((a, b) => {
+      const costDelta = costFor(b, fallbackCost) - costFor(a, fallbackCost);
+      if (costDelta !== 0) return costDelta;
+      return stableCompare(a.cell, b.cell);
+    });
+    for (const candidate of candidates) {
+      const without = selected.filter((cell) => cell.cell !== candidate.cell);
+      const covered = /* @__PURE__ */ new Set();
+      for (const cell of without) {
+        for (const item of coverageByCell.get(cell.cell) ?? []) {
+          covered.add(item);
+        }
       }
-    }
-    if ([...universe].every((item) => covered.has(item))) {
-      selected.splice(index, 1);
+      if ([...universe].every((item) => covered.has(item))) {
+        const index = selected.findIndex(
+          (cell) => cell.cell === candidate.cell
+        );
+        if (index >= 0) selected.splice(index, 1);
+        pruned = true;
+        break;
+      }
     }
   }
   const selectedNames = new Set(selected.map((cell) => cell.cell));
@@ -8405,7 +8425,7 @@ function recommendMatrix(report, options = {}) {
   }
   if (combinatorial.unresolvedCells.length) {
     warnings.push(
-      `Axis values could not be resolved for ${combinatorial.unresolvedCells.length} cell(s); combinatorial constraints do not cover those cells unless needed for failure or job-family coverage.`
+      `Axis values could not be resolved for ${combinatorial.unresolvedCells.length} cell(s); those cells are retained individually as a safety constraint.`
     );
   }
   if (report.expiredLogs || report.logErrors) {

@@ -45,6 +45,10 @@ function costFor(cell: CellSummary, fallback: number): number {
   return Math.max(cell.medianRuntimeSeconds ?? fallback, 0.1);
 }
 
+function stableCompare(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 export function recommendMatrix(
   report: AnalysisReport,
   options: RecommendationOptions = {},
@@ -129,7 +133,7 @@ export function recommendMatrix(
         (score === bestScore &&
           newlyCovered.length === bestNew.length &&
           best &&
-          cell.cell.localeCompare(best.cell) < 0)
+          stableCompare(cell.cell, best.cell) < 0)
       ) {
         best = cell;
         bestNew = newlyCovered;
@@ -143,17 +147,34 @@ export function recommendMatrix(
     for (const item of bestNew) uncovered.delete(item);
   }
 
-  // Greedy selection can leave a cell redundant after later choices.
-  for (let index = selected.length - 1; index >= 0; index--) {
-    const without = selected.filter((_, i) => i !== index);
-    const covered = new Set<string>();
-    for (const cell of without) {
-      for (const item of coverageByCell.get(cell.cell) ?? []) {
-        covered.add(item);
+  // Greedy selection can leave cells redundant after later choices.
+  // Remove the most expensive redundant cells first so the result does not
+  // depend on Map insertion order, Node/ICU locale behavior, or greedy order.
+  let pruned = true;
+  while (pruned) {
+    pruned = false;
+    const candidates = [...selected].sort((a, b) => {
+      const costDelta = costFor(b, fallbackCost) - costFor(a, fallbackCost);
+      if (costDelta !== 0) return costDelta;
+      return stableCompare(a.cell, b.cell);
+    });
+
+    for (const candidate of candidates) {
+      const without = selected.filter((cell) => cell.cell !== candidate.cell);
+      const covered = new Set<string>();
+      for (const cell of without) {
+        for (const item of coverageByCell.get(cell.cell) ?? []) {
+          covered.add(item);
+        }
       }
-    }
-    if ([...universe].every((item) => covered.has(item))) {
-      selected.splice(index, 1);
+      if ([...universe].every((item) => covered.has(item))) {
+        const index = selected.findIndex(
+          (cell) => cell.cell === candidate.cell,
+        );
+        if (index >= 0) selected.splice(index, 1);
+        pruned = true;
+        break;
+      }
     }
   }
 
