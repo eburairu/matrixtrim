@@ -7259,7 +7259,7 @@ var require_public_api = __commonJS({
       }
       return doc;
     }
-    function parse2(src, reviver, options) {
+    function parse3(src, reviver, options) {
       let _reviver = void 0;
       if (typeof reviver === "function") {
         _reviver = reviver;
@@ -7300,7 +7300,7 @@ var require_public_api = __commonJS({
         return value.toString(options);
       return new Document.Document(value, _replacer, options).toString(options);
     }
-    exports2.parse = parse2;
+    exports2.parse = parse3;
     exports2.parseAllDocuments = parseAllDocuments;
     exports2.parseDocument = parseDocument2;
     exports2.stringify = stringify;
@@ -8332,6 +8332,102 @@ async function analyzeRepository(repository, options) {
   };
 }
 
+// src/config.ts
+var import_yaml2 = __toESM(require_dist(), 1);
+var EMPTY_CONSTRAINTS = {
+  keep: [],
+  require: []
+};
+function stringRecord(value, context) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${context} must be a mapping`);
+  }
+  const result = {};
+  for (const [key, raw] of Object.entries(value)) {
+    if (!key.trim()) {
+      throw new Error(`${context} contains an empty axis name`);
+    }
+    if (typeof raw !== "string" && typeof raw !== "number" && typeof raw !== "boolean") {
+      throw new Error(
+        `${context}.${key} must be a string, number, or boolean`
+      );
+    }
+    result[key] = String(raw);
+  }
+  if (!Object.keys(result).length) {
+    throw new Error(`${context} must contain at least one axis`);
+  }
+  return result;
+}
+function parseMatrixTrimConfig(text) {
+  const raw = (0, import_yaml2.parse)(text);
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("MatrixTrim config must be a YAML mapping");
+  }
+  const root = raw;
+  const version = root.version ?? 1;
+  if (version !== 1) {
+    throw new Error(`unsupported MatrixTrim config version: ${String(version)}`);
+  }
+  const constraintsRaw = root.constraints ?? {};
+  if (!constraintsRaw || typeof constraintsRaw !== "object" || Array.isArray(constraintsRaw)) {
+    throw new Error("constraints must be a mapping");
+  }
+  const constraintsObject = constraintsRaw;
+  const keepRaw = constraintsObject.keep ?? [];
+  if (!Array.isArray(keepRaw)) {
+    throw new Error("constraints.keep must be a list of exact cell names");
+  }
+  const keep = keepRaw.map((item, index) => {
+    if (typeof item !== "string" || !item.trim()) {
+      throw new Error(
+        `constraints.keep[${index}] must be a non-empty cell name`
+      );
+    }
+    return item.trim();
+  });
+  const requireRaw = constraintsObject.require ?? [];
+  if (!Array.isArray(requireRaw)) {
+    throw new Error("constraints.require must be a list of selectors");
+  }
+  const require2 = requireRaw.map((item, index) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      throw new Error(`constraints.require[${index}] must be a mapping`);
+    }
+    const selector = item;
+    const baseJobRaw = selector.baseJob;
+    if (baseJobRaw !== void 0 && (typeof baseJobRaw !== "string" || !baseJobRaw.trim())) {
+      throw new Error(
+        `constraints.require[${index}].baseJob must be a non-empty string`
+      );
+    }
+    return {
+      ...typeof baseJobRaw === "string" ? { baseJob: baseJobRaw.trim() } : {},
+      axes: stringRecord(
+        selector.axes,
+        `constraints.require[${index}].axes`
+      )
+    };
+  });
+  return {
+    version: 1,
+    constraints: {
+      keep: [...new Set(keep)],
+      require: require2
+    }
+  };
+}
+async function loadRepositoryConfig(client, path = ".matrixtrim.yml", required = false) {
+  try {
+    return parseMatrixTrimConfig(await client.fileText(path));
+  } catch (error) {
+    if (!required && error instanceof GitHubHttpError && error.status === 404) {
+      return null;
+    }
+    throw error;
+  }
+}
+
 // src/coverage.ts
 function combinations(items, size) {
   if (size <= 0) return [[]];
@@ -8653,6 +8749,13 @@ function costFor(cell, fallback) {
 function stableCompare(a, b) {
   return a < b ? -1 : a > b ? 1 : 0;
 }
+function matchesRequireConstraint(cell, selector) {
+  if (selector.baseJob && cell.baseJob !== selector.baseJob) return false;
+  if (!cell.axes) return false;
+  return Object.entries(selector.axes).every(
+    ([key, value]) => cell.axes?.[key] === value
+  );
+}
 function recommendMatrix(report, options = {}) {
   if (!report.cells.length) {
     throw new Error("no matrix cells were observed");
@@ -8673,6 +8776,38 @@ function recommendMatrix(report, options = {}) {
     report.cells,
     maxStrength
   );
+  const constraints = options.constraints ?? EMPTY_CONSTRAINTS;
+  const cellsByName = new Map(report.cells.map((cell) => [cell.cell, cell]));
+  const keepCells = [...new Set(constraints.keep)];
+  const keepRequirements = keepCells.map((cell, index) => {
+    if (!cellsByName.has(cell)) {
+      throw new Error(
+        `hard keep constraint references an unobserved matrix cell: ${cell}`
+      );
+    }
+    return {
+      cell,
+      token: `constraint:keep:${index}`
+    };
+  });
+  const requireRequirements = constraints.require.map((selector, index) => {
+    const matches = report.cells.filter((cell) => matchesRequireConstraint(cell, selector)).map((cell) => cell.cell);
+    if (!matches.length) {
+      const base = selector.baseJob ? ` baseJob=${selector.baseJob}` : "";
+      const axes = Object.entries(selector.axes).map(([key, value]) => `${key}=${value}`).join(",");
+      throw new Error(
+        `hard require constraint matched no observed matrix cells:${base} axes=${axes}`
+      );
+    }
+    return {
+      token: `constraint:require:${index}`,
+      matches: new Set(matches)
+    };
+  });
+  const constraintTokens = [
+    ...keepRequirements.map((item) => item.token),
+    ...requireRequirements.map((item) => item.token)
+  ];
   const anchors = new Set(report.cells.map((cell) => `base:${cell.baseJob}`));
   const failureTokens = report.clusters.map(
     (cluster) => `failure:${cluster.fingerprint}`
@@ -8686,7 +8821,8 @@ function recommendMatrix(report, options = {}) {
     ...anchors,
     ...failureTokens,
     ...combinatorialTokens,
-    ...unresolvedSafetyTokens
+    ...unresolvedSafetyTokens,
+    ...constraintTokens
   ]);
   const coverageByCell = /* @__PURE__ */ new Map();
   for (const cell of report.cells) {
@@ -8699,6 +8835,16 @@ function recommendMatrix(report, options = {}) {
     }
     if (unresolvedSafetyCells.has(cell.cell)) {
       coverage.add(`unresolved:${cell.cell}`);
+    }
+    for (const requirement of keepRequirements) {
+      if (requirement.cell === cell.cell) {
+        coverage.add(requirement.token);
+      }
+    }
+    for (const requirement of requireRequirements) {
+      if (requirement.matches.has(cell.cell)) {
+        coverage.add(requirement.token);
+      }
     }
     coverageByCell.set(cell.cell, coverage);
   }
@@ -8723,6 +8869,11 @@ function recommendMatrix(report, options = {}) {
     selected.push(best);
     remaining.delete(best.cell);
     for (const item of bestNew) uncovered.delete(item);
+  }
+  if (uncovered.size) {
+    throw new Error(
+      `unable to satisfy ${uncovered.size} hard/coverage requirement(s)`
+    );
   }
   let pruned = true;
   while (pruned) {
@@ -8753,6 +8904,7 @@ function recommendMatrix(report, options = {}) {
   const selectedNames = new Set(selected.map((cell) => cell.cell));
   const coveredFailures = /* @__PURE__ */ new Set();
   const coveredCombinations = /* @__PURE__ */ new Set();
+  const coveredConstraints = /* @__PURE__ */ new Set();
   for (const observation of report.observations) {
     if (selectedNames.has(observation.cell)) {
       coveredFailures.add(observation.fingerprint);
@@ -8761,6 +8913,11 @@ function recommendMatrix(report, options = {}) {
   for (const cell of selected) {
     for (const token of combinatorial.byCell.get(cell.cell) ?? []) {
       coveredCombinations.add(token);
+    }
+    for (const token of coverageByCell.get(cell.cell) ?? []) {
+      if (constraintTokens.includes(token)) {
+        coveredConstraints.add(token);
+      }
     }
   }
   const currentKnown = report.cells.every(
@@ -8797,6 +8954,11 @@ function recommendMatrix(report, options = {}) {
     `Combinatorial coverage preserves observed axis combinations up to strength ${maxStrength}; it does not invent combinations absent from the observed matrix.`,
     "Runtime estimates come from matrix jobs observed across completed workflow runs."
   ];
+  if (constraintTokens.length) {
+    warnings.push(
+      `Applied ${constraintTokens.length} explicit hard constraint(s): keep=${keepRequirements.length}, require=${requireRequirements.length}.`
+    );
+  }
   if (pricingCoverage < 1) {
     warnings.push(
       `Billing classification could be resolved for ${pricing.pricedCells}/${pricing.currentCells} cells; aggregate monetary estimates are omitted unless coverage is complete.`
@@ -8881,6 +9043,10 @@ function recommendMatrix(report, options = {}) {
     currentProjectedListPriceUsd30Days,
     selectedProjectedListPriceUsd30Days,
     pricing,
+    constraintRequirements: constraintTokens.length,
+    coveredConstraintRequirements: coveredConstraints.size,
+    keptCells: keepRequirements.map((item) => item.cell),
+    requiredSelectors: requireRequirements.length,
     warnings
   };
 }
@@ -8924,7 +9090,7 @@ function subsetReport(source, observations, runIds) {
     matrixJobs
   };
 }
-function backtestRecommendation(report, holdoutPercent = 25, coverageStrength = 2) {
+function backtestRecommendation(report, holdoutPercent = 25, coverageStrength = 2, constraints) {
   if (holdoutPercent <= 0 || holdoutPercent >= 100) {
     throw new Error("holdoutPercent must be between 0 and 100");
   }
@@ -8955,7 +9121,8 @@ function backtestRecommendation(report, holdoutPercent = 25, coverageStrength = 
   const trainingReport = subsetReport(report, training, trainingRunIds);
   const holdoutReport = subsetReport(report, holdout, holdoutRunIds);
   const recommendation = recommendMatrix(trainingReport, {
-    maxStrength: coverageStrength
+    maxStrength: coverageStrength,
+    constraints
   });
   const selected = new Set(recommendation.selectedCells.map((cell) => cell.cell));
   const trainingFingerprints = new Set(training.map((item) => item.fingerprint));
@@ -8997,6 +9164,11 @@ function backtestRecommendation(report, holdoutPercent = 25, coverageStrength = 
     "Runtime costs and combinatorial constraints are computed from the training window only.",
     `Observed combinatorial coverage is preserved up to strength ${coverageStrength}.`
   ];
+  if (recommendation.constraintRequirements) {
+    warnings.push(
+      `Applied ${recommendation.constraintRequirements} explicit hard constraint(s) to the training recommendation.`
+    );
+  }
   return {
     mode: "time-holdout",
     holdoutPercent,
@@ -9054,6 +9226,7 @@ function formatActionReport(repository, workflow, recommendation, backtest, back
 | Suggested cells | ${recommendation.selectedCells.length} |
 | Historical failure recall | ${historical} |
 | Observed combinatorial coverage | ${combinatorial} |
+| Explicit hard constraints | ${recommendation.coveredConstraintRequirements}/${recommendation.constraintRequirements} |
 | Estimated compute | ${seconds(recommendation.currentEstimatedSeconds)} \u2192 ${seconds(recommendation.selectedEstimatedSeconds)} |
 | Estimated compute reduction | ${reduction} |
 | Pricing coverage | ${percent(recommendation.pricingCoverage)} |
@@ -9089,7 +9262,7 @@ _Generated by MatrixTrim._
 var import_node_path = require("node:path");
 
 // src/rewrite.ts
-var import_yaml2 = __toESM(require_dist(), 1);
+var import_yaml3 = __toESM(require_dist(), 1);
 function assertMutationSafe(workflowText, observedCells, selectedCells) {
   const definitions = workflowMatrixDefinitions(workflowText);
   if (!definitions.length) {
@@ -9132,7 +9305,7 @@ function rewriteWorkflowToSelectedCells(workflowText, observedCellNames, selecte
     observedCells,
     selectedCells
   );
-  const document = (0, import_yaml2.parseDocument)(workflowText, {
+  const document = (0, import_yaml3.parseDocument)(workflowText, {
     keepSourceTokens: true
   });
   if (document.errors.length) {
@@ -9227,6 +9400,9 @@ function optimizationSafetyReason(analysis, recommendation, backtest) {
   if (recommendation.combinatorialCoverage !== null && recommendation.combinatorialCoverage < 1) {
     return "combinatorial coverage is below 100%";
   }
+  if (recommendation.coveredConstraintRequirements < recommendation.constraintRequirements) {
+    return "one or more explicit hard constraints are not satisfied";
+  }
   if (backtest && backtest.holdoutRecall < 1) {
     return "holdout failure recall is below 100%";
   }
@@ -9257,6 +9433,7 @@ ${jobs}
 
 - Historical failure recall: ${recommendation.historicalRecall === null ? "n/a" : `${(recommendation.historicalRecall * 100).toFixed(1)}%`}
 - Observed combinatorial coverage: ${recommendation.combinatorialCoverage === null ? "n/a" : `${(recommendation.combinatorialCoverage * 100).toFixed(1)}%`}
+- Explicit hard constraints: ${recommendation.coveredConstraintRequirements}/${recommendation.constraintRequirements}
 - Holdout failure recall: ${holdout}
 - Unseen-failure recall: ${unseen}
 - Estimated compute reduction: ${recommendation.estimatedComputeReductionPercent === null ? "n/a" : `${recommendation.estimatedComputeReductionPercent.toFixed(1)}%`}
@@ -9409,10 +9586,17 @@ async function main() {
   const limit = intInput("limit", 100, 2, 500);
   const holdout = intInput("holdout", 25, 5, 50);
   const strength = intInput("strength", 2, 1, 4);
+  const configPath = input("config") || ".matrixtrim.yml";
   const comment = boolInput("comment", true);
   const createPr = boolInput("create-pr", false);
+  const github = new GitHubClient(repository, token);
+  const config = await loadRepositoryConfig(
+    github,
+    configPath,
+    configPath !== ".matrixtrim.yml"
+  );
   console.log(
-    `MatrixTrim: repository=${repository}, workflow=${workflow ?? "all"}, limit=${limit}, strength=${strength}`
+    `MatrixTrim: repository=${repository}, workflow=${workflow ?? "all"}, limit=${limit}, strength=${strength}, constraints=${(config?.constraints.keep.length ?? 0) + (config?.constraints.require.length ?? 0)}`
   );
   const analysis = await analyzeRepository(repository, {
     limit,
@@ -9420,12 +9604,18 @@ async function main() {
     token
   });
   const recommendation = recommendMatrix(analysis, {
-    maxStrength: strength
+    maxStrength: strength,
+    constraints: config?.constraints
   });
   let backtest = null;
   let backtestError;
   try {
-    backtest = backtestRecommendation(analysis, holdout, strength);
+    backtest = backtestRecommendation(
+      analysis,
+      holdout,
+      strength,
+      config?.constraints
+    );
   } catch (error) {
     backtestError = error.message;
     warning(`backtest unavailable: ${backtestError}`);
@@ -9506,6 +9696,14 @@ async function main() {
     recommendation.combinatorialCoverage?.toFixed(4) ?? ""
   );
   await writeOutput(
+    "constraint-requirements",
+    recommendation.constraintRequirements
+  );
+  await writeOutput(
+    "constraint-coverage",
+    recommendation.constraintRequirements ? (recommendation.coveredConstraintRequirements / recommendation.constraintRequirements).toFixed(4) : "1.0000"
+  );
+  await writeOutput(
     "holdout-recall",
     backtest?.holdoutRecall.toFixed(4) ?? ""
   );
@@ -9524,9 +9722,8 @@ async function main() {
       warning(optimizationReason);
     } else {
       try {
-        const client = new GitHubClient(repository, token);
         const result = await createOrUpdateOptimizationPullRequest(
-          client,
+          github,
           analysis,
           recommendation,
           backtest,
@@ -9572,17 +9769,16 @@ async function main() {
     const pullRequest = await eventPullRequestNumber();
     if (pullRequest) {
       try {
-        const client = new GitHubClient(repository, token);
         const marker = "<!-- matrixtrim-report -->";
-        const comments = await client.listIssueComments(pullRequest);
+        const comments = await github.listIssueComments(pullRequest);
         const previous = comments.find(
           (item) => item.body?.includes(marker) && (item.user?.login?.endsWith("[bot]") ?? false)
         );
         if (previous) {
-          await client.updateIssueComment(previous.id, report);
+          await github.updateIssueComment(previous.id, report);
           console.log(`Updated MatrixTrim comment on PR #${pullRequest}`);
         } else {
-          await client.createIssueComment(pullRequest, report);
+          await github.createIssueComment(pullRequest, report);
           console.log(`Created MatrixTrim comment on PR #${pullRequest}`);
         }
       } catch (error) {

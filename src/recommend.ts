@@ -1,4 +1,6 @@
 import type { AnalysisReport, CellSummary } from "./analyze.js";
+import type { MatrixTrimConstraints, RequireConstraint } from "./config.js";
+import { EMPTY_CONSTRAINTS } from "./config.js";
 import { observedCombinatorialCoverage } from "./coverage.js";
 import {
   estimatePricing,
@@ -18,6 +20,7 @@ export type RecommendedCell = {
 
 export type RecommendationOptions = {
   maxStrength?: number;
+  constraints?: MatrixTrimConstraints;
 };
 
 export type RecommendationReport = {
@@ -44,6 +47,10 @@ export type RecommendationReport = {
   currentProjectedListPriceUsd30Days: number | null;
   selectedProjectedListPriceUsd30Days: number | null;
   pricing: PricingEstimate;
+  constraintRequirements: number;
+  coveredConstraintRequirements: number;
+  keptCells: string[];
+  requiredSelectors: number;
   warnings: string[];
 };
 
@@ -62,6 +69,17 @@ function costFor(cell: CellSummary, fallback: number): number {
 
 function stableCompare(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
+}
+
+function matchesRequireConstraint(
+  cell: CellSummary,
+  selector: RequireConstraint,
+): boolean {
+  if (selector.baseJob && cell.baseJob !== selector.baseJob) return false;
+  if (!cell.axes) return false;
+  return Object.entries(selector.axes).every(
+    ([key, value]) => cell.axes?.[key] === value,
+  );
 }
 
 export function recommendMatrix(
@@ -94,6 +112,43 @@ export function recommendMatrix(
     maxStrength,
   );
 
+  const constraints = options.constraints ?? EMPTY_CONSTRAINTS;
+  const cellsByName = new Map(report.cells.map((cell) => [cell.cell, cell]));
+  const keepCells = [...new Set(constraints.keep)];
+  const keepRequirements = keepCells.map((cell, index) => {
+    if (!cellsByName.has(cell)) {
+      throw new Error(
+        `hard keep constraint references an unobserved matrix cell: ${cell}`,
+      );
+    }
+    return {
+      cell,
+      token: `constraint:keep:${index}`,
+    };
+  });
+  const requireRequirements = constraints.require.map((selector, index) => {
+    const matches = report.cells
+      .filter((cell) => matchesRequireConstraint(cell, selector))
+      .map((cell) => cell.cell);
+    if (!matches.length) {
+      const base = selector.baseJob ? ` baseJob=${selector.baseJob}` : "";
+      const axes = Object.entries(selector.axes)
+        .map(([key, value]) => `${key}=${value}`)
+        .join(",");
+      throw new Error(
+        `hard require constraint matched no observed matrix cells:${base} axes=${axes}`,
+      );
+    }
+    return {
+      token: `constraint:require:${index}`,
+      matches: new Set(matches),
+    };
+  });
+  const constraintTokens = [
+    ...keepRequirements.map((item) => item.token),
+    ...requireRequirements.map((item) => item.token),
+  ];
+
   const anchors = new Set(report.cells.map((cell) => `base:${cell.baseJob}`));
   const failureTokens = report.clusters.map(
     (cluster) => `failure:${cluster.fingerprint}`,
@@ -108,6 +163,7 @@ export function recommendMatrix(
     ...failureTokens,
     ...combinatorialTokens,
     ...unresolvedSafetyTokens,
+    ...constraintTokens,
   ]);
 
   const coverageByCell = new Map<string, Set<string>>();
@@ -122,6 +178,16 @@ export function recommendMatrix(
     }
     if (unresolvedSafetyCells.has(cell.cell)) {
       coverage.add(`unresolved:${cell.cell}`);
+    }
+    for (const requirement of keepRequirements) {
+      if (requirement.cell === cell.cell) {
+        coverage.add(requirement.token);
+      }
+    }
+    for (const requirement of requireRequirements) {
+      if (requirement.matches.has(cell.cell)) {
+        coverage.add(requirement.token);
+      }
     }
 
     coverageByCell.set(cell.cell, coverage);
@@ -162,6 +228,12 @@ export function recommendMatrix(
     for (const item of bestNew) uncovered.delete(item);
   }
 
+  if (uncovered.size) {
+    throw new Error(
+      `unable to satisfy ${uncovered.size} hard/coverage requirement(s)`,
+    );
+  }
+
   // Greedy selection can leave cells redundant after later choices.
   // Remove the most expensive redundant cells first so the result does not
   // depend on Map insertion order, Node/ICU locale behavior, or greedy order.
@@ -196,6 +268,7 @@ export function recommendMatrix(
   const selectedNames = new Set(selected.map((cell) => cell.cell));
   const coveredFailures = new Set<string>();
   const coveredCombinations = new Set<string>();
+  const coveredConstraints = new Set<string>();
 
   for (const observation of report.observations) {
     if (selectedNames.has(observation.cell)) {
@@ -205,6 +278,11 @@ export function recommendMatrix(
   for (const cell of selected) {
     for (const token of combinatorial.byCell.get(cell.cell) ?? []) {
       coveredCombinations.add(token);
+    }
+    for (const token of coverageByCell.get(cell.cell) ?? []) {
+      if (constraintTokens.includes(token)) {
+        coveredConstraints.add(token);
+      }
     }
   }
 
@@ -260,6 +338,12 @@ export function recommendMatrix(
     `Combinatorial coverage preserves observed axis combinations up to strength ${maxStrength}; it does not invent combinations absent from the observed matrix.`,
     "Runtime estimates come from matrix jobs observed across completed workflow runs.",
   ];
+
+  if (constraintTokens.length) {
+    warnings.push(
+      `Applied ${constraintTokens.length} explicit hard constraint(s): keep=${keepRequirements.length}, require=${requireRequirements.length}.`,
+    );
+  }
 
   if (pricingCoverage < 1) {
     warnings.push(
@@ -363,6 +447,10 @@ export function recommendMatrix(
     currentProjectedListPriceUsd30Days,
     selectedProjectedListPriceUsd30Days,
     pricing,
+    constraintRequirements: constraintTokens.length,
+    coveredConstraintRequirements: coveredConstraints.size,
+    keptCells: keepRequirements.map((item) => item.cell),
+    requiredSelectors: requireRequirements.length,
     warnings,
   };
 }

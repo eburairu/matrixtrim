@@ -92,6 +92,7 @@ export function formatActionReport(
 | Suggested cells | ${recommendation.selectedCells.length} |
 | Historical failure recall | ${historical} |
 | Observed combinatorial coverage | ${combinatorial} |
+| Explicit hard constraints | ${recommendation.coveredConstraintRequirements}/${recommendation.constraintRequirements} |
 | Estimated compute | ${seconds(recommendation.currentEstimatedSeconds)} → ${seconds(recommendation.selectedEstimatedSeconds)} |
 | Estimated compute reduction | ${reduction} |
 | Pricing coverage | ${percent(recommendation.pricingCoverage)} |

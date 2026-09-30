@@ -6,6 +6,7 @@ import { backtestRecommendation } from "./backtest.js";
 import { formatActionReport } from "./action-report.js";
 import { GitHubClient } from "./github.js";
 import { createOrUpdateOptimizationPullRequest } from "./optimization-pr.js";
+import { loadRepositoryConfig } from "./config.js";
 
 function input(name: string): string {
   return process.env[`INPUT_${name.toUpperCase().replace(/-/g, "_")}`]?.trim() ?? "";
@@ -77,11 +78,18 @@ async function main(): Promise<void> {
   const limit = intInput("limit", 100, 2, 500);
   const holdout = intInput("holdout", 25, 5, 50);
   const strength = intInput("strength", 2, 1, 4);
+  const configPath = input("config") || ".matrixtrim.yml";
   const comment = boolInput("comment", true);
   const createPr = boolInput("create-pr", false);
+  const github = new GitHubClient(repository, token);
+  const config = await loadRepositoryConfig(
+    github,
+    configPath,
+    configPath !== ".matrixtrim.yml",
+  );
 
   console.log(
-    `MatrixTrim: repository=${repository}, workflow=${workflow ?? "all"}, limit=${limit}, strength=${strength}`,
+    `MatrixTrim: repository=${repository}, workflow=${workflow ?? "all"}, limit=${limit}, strength=${strength}, constraints=${(config?.constraints.keep.length ?? 0) + (config?.constraints.require.length ?? 0)}`,
   );
 
   const analysis = await analyzeRepository(repository, {
@@ -91,12 +99,18 @@ async function main(): Promise<void> {
   });
   const recommendation = recommendMatrix(analysis, {
     maxStrength: strength,
+    constraints: config?.constraints,
   });
 
   let backtest = null;
   let backtestError: string | undefined;
   try {
-    backtest = backtestRecommendation(analysis, holdout, strength);
+    backtest = backtestRecommendation(
+      analysis,
+      holdout,
+      strength,
+      config?.constraints,
+    );
   } catch (error) {
     backtestError = (error as Error).message;
     warning(`backtest unavailable: ${backtestError}`);
@@ -180,6 +194,19 @@ async function main(): Promise<void> {
     recommendation.combinatorialCoverage?.toFixed(4) ?? "",
   );
   await writeOutput(
+    "constraint-requirements",
+    recommendation.constraintRequirements,
+  );
+  await writeOutput(
+    "constraint-coverage",
+    recommendation.constraintRequirements
+      ? (
+          recommendation.coveredConstraintRequirements /
+          recommendation.constraintRequirements
+        ).toFixed(4)
+      : "1.0000",
+  );
+  await writeOutput(
     "holdout-recall",
     backtest?.holdoutRecall.toFixed(4) ?? "",
   );
@@ -201,9 +228,8 @@ async function main(): Promise<void> {
       warning(optimizationReason);
     } else {
       try {
-        const client = new GitHubClient(repository, token);
         const result = await createOrUpdateOptimizationPullRequest(
-          client,
+          github,
           analysis,
           recommendation,
           backtest,
@@ -245,19 +271,18 @@ async function main(): Promise<void> {
     const pullRequest = await eventPullRequestNumber();
     if (pullRequest) {
       try {
-        const client = new GitHubClient(repository, token);
         const marker = "<!-- matrixtrim-report -->";
-        const comments = await client.listIssueComments(pullRequest);
+        const comments = await github.listIssueComments(pullRequest);
         const previous = comments.find(
           (item) =>
             item.body?.includes(marker) &&
             (item.user?.login?.endsWith("[bot]") ?? false),
         );
         if (previous) {
-          await client.updateIssueComment(previous.id, report);
+          await github.updateIssueComment(previous.id, report);
           console.log(`Updated MatrixTrim comment on PR #${pullRequest}`);
         } else {
-          await client.createIssueComment(pullRequest, report);
+          await github.createIssueComment(pullRequest, report);
           console.log(`Created MatrixTrim comment on PR #${pullRequest}`);
         }
       } catch (error) {

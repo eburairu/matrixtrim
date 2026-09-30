@@ -5,6 +5,7 @@ import {
 } from "./analyze.js";
 import { recommendMatrix } from "./recommend.js";
 import { observedCombinatorialCoverage } from "./coverage.js";
+import type { MatrixTrimConstraints } from "./config.js";
 
 export type MissedFailure = {
   fingerprint: string;
@@ -84,6 +85,7 @@ export function backtestRecommendation(
   report: AnalysisReport,
   holdoutPercent = 25,
   coverageStrength = 2,
+  constraints?: MatrixTrimConstraints,
 ): BacktestReport {
   if (holdoutPercent <= 0 || holdoutPercent >= 100) {
     throw new Error("holdoutPercent must be between 0 and 100");
@@ -126,6 +128,7 @@ export function backtestRecommendation(
   const holdoutReport = subsetReport(report, holdout, holdoutRunIds);
   const recommendation = recommendMatrix(trainingReport, {
     maxStrength: coverageStrength,
+    constraints,
   });
   const selected = new Set(recommendation.selectedCells.map((cell) => cell.cell));
   const trainingFingerprints = new Set(training.map((item) => item.fingerprint));
@@ -171,6 +174,11 @@ export function backtestRecommendation(
     "Runtime costs and combinatorial constraints are computed from the training window only.",
     `Observed combinatorial coverage is preserved up to strength ${coverageStrength}.`,
   ];
+  if (recommendation.constraintRequirements) {
+    warnings.push(
+      `Applied ${recommendation.constraintRequirements} explicit hard constraint(s) to the training recommendation.`,
+    );
+  }
 
   return {
     mode: "time-holdout",

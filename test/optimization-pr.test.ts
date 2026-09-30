@@ -124,6 +124,10 @@ function recommendation(): RecommendationReport {
       selectedEstimatedChargeUsdPer30Days: null,
       note: "test",
     },
+    constraintRequirements: 0,
+    coveredConstraintRequirements: 0,
+    keptCells: [],
+    requiredSelectors: 0,
     warnings: [],
   };
 }

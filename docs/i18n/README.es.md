@@ -16,7 +16,7 @@ MatrixTrim no intenta simplemente ejecutar menos jobs. La pregunta útil es otra
 
 El objetivo es proponer una CI matrix más pequeña basándose en **cobertura histórica de fallos, coste de ejecución, estructura de la matrix y backtesting con holdout temporal**.
 
-> **Estado actual: v0.10 experimental.** MatrixTrim combina evidencia histórica de fallos, cobertura observada 1-wise / pairwise / t-wise, coste de runtime y estimación monetaria según runner, backtesting temporal, reconstrucción de nombres de jobs de matrix ya renderizados, GitHub Action, benchmark reproducible sobre OSS público y generación opt-in de draft PRs de optimización.
+> **Estado actual: v0.11 experimental.** MatrixTrim combina evidencia histórica de fallos, cobertura observada 1-wise / pairwise / t-wise, restricciones keep / compatibility definidas explícitamente por humanos, coste de runtime y estimación monetaria según runner, backtesting temporal, reconstrucción de nombres de jobs de matrix ya renderizados, GitHub Action, benchmark reproducible sobre OSS público y generación opt-in de draft PRs de optimización.
 
 ## ¿Por qué MatrixTrim?
 
@@ -171,11 +171,33 @@ steps:
 
 MatrixTrim solo crea un **draft PR** y nunca hace auto-merge. Convierte las celdas static seleccionadas en filas explícitas de `matrix.include` y valida el workflow con un round-trip antes de escribirlo. Si hay matrices dinámicas, axes sin resolver, correspondencia incompleta entre workflow y nombres de jobs, coverage inferior al 100% o algún holdout disponible falla, la creación del PR se rechaza. Las ejecuciones disparadas por `pull_request` o `pull_request_target` también omiten de forma forzada la creación del PR de optimización.
 
+## Hard constraints explícitas
+
+Si un entorno debe conservarse por compatibilidad o política de soporte aunque el historial lo haga parecer redundante, puede declararse en `.matrixtrim.yml`.
+
+```yaml
+version: 1
+constraints:
+  keep:
+    - "test (windows-latest, 20)"
+  require:
+    - axes:
+        os: windows-latest
+    - baseJob: test
+      axes:
+        node: "20"
+        postgres: "14"
+```
+
+`keep` fija una cell renderizada exacta. `require` garantiza que permanezca al menos una cell observada que cumpla el selector. La misma política se aplica a recommendation, backtest, GitHub Action y generación del draft PR. Si una regla no coincide con ninguna cell, MatrixTrim falla de forma cerrada en lugar de ignorarla silenciosamente.
+
+La configuración se lee desde la **default branch** del repositorio, por lo que un Pull Request no confiable no puede debilitar la política de seguridad de MatrixTrim modificando su propia copia del config. Consulta [Explicit hard constraints](../constraints.md) para la semántica completa.
+
 ## Modelo de coste según runner
 
 MatrixTrim ya no trata todos los minutos de CI como si costaran lo mismo: estima el impacto monetario a partir de los labels reales del runner y de la duración observada de cada job.
 
-- Tarifas base de standard GitHub-hosted runners usadas en v0.9: Linux 1-core x64 **$0.002/min**, Linux 2-core x64 **$0.006/min**, Linux 2-core arm64 **$0.005/min**, Windows x64/arm64 **$0.010/min** y standard macOS **$0.062/min**.
+- Tarifas base de standard GitHub-hosted runners usadas por el modelo actual: Linux 1-core x64 **$0.002/min**, Linux 2-core x64 **$0.006/min**, Linux 2-core arm64 **$0.005/min**, Windows x64/arm64 **$0.010/min** y standard macOS **$0.062/min**.
 - Cada job se redondea hacia arriba al minuto completo antes de calcular el coste, igual que en la facturación de GitHub Actions.
 - En un **public repository**, los standard GitHub-hosted runners son gratuitos. Por eso MatrixTrim muestra un cargo GitHub estimado de **$0** y usa el rate-card solo como valor comparativo.
 - En un **private/internal repository**, el cargo estimado representa el equivalente de overage del standard runner **antes de descontar los minutos incluidos en el plan**.
@@ -193,7 +215,7 @@ Para evitar validar MatrixTrim solo con ejemplos favorables, fijamos **20 ejecuc
 - La reducción de compute no coincide necesariamente con la reducción monetaria por las tarifas distintas de cada runner y el redondeo de cada job al minuto completo. En el rate-card de standard runners: pandas **$25.148 → $24.671/run (-1.9%)**, Flask **$0.132 → $0.120/run (-9.1%)** y Diesel **$11.624 → $11.450/run (-1.5%)**. Los tres repositorios son públicos, así que el cargo GitHub estimado para standard runners sigue siendo **$0**.
 - pandas y Diesel mantuvieron **100% de holdout recall y 100% de unseen-failure recall** en las ventanas de backtest disponibles.
 - **7 de los 10 repositorios completamente resueltos se dejaron sin cambios deliberadamente** porque las restricciones de seguridad no justificaban una reducción.
-- aiohttp y Tokio siguen siendo partial. En v0.9 los cells unresolved se conservan individualmente como restricción de seguridad, por lo que este snapshot queda en **aiohttp 29 → 29 / Tokio 51 → 51**; ninguno cuenta como reducción validada.
+- aiohttp y Tokio siguen siendo partial. En la recommendation actual los cells unresolved se conservan individualmente como restricción de seguridad, por lo que este snapshot queda en **aiohttp 29 → 29 / Tokio 51 → 51**; ninguno cuenta como reducción validada.
 
 Los run IDs exactos están fijados en [benchmark/snapshot.json](../../benchmark/snapshot.json) y los resultados completos en [benchmark/results.md](../../benchmark/results.md). Estas cifras describen ese snapshot fijo; no son una promesa sobre el comportamiento futuro del CI.
 
@@ -241,7 +263,7 @@ El núcleo es determinista y no depende de un LLM.
 - [x] Backtest temporal
 - [x] Expansión estática de `include` / `exclude` y reconstrucción del nombre renderizado del job
 - [ ] Matrices dinámicas / soporte más amplio de expresiones de GitHub
-- [ ] Restricciones explícitas keep / compatibility
+- [x] Restricciones explícitas keep / compatibility
 - [x] GitHub Action + comentarios en PR
 - [x] Benchmark reproducible en repos OSS con matrices grandes
 - [x] Modelo de coste monetario según runner

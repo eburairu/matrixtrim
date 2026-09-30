@@ -146,6 +146,122 @@ describe("history-only recommendation", () => {
     );
   });
 
+  it("keeps an explicitly pinned cell even when it is more expensive", () => {
+    const recommendation = recommendMatrix(report(), {
+      maxStrength: 1,
+      constraints: {
+        keep: ["test (all-in-one)"],
+        require: [],
+      },
+    });
+
+    expect(recommendation.selectedCells.map((cell) => cell.cell)).toContain(
+      "test (all-in-one)",
+    );
+    expect(recommendation.constraintRequirements).toBe(1);
+    expect(recommendation.coveredConstraintRequirements).toBe(1);
+    expect(recommendation.keptCells).toEqual(["test (all-in-one)"]);
+  });
+
+  it("requires a specific multi-axis compatibility combination", () => {
+    const input = report();
+    input.fingerprints = 0;
+    input.clusters = [];
+    input.observations = [];
+    input.cells = [
+      {
+        cell: "test (linux, 20)",
+        baseJob: "test",
+        axes: { os: "linux", node: "20" },
+        axisSource: "workflow-job-name",
+        runsObserved: 5,
+        observations: 0,
+        distinctFailures: 0,
+        uniqueFailures: 0,
+        medianRuntimeSeconds: 1,
+      },
+      {
+        cell: "test (linux, 22)",
+        baseJob: "test",
+        axes: { os: "linux", node: "22" },
+        axisSource: "workflow-job-name",
+        runsObserved: 5,
+        observations: 0,
+        distinctFailures: 0,
+        uniqueFailures: 0,
+        medianRuntimeSeconds: 1,
+      },
+      {
+        cell: "test (windows, 20)",
+        baseJob: "test",
+        axes: { os: "windows", node: "20" },
+        axisSource: "workflow-job-name",
+        runsObserved: 5,
+        observations: 0,
+        distinctFailures: 0,
+        uniqueFailures: 0,
+        medianRuntimeSeconds: 1,
+      },
+      {
+        cell: "test (windows, 22)",
+        baseJob: "test",
+        axes: { os: "windows", node: "22" },
+        axisSource: "workflow-job-name",
+        runsObserved: 5,
+        observations: 0,
+        distinctFailures: 0,
+        uniqueFailures: 0,
+        medianRuntimeSeconds: 100,
+      },
+    ];
+
+    const unconstrained = recommendMatrix(input, { maxStrength: 1 });
+    expect(
+      unconstrained.selectedCells.map((cell) => cell.cell),
+    ).not.toContain("test (windows, 22)");
+
+    const constrained = recommendMatrix(input, {
+      maxStrength: 1,
+      constraints: {
+        keep: [],
+        require: [
+          {
+            baseJob: "test",
+            axes: { os: "windows", node: "22" },
+          },
+        ],
+      },
+    });
+
+    expect(constrained.selectedCells.map((cell) => cell.cell)).toContain(
+      "test (windows, 22)",
+    );
+    expect(constrained.constraintRequirements).toBe(1);
+    expect(constrained.coveredConstraintRequirements).toBe(1);
+  });
+
+  it("fails closed when an explicit constraint matches nothing", () => {
+    expect(() =>
+      recommendMatrix(report(), {
+        maxStrength: 1,
+        constraints: {
+          keep: [],
+          require: [{ axes: { os: "plan9" } }],
+        },
+      })
+    ).toThrow(/matched no observed matrix cells/);
+
+    expect(() =>
+      recommendMatrix(report(), {
+        maxStrength: 1,
+        constraints: {
+          keep: ["test (missing)"],
+          require: [],
+        },
+      })
+    ).toThrow(/unobserved matrix cell/);
+  });
+
   it("retains every cell whose matrix axes cannot be resolved", () => {
     const input = report();
     input.cells.push({

@@ -1,0 +1,7 @@
+version: 1
+
+constraints:
+  require:
+    - baseJob: test
+      axes:
+        node: "20"

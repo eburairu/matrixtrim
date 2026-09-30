@@ -60,6 +60,10 @@ describe("GitHub Action report", () => {
         selectedEstimatedChargeUsdPer30Days: 0,
         note: "Standard GitHub-hosted runners are free in public repositories.",
       },
+      constraintRequirements: 2,
+      coveredConstraintRequirements: 2,
+      keptCells: ["test (ubuntu, 20)"],
+      requiredSelectors: 1,
       warnings: ["example warning"],
     };
 
@@ -94,6 +98,7 @@ describe("GitHub Action report", () => {
     expect(report).toContain("<!-- matrixtrim-report -->");
     expect(report).toContain("| Current matrix cells | 8 |");
     expect(report).toContain("| Suggested cells | 1 |");
+    expect(report).toContain("| Explicit hard constraints | 2/2 |");
     expect(report).toContain("| Estimated compute reduction | 50.0% |");
     expect(report).toContain("| Pricing coverage | 100.0% |");
     expect(report).toContain("| Standard runner rate-card / run | $0.048 → $0.006 |");

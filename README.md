@@ -16,7 +16,7 @@ MatrixTrim analyzes GitHub Actions matrix jobs and asks a practical question:
 
 The goal is to recommend a smaller CI matrix using **historical failure coverage, runtime cost, matrix structure, and holdout backtesting**.
 
-> **Status: v0.10 experimental.** MatrixTrim combines empirical failure evidence, observed 1-wise / pairwise / t-wise configuration coverage, runtime and runner-aware monetary cost, time-based holdout backtesting, rendered matrix-name reconstruction, a GitHub Action, reproducible public-OSS benchmarking, and opt-in draft optimization PR generation.
+> **Status: v0.11 experimental.** MatrixTrim combines empirical failure evidence, observed 1-wise / pairwise / t-wise configuration coverage, explicit human keep / compatibility constraints, runtime and runner-aware monetary cost, time-based holdout backtesting, rendered matrix-name reconstruction, a GitHub Action, reproducible public-OSS benchmarking, and opt-in draft optimization PR generation.
 
 ## Why MatrixTrim?
 
@@ -171,11 +171,33 @@ steps:
 
 MatrixTrim only creates a **draft PR**. It never auto-merges. The rewrite converts the selected static cells to explicit `matrix.include` rows and round-trip verifies the resulting workflow before writing it. PR creation is refused when dynamic matrices, unresolved axes, incomplete workflow/job-name mapping, sub-100% preserved coverage, or failing available holdout checks are present. Pull-request-triggered runs are also blocked from creating optimization PRs.
 
+## Explicit hard constraints
+
+For compatibility or support policies that must survive optimization, add a `.matrixtrim.yml` file:
+
+```yaml
+version: 1
+constraints:
+  keep:
+    - "test (windows-latest, 20)"
+  require:
+    - axes:
+        os: windows-latest
+    - baseJob: test
+      axes:
+        node: "20"
+        postgres: "14"
+```
+
+`keep` pins an exact rendered matrix cell. `require` keeps at least one observed cell matching the selector. The same policy is applied to recommendation, backtesting, the GitHub Action, and draft optimization PR generation. A rule that matches nothing fails closed instead of being silently ignored.
+
+The repository config is read from the **default branch**, so an untrusted pull request cannot weaken the MatrixTrim safety policy by editing its own config. See [Explicit hard constraints](docs/constraints.md) for the full semantics.
+
 ## Runner-aware cost model
 
 MatrixTrim now estimates monetary impact from the runner labels and observed job durations instead of treating every CI minute as equal.
 
-- Current standard GitHub-hosted rates used by v0.9: Linux 1-core x64 **$0.002/min**, Linux 2-core x64 **$0.006/min**, Linux 2-core arm64 **$0.005/min**, Windows x64/arm64 **$0.010/min**, and standard macOS **$0.062/min**.
+- Current standard GitHub-hosted rates used by the model: Linux 1-core x64 **$0.002/min**, Linux 2-core x64 **$0.006/min**, Linux 2-core arm64 **$0.005/min**, Windows x64/arm64 **$0.010/min**, and standard macOS **$0.062/min**.
 - Each job is rounded up to a whole minute before pricing, matching GitHub Actions billing behavior.
 - For **public repositories**, standard GitHub-hosted runners are free. MatrixTrim therefore reports an estimated GitHub charge of **$0** and shows the rate-card amount only as a comparison value.
 - For **private/internal repositories**, the estimated charge is the standard-runner overage equivalent **before account/plan included minutes are subtracted**.
@@ -193,7 +215,7 @@ To avoid validating MatrixTrim only on hand-picked examples, we pinned **20 conc
 - Monetary reduction is not identical to compute reduction because runner prices and per-job minute rounding matter: pandas **$25.148 → $24.671/run (-1.9%)**, Flask **$0.132 → $0.120/run (-9.1%)**, Diesel **$11.624 → $11.450/run (-1.5%)** on the standard-runner rate card. All three are public repositories, so estimated standard-runner GitHub charge remains **$0**.
 - pandas and Diesel both kept **100% holdout recall and 100% unseen-failure recall** in the available backtest windows.
 - **7 of the 10 fully resolved repositories were intentionally left unchanged** because the safety constraints did not justify a reduction.
-- aiohttp and Tokio remain partial. With unresolved cells retained as safety constraints, the v0.9 recommendation keeps **aiohttp 29 → 29** and **Tokio 51 → 51** in this snapshot; neither is counted as a validated reduction.
+- aiohttp and Tokio remain partial. With unresolved cells retained as safety constraints, the current recommendation keeps **aiohttp 29 → 29** and **Tokio 51 → 51** in this snapshot; neither is counted as a validated reduction.
 
 The exact run IDs are pinned in [benchmark/snapshot.json](benchmark/snapshot.json), and the complete results are in [benchmark/results.md](benchmark/results.md). These measurements describe that fixed snapshot; they are not universal promises about future CI behavior.
 
@@ -241,7 +263,7 @@ The core is deterministic. No LLM is required.
 - [x] Time-based holdout backtesting
 - [x] Static `include` / `exclude` expansion and rendered job-name recovery
 - [ ] Dynamic matrices / broader GitHub expression support
-- [ ] Explicit keep / compatibility constraints
+- [x] Explicit keep / compatibility constraints
 - [x] GitHub Action + PR comments
 - [x] Reproducible benchmark across matrix-heavy OSS repositories
 - [x] Runner-aware monetary cost model

@@ -69,4 +69,21 @@ describe("time holdout backtest", () => {
     expect(result.holdoutCombinatorialCoverage).toBe(1);
     expect(result.missed).toHaveLength(0);
   });
+
+  it("applies the same explicit constraints to the training recommendation", () => {
+    const result = backtestRecommendation(
+      makeReport(),
+      50,
+      2,
+      {
+        keep: ["test (a)"],
+        require: [],
+      },
+    );
+
+    expect(result.selectedCells).toContain("test (a)");
+    expect(result.warnings.join("\n")).toContain(
+      "Applied 1 explicit hard constraint",
+    );
+  });
 });

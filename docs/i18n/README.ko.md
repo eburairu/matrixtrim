@@ -16,7 +16,7 @@ MatrixTrim은 단순히 job 수를 줄이는 도구가 아닙니다. 핵심 질�
 
 목표는 **과거 failure coverage, 실행 비용, matrix 구조, holdout backtest**를 바탕으로 더 작은 CI matrix 후보를 제안하는 것입니다.
 
-> **현재 상태: v0.10 experimental.** 과거 failure evidence, 관측된 1-wise / pairwise / t-wise configuration coverage, runtime cost와 runner-aware 금액 추정, time-based holdout backtest, 렌더링된 matrix job 이름 복원, GitHub Action, 재현 가능한 공개 OSS benchmark, 명시적 opt-in draft 최적화 PR 생성까지 지원합니다.
+> **현재 상태: v0.11 experimental.** 과거 failure evidence, 관측된 1-wise / pairwise / t-wise configuration coverage, 사람이 명시하는 keep / compatibility constraint, runtime cost와 runner-aware 금액 추정, time-based holdout backtest, 렌더링된 matrix job 이름 복원, GitHub Action, 재현 가능한 공개 OSS benchmark, 명시적 opt-in draft 최적화 PR 생성까지 지원합니다.
 
 ## 왜 MatrixTrim인가?
 
@@ -171,11 +171,33 @@ steps:
 
 MatrixTrim은 **draft PR만** 만들며 자동 병합하지 않습니다. 선택된 static cell을 명시적인 `matrix.include` 행으로 변환하고, 쓰기 전에 workflow를 round-trip 검증합니다. dynamic matrix, unresolved axis, 불완전한 workflow/job 이름 매핑, 100% 미만의 coverage, 또는 사용 가능한 holdout 검증 실패가 하나라도 있으면 PR 생성을 거부합니다. `pull_request` / `pull_request_target` 이벤트에서 실행된 경우에도 최적화 PR 생성은 강제로 건너뜁니다.
 
+## 명시적 hard constraint
+
+과거 데이터만 보면 중복처럼 보여도 호환성이나 지원 정책 때문에 반드시 남겨야 하는 환경은 `.matrixtrim.yml`에 선언할 수 있습니다.
+
+```yaml
+version: 1
+constraints:
+  keep:
+    - "test (windows-latest, 20)"
+  require:
+    - axes:
+        os: windows-latest
+    - baseJob: test
+      axes:
+        node: "20"
+        postgres: "14"
+```
+
+`keep`은 렌더링된 matrix cell 하나를 정확히 고정합니다. `require`는 조건에 맞는 관측된 cell을 최소 하나 유지합니다. 같은 정책이 recommendation, backtest, GitHub Action, draft 최적화 PR 생성에 모두 적용됩니다. 어떤 cell에도 매치되지 않는 규칙은 조용히 무시하지 않고 fail closed합니다.
+
+config는 repository의 **default branch**에서 읽기 때문에 신뢰할 수 없는 Pull Request가 자기 config를 수정해 MatrixTrim의 안전 정책을 약화시킬 수 없습니다. 전체 의미는 [Explicit hard constraints](../constraints.md)를 참고하세요.
+
 ## runner-aware cost model
 
 MatrixTrim은 모든 CI minute를 같은 비용으로 보지 않고, 실제 runner label과 관측된 job 실행 시간을 이용해 금액 영향을 추정합니다.
 
-- v0.9에서 사용하는 standard GitHub-hosted runner 기준 단가는 Linux 1-core x64 **$0.002/min**, Linux 2-core x64 **$0.006/min**, Linux 2-core arm64 **$0.005/min**, Windows x64/arm64 **$0.010/min**, standard macOS **$0.062/min**입니다.
+- 현재 모델에서 사용하는 standard GitHub-hosted runner 기준 단가는 Linux 1-core x64 **$0.002/min**, Linux 2-core x64 **$0.006/min**, Linux 2-core arm64 **$0.005/min**, Windows x64/arm64 **$0.010/min**, standard macOS **$0.062/min**입니다.
 - GitHub Actions 과금 방식에 맞춰 각 job 실행 시간을 분 단위로 올림한 뒤 금액을 계산합니다.
 - **public repository**에서는 standard GitHub-hosted runner가 무료이므로 예상 GitHub 실제 청구액은 **$0**으로 표시하고, rate-card 금액은 비교용 값으로 따로 보여 줍니다.
 - **private/internal repository**에서는 account/plan에 포함된 무료 minutes를 차감하기 전의 standard runner overage 상당액을 표시합니다.
@@ -193,7 +215,7 @@ MatrixTrim은 모든 CI minute를 같은 비용으로 보지 않고, 실제 runn
 - runner 단가와 job별 1분 단위 올림 때문에 compute 감소율과 금액 감소율은 같지 않습니다. standard runner rate-card 기준으로 pandas **$25.148 → $24.671/run (-1.9%)**, Flask **$0.132 → $0.120/run (-9.1%)**, Diesel **$11.624 → $11.450/run (-1.5%)**였습니다. 세 저장소 모두 public이므로 standard runner의 예상 GitHub 실제 청구액은 **$0**입니다.
 - pandas와 Diesel은 사용 가능한 backtest 구간에서 **holdout recall 100%, unseen-failure recall 100%**를 유지했습니다.
 - 완전히 해석된 10개 저장소 중 **7개는 안전 제약 때문에 의도적으로 축소하지 않았습니다**.
-- aiohttp와 Tokio는 여전히 partial입니다. v0.9에서는 unresolved cell을 안전 제약으로 개별 유지하므로 이 snapshot에서 **aiohttp 29 → 29 / Tokio 51 → 51**이며, 둘 다 validated reduction에 포함하지 않습니다.
+- aiohttp와 Tokio는 여전히 partial입니다. 현재 recommendation은 unresolved cell을 안전 제약으로 개별 유지하므로 이 snapshot에서 **aiohttp 29 → 29 / Tokio 51 → 51**이며, 둘 다 validated reduction에 포함하지 않습니다.
 
 정확한 run ID는 [benchmark/snapshot.json](../../benchmark/snapshot.json)에 고정되어 있고, 전체 결과는 [benchmark/results.md](../../benchmark/results.md)에서 확인할 수 있습니다. 이 수치는 고정snapshot에 대한 관측 결과이며 미래 CI 동작을 보장하지 않습니다.
 
@@ -241,7 +263,7 @@ timestamp, 절대 경로, UUID, duration, line number처럼 흔들리는 정보�
 - [x] time-based holdout backtest
 - [x] static `include` / `exclude` 전개 및 렌더링된job 이름 복원
 - [ ] dynamic matrix / 더 넓은GitHub 표현식 지원
-- [ ] 명시적 keep / compatibility constraint
+- [x] 명시적 keep / compatibility constraint
 - [x] GitHub Action + PR comment
 - [x] matrix-heavy OSS 재현 가능benchmark
 - [x] runner-aware monetary cost model

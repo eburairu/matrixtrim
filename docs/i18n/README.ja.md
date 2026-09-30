@@ -16,7 +16,7 @@ MatrixTrimが見たいのは、単純なjob数ではありません。
 
 過去のfailure、実行コスト、matrix構造、holdout backtestを使って、より小さいCI matrix候補を作ることを目指しています。
 
-> **Status: v0.10 experimental.** 過去のfailure evidence、観測済み1-wise / pairwise / t-wise構成coverage、runtime costとrunner-awareな金額推定、time-based holdout backtest、render済みmatrix job名の復元、GitHub Action、再現可能な公開OSS benchmark、明示opt-inのdraft最適化PR生成まで利用できます。
+> **Status: v0.11 experimental.** 過去のfailure evidence、観測済み1-wise / pairwise / t-wise構成coverage、人間が明示するkeep / compatibility constraint、runtime costとrunner-awareな金額推定、time-based holdout backtest、render済みmatrix job名の復元、GitHub Action、再現可能な公開OSS benchmark、明示opt-inのdraft最適化PR生成まで利用できます。
 
 ## なぜ必要か
 
@@ -171,11 +171,33 @@ steps:
 
 生成するのは**draft PRだけ**で、auto-mergeはしません。選択したstatic cellを明示的な `matrix.include` へ変換し、書き込み前にworkflowをround-trip検証します。dynamic matrix、unresolved axis、不完全なworkflow/job名対応、coverage 100%未満、利用可能なholdout checkの失敗がある場合はPR生成を拒否します。pull_request / pull_request_target起動時も最適化PR生成は強制skipします。
 
+## 明示的なhard constraint
+
+履歴上は不要に見えても、互換性・サポート方針として必ず残したい環境は `.matrixtrim.yml` に書けます。
+
+```yaml
+version: 1
+constraints:
+  keep:
+    - "test (windows-latest, 20)"
+  require:
+    - axes:
+        os: windows-latest
+    - baseJob: test
+      axes:
+        node: "20"
+        postgres: "14"
+```
+
+`keep` はrender済みmatrix cellを完全一致で固定します。`require` は条件に一致する観測済みcellを最低1つ残します。同じ条件をrecommendation、backtest、GitHub Action、draft最適化PR生成のすべてに適用します。条件が1件もmatchしない場合は黙って無視せずfail closedします。
+
+configはrepositoryの**default branch**から読むため、信頼できないPull Requestが自分自身のconfigを書き換えて安全条件を弱めることもできません。詳細は [Explicit hard constraints](../constraints.md) を参照してください。
+
 ## runner-aware cost model
 
 MatrixTrimはCI minuteをすべて同じ価値として扱わず、実際のrunner labelと観測したjob実行時間から金額影響を推定します。
 
-- v0.9で使用するstandard GitHub-hosted runnerの基準単価は、Linux 1-core x64 **$0.002/min**、Linux 2-core x64 **$0.006/min**、Linux 2-core arm64 **$0.005/min**、Windows x64/arm64 **$0.010/min**、standard macOS **$0.062/min** です。
+- 現在のモデルで使用するstandard GitHub-hosted runnerの基準単価は、Linux 1-core x64 **$0.002/min**、Linux 2-core x64 **$0.006/min**、Linux 2-core arm64 **$0.005/min**、Windows x64/arm64 **$0.010/min**、standard macOS **$0.062/min** です。
 - GitHub Actionsの課金仕様に合わせ、各jobの実行時間を1分単位へ切り上げてから金額化します。
 - **public repository**ではstandard GitHub-hosted runnerは無料です。そのため推定GitHub請求額は**$0**とし、rate-cardは比較用の金額として別表示します。
 - **private/internal repository**では、account/planに含まれる無料minuteを差し引く前のstandard runner overage相当額として表示します。
@@ -193,7 +215,7 @@ MatrixTrimはCI minuteをすべて同じ価値として扱わず、実際のrunn
 - runner単価とjob単位の1分丸めがあるため、compute削減率と金額削減率は一致しません。standard runnerのrate-cardでは、pandas **$25.148 → $24.671/run (-1.9%)**、Flask **$0.132 → $0.120/run (-9.1%)**、Diesel **$11.624 → $11.450/run (-1.5%)** でした。3 repoともpublicなのでstandard runnerの推定GitHub請求額は**$0**のままです。
 - pandasとDieselは、利用可能なbacktest期間で **holdout recall 100% / unseen-failure recall 100%** を維持しました。
 - 完全解決できた10 repoのうち**7 repoは安全制約上「削らない」判定**でした。
-- aiohttpとTokioはpartialのままです。unresolved cellを安全制約として個別保持するv0.9では、このsnapshotで **aiohttp 29 → 29 / Tokio 51 → 51** となり、どちらも検証済み削減には数えていません。
+- aiohttpとTokioはpartialのままです。unresolved cellを安全制約として個別保持する現在のrecommendationでは、このsnapshotで **aiohttp 29 → 29 / Tokio 51 → 51** となり、どちらも検証済み削減には数えていません。
 
 対象run IDは [benchmark/snapshot.json](../../benchmark/snapshot.json) に固定し、全結果は [benchmark/results.md](../../benchmark/results.md) に保存しています。この数値は固定snapshotに対する観測結果であり、将来のCI挙動を保証するものではありません。
 
@@ -241,7 +263,7 @@ coreはdeterministicで、LLMは必須ではありません。
 - [x] time-based holdout backtest
 - [x] static `include` / `exclude` 展開＋render済みjob名復元
 - [ ] dynamic matrix / GitHub式の対応拡大
-- [ ] 明示的なkeep / compatibility constraint
+- [x] 明示的なkeep / compatibility constraint
 - [x] GitHub Action化＋PRコメント
 - [x] matrix-heavy OSSでの再現可能benchmark
 - [x] runner単価を含むmonetary cost model

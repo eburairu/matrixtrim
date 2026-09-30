@@ -16,7 +16,7 @@ MatrixTrim 關心的不是單純把 job 數量砍到最低，而是：
 
 目標是結合 **歷史 failure coverage、執行成本、matrix 結構與 holdout backtest**，提出更小、也更有依據的 CI matrix 候選方案。
 
-> **目前狀態：v0.10 experimental。** MatrixTrim 已能結合歷史 failure evidence、已觀測的 1-wise / pairwise / t-wise 組態 coverage、runtime cost 與 runner-aware 金額估算、time-based holdout backtest、render 後 matrix job 名稱還原、GitHub Action、可重現的公開 OSS benchmark，以及明確 opt-in 的 draft 最佳化 PR 產生。
+> **目前狀態：v0.11 experimental。** MatrixTrim 已能結合歷史 failure evidence、已觀測的 1-wise / pairwise / t-wise 組態 coverage、人為明確指定的 keep / compatibility constraint、runtime cost 與 runner-aware 金額估算、time-based holdout backtest、render 後 matrix job 名稱還原、GitHub Action、可重現的公開 OSS benchmark，以及明確 opt-in 的 draft 最佳化 PR 產生。
 
 ## 為什麼需要 MatrixTrim？
 
@@ -171,11 +171,33 @@ steps:
 
 MatrixTrim 只會建立 **draft PR**，不會自動合併。它會把選中的 static cell 改寫成明確的 `matrix.include` 列，並在寫入前對 workflow 做 round-trip 驗證。只要存在 dynamic matrix、未解析 axis、workflow/job 名稱對應不完整、coverage 低於 100%，或已有 holdout 檢查未通過，就會拒絕產生 PR。由 `pull_request` / `pull_request_target` 觸發的 run 也會強制略過最佳化 PR 建立。
 
+## 明確的 hard constraint
+
+若某些環境即使從歷史資料看似重複，仍必須因相容性或支援政策保留，可以在 `.matrixtrim.yml` 中宣告。
+
+```yaml
+version: 1
+constraints:
+  keep:
+    - "test (windows-latest, 20)"
+  require:
+    - axes:
+        os: windows-latest
+    - baseJob: test
+      axes:
+        node: "20"
+        postgres: "14"
+```
+
+`keep` 會固定一個完整相符的render後matrix cell；`require` 則保證至少保留一個符合條件的已觀測cell。同一套政策會套用到recommendation、backtest、GitHub Action與draft最佳化PR。若規則完全match不到任何cell，MatrixTrim會fail closed，而不是靜默忽略。
+
+config會從repository的 **default branch** 讀取，因此不受信任的Pull Request不能藉由修改自己的config來削弱MatrixTrim安全政策。完整語意請見 [Explicit hard constraints](../constraints.md)。
+
 ## runner-aware cost model
 
 MatrixTrim 不再把所有 CI minute 視為相同成本，而是依實際 runner label 與已觀測的 job 執行時間估算金額影響。
 
-- v0.9 使用的 standard GitHub-hosted runner 基準費率：Linux 1-core x64 **$0.002/min**、Linux 2-core x64 **$0.006/min**、Linux 2-core arm64 **$0.005/min**、Windows x64/arm64 **$0.010/min**、standard macOS **$0.062/min**。
+- 目前模型使用的 standard GitHub-hosted runner 基準費率：Linux 1-core x64 **$0.002/min**、Linux 2-core x64 **$0.006/min**、Linux 2-core arm64 **$0.005/min**、Windows x64/arm64 **$0.010/min**、standard macOS **$0.062/min**。
 - 依 GitHub Actions 的計費方式，每個 job 會先向上取整到完整分鐘後再計價。
 - 對 **public repository**，standard GitHub-hosted runner 免費，因此估算的 GitHub 實際費用顯示為 **$0**；rate-card 金額僅作為比較值。
 - 對 **private/internal repository**，顯示的是尚未扣除 account/plan 內含 minutes 前的 standard runner overage 等價金額。
@@ -193,7 +215,7 @@ MatrixTrim 不再把所有 CI minute 視為相同成本，而是依實際 runner
 - 因為 runner 單價與每個 job 的整分鐘向上取整，compute 縮減率不會等於金額縮減率。依 standard runner rate-card：pandas **$25.148 → $24.671/run (-1.9%)**、Flask **$0.132 → $0.120/run (-9.1%)**、Diesel **$11.624 → $11.450/run (-1.5%)**。這三個 repo 都是 public，因此 standard runner 的估算 GitHub 實際費用仍為 **$0**。
 - pandas 與 Diesel 在可用的 backtest 視窗中都維持 **100% holdout recall 與 100% unseen-failure recall**。
 - 在10個完整解析的 repo 中，**有7個因安全限制而明確維持原matrix不變**。
-- aiohttp 與 Tokio 仍是 partial。v0.9 會把 unresolved cell 當成安全限制逐一保留，因此此 snapshot 為 **aiohttp 29 → 29 / Tokio 51 → 51**，兩者都不列入 validated reduction。
+- aiohttp 與 Tokio 仍是 partial。目前的 recommendation 會把 unresolved cell 當成安全限制逐一保留，因此此 snapshot 為 **aiohttp 29 → 29 / Tokio 51 → 51**，兩者都不列入 validated reduction。
 
 所有run ID固定在 [benchmark/snapshot.json](../../benchmark/snapshot.json)，完整結果見 [benchmark/results.md](../../benchmark/results.md)。這些數字描述的是固定snapshot，不是對未來CI行為的保證。
 
@@ -241,7 +263,7 @@ MatrixTrim 會移除 timestamp、絕對路徑、UUID、duration、line number �
 - [x] time-based holdout backtest
 - [x] static `include` / `exclude` 展開與render後job名稱還原
 - [ ] dynamic matrix / 更廣泛的GitHub表達式支援
-- [ ] 明確的 keep / compatibility constraint
+- [x] 明確的 keep / compatibility constraint
 - [x] GitHub Action + PR comment
 - [x] matrix-heavy OSS可重現benchmark
 - [x] runner-aware monetary cost model

@@ -108,6 +108,12 @@ export function optimizationSafetyReason(
   ) {
     return "combinatorial coverage is below 100%";
   }
+  if (
+    recommendation.coveredConstraintRequirements <
+    recommendation.constraintRequirements
+  ) {
+    return "one or more explicit hard constraints are not satisfied";
+  }
   if (backtest && backtest.holdoutRecall < 1) {
     return "holdout failure recall is below 100%";
   }
@@ -162,6 +168,7 @@ ${jobs}
 
 - Historical failure recall: ${recommendation.historicalRecall === null ? "n/a" : `${(recommendation.historicalRecall * 100).toFixed(1)}%`}
 - Observed combinatorial coverage: ${recommendation.combinatorialCoverage === null ? "n/a" : `${(recommendation.combinatorialCoverage * 100).toFixed(1)}%`}
+- Explicit hard constraints: ${recommendation.coveredConstraintRequirements}/${recommendation.constraintRequirements}
 - Holdout failure recall: ${holdout}
 - Unseen-failure recall: ${unseen}
 - Estimated compute reduction: ${recommendation.estimatedComputeReductionPercent === null ? "n/a" : `${recommendation.estimatedComputeReductionPercent.toFixed(1)}%`}

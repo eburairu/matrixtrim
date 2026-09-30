@@ -26,6 +26,10 @@ inputs:
     description: Maximum observed combinatorial coverage strength to preserve. 2 means 1-wise + pairwise.
     required: false
     default: "2"
+  config:
+    description: Repository-relative MatrixTrim config path. Missing default .matrixtrim.yml means no explicit constraints; a missing custom path fails closed.
+    required: false
+    default: ".matrixtrim.yml"
   comment:
     description: Create or update a MatrixTrim pull-request comment when possible.
     required: false
@@ -70,6 +74,10 @@ outputs:
     description: Historical failure recall as a 0-1 ratio.
   combinatorial-coverage:
     description: Preserved observed combinatorial coverage as a 0-1 ratio.
+  constraint-requirements:
+    description: Number of explicit hard constraints loaded from the MatrixTrim config.
+  constraint-coverage:
+    description: Fraction of explicit hard constraints satisfied by the recommendation.
   holdout-recall:
     description: Holdout failure recall as a 0-1 ratio.
   unseen-failure-recall:

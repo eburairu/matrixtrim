@@ -5,6 +5,11 @@ import { inspectWorkflow } from "./matrix.js";
 import { analyzeRepository } from "./analyze.js";
 import { recommendMatrix } from "./recommend.js";
 import { backtestRecommendation } from "./backtest.js";
+import { GitHubClient } from "./github.js";
+import {
+  loadRepositoryConfig,
+  type MatrixTrimConstraints,
+} from "./config.js";
 
 function flagValue(args: string[], flag: string): string | undefined {
   const index = args.indexOf(flag);
@@ -71,6 +76,24 @@ function requireGitHubToken(command: string): string {
     );
   }
   return token;
+}
+
+async function repositoryConstraints(
+  repository: string,
+  token: string,
+  args: string[],
+): Promise<{ path: string; constraints?: MatrixTrimConstraints }> {
+  const explicit = flagValue(args, "--config");
+  const path = explicit ?? ".matrixtrim.yml";
+  const config = await loadRepositoryConfig(
+    new GitHubClient(repository, token),
+    path,
+    explicit !== undefined,
+  );
+  return {
+    path,
+    constraints: config?.constraints,
+  };
 }
 
 async function analyzeCommand(args: string[], json: boolean): Promise<void> {
@@ -179,7 +202,7 @@ async function recommendCommand(args: string[], json: boolean): Promise<void> {
   const repository = args[1];
   if (!repository) {
     throw new Error(
-      "usage: matrixtrim recommend owner/repo [--workflow ci.yml] [--limit 100] [--run ID] [--strength 2]",
+      "usage: matrixtrim recommend owner/repo [--workflow ci.yml] [--limit 100] [--run ID] [--strength 2] [--config .matrixtrim.yml]",
     );
   }
 
@@ -188,6 +211,7 @@ async function recommendCommand(args: string[], json: boolean): Promise<void> {
   const runId = parseOptionalInt(args, "--run", 1, Number.MAX_SAFE_INTEGER);
   const strength = parseOptionalInt(args, "--strength", 1, 4) ?? 2;
   const token = requireGitHubToken("recommend");
+  const config = await repositoryConstraints(repository, token, args);
 
   const analysis = await analyzeRepository(repository, {
     limit,
@@ -197,6 +221,7 @@ async function recommendCommand(args: string[], json: boolean): Promise<void> {
   });
   const recommendation = recommendMatrix(analysis, {
     maxStrength: strength,
+    constraints: config.constraints,
   });
 
   if (json) {
@@ -207,6 +232,9 @@ async function recommendCommand(args: string[], json: boolean): Promise<void> {
   console.log(`Repository: ${repository}`);
   console.log("Mode:       history + combinatorial coverage (experimental)");
   console.log(`Strength:   ${recommendation.coverageStrength}`);
+  console.log(
+    `Hard constraints: ${recommendation.coveredConstraintRequirements}/${recommendation.constraintRequirements} (config=${config.path})`,
+  );
   console.log(`Runs:       ${analysis.runsAnalyzed}`);
   if (recommendation.historicalRecall === null) {
     console.log("Historical failure recall: n/a (no analyzed fingerprints)");
@@ -307,7 +335,7 @@ async function backtestCommand(args: string[], json: boolean): Promise<void> {
   const repository = args[1];
   if (!repository) {
     throw new Error(
-      "usage: matrixtrim backtest owner/repo [--workflow ci.yml] [--limit 100] [--holdout 25] [--strength 2]",
+      "usage: matrixtrim backtest owner/repo [--workflow ci.yml] [--limit 100] [--holdout 25] [--strength 2] [--config .matrixtrim.yml]",
     );
   }
 
@@ -316,13 +344,19 @@ async function backtestCommand(args: string[], json: boolean): Promise<void> {
   const holdout = parseOptionalInt(args, "--holdout", 5, 50) ?? 25;
   const strength = parseOptionalInt(args, "--strength", 1, 4) ?? 2;
   const token = requireGitHubToken("backtest");
+  const config = await repositoryConstraints(repository, token, args);
 
   const analysis = await analyzeRepository(repository, {
     limit,
     workflow,
     token,
   });
-  const result = backtestRecommendation(analysis, holdout, strength);
+  const result = backtestRecommendation(
+    analysis,
+    holdout,
+    strength,
+    config.constraints,
+  );
 
   if (json) {
     console.log(JSON.stringify({ analysis, backtest: result }, null, 2));
@@ -332,6 +366,9 @@ async function backtestCommand(args: string[], json: boolean): Promise<void> {
   console.log(`Repository: ${repository}`);
   console.log("Mode:       time-holdout backtest");
   console.log(`Strength:   ${result.coverageStrength}`);
+  console.log(
+    `Hard constraints: ${(config.constraints?.keep.length ?? 0) + (config.constraints?.require.length ?? 0)} (config=${config.path})`,
+  );
   console.log(`Runs:       train=${result.trainingRuns}, holdout=${result.holdoutRuns}`);
   console.log(`Selected cells from training: ${result.selectedCells.length}`);
   console.log(
