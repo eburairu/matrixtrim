@@ -16,7 +16,7 @@ MatrixTrimが見たいのは、単純なjob数ではありません。
 
 過去のfailure、実行コスト、matrix構造、holdout backtestを使って、より小さいCI matrix候補を作ることを目指しています。
 
-> **Status: v0.15 experimental.** multi-event root-cause fingerprint、過去のfailure evidence、観測済み1-wise / pairwise / t-wise構成coverage、人間が明示するkeep / compatibility constraint、exact branch-and-bound optimizer、runtime costとrunner-awareな金額推定、time-based holdout backtest、render済みmatrix job名の復元、GitHub Action、再現可能な公開OSS benchmark、明示opt-inのdraft最適化PR生成まで利用できます。
+> **Status: v0.16 experimental.** multi-event root-cause fingerprint、過去のfailure evidence、観測済み1-wise / pairwise / t-wise構成coverage、人間が明示するkeep / compatibility constraint、exact branch-and-bound optimizer、runtime costとrunner-awareな金額推定、time-based holdout backtest、render済みmatrix job名の復元、GitHub Action、再現可能な公開OSS benchmark、明示opt-inのdraft最適化PR生成まで利用できます。
 
 ## なぜ必要か
 
@@ -85,7 +85,7 @@ os=ubuntu-latest
 node=22
 ```
 
-v0.15では、direct / bracket形式の `matrix.*` 参照に加えて、比較・論理演算子、`format`、`contains`、`startsWith`、`endsWith`、`join`、`toJSON`、`fromJSON`、`case`、object filterまでdeterministicに評価します。dynamic matrixも観測済みjobを安全に識別できる場合は分析対象に含めますが、runtimeでしか得られない値は推測せず unresolved のまま保持し、自動rewriteも行いません。
+v0.16では、v0.15のdeterministicなGitHub式評価に加え、opaqueなdynamic matrixへ明示的な `mode: capture` stepを置くことで、実行時の `toJSON(matrix)` をCheck Run annotationへ保存し、後続解析で正確に復元できます。captureはopt-inで、未導入jobにはannotation API callを行いません。runtime evidenceが無い値は引き続き推測せず unresolved とし、dynamic matrixの自動rewriteも行いません。
 
 ## matrix縮約候補を出す
 
@@ -279,7 +279,7 @@ coreはdeterministicで、LLMは必須ではありません。
 - [x] static `include` / `exclude` 展開＋render済みjob名復元
 - [x] 観測済みdynamic matrix分析＋既知axis順序 / job名templateからの安全なaxis復元
 - [x] deterministicなGitHub式関数＋bracket / object-filter対応
-- [ ] opaque runtime outputのdeterministic evidence source
+- [x] Check Run annotationによるopt-inのdeterministic runtime matrix evidence capture
 - [x] 明示的なkeep / compatibility constraint
 - [x] GitHub Action化＋PRコメント
 - [x] matrix-heavy OSSでの再現可能benchmark

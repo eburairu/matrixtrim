@@ -1,7 +1,38 @@
 import { describe, expect, it } from "vitest";
-import { summarizeCells, type MatrixJobObservation } from "../src/analyze.js";
+import {
+  applyCapturedMatrixEvidence,
+  summarizeCells,
+  type MatrixJobObservation,
+} from "../src/analyze.js";
 
 describe("cell history summarization", () => {
+  it("uses captured axes to create a stable unique cell identity", () => {
+    const observation: MatrixJobObservation = {
+      runId: 1,
+      runNumber: 1,
+      jobId: 11,
+      cell: "opaque runtime cell",
+      baseJob: "runtime-test",
+      axes: null,
+      axisSource: "unavailable",
+      conclusion: "success",
+      runtimeSeconds: 5,
+    };
+
+    applyCapturedMatrixEvidence(observation, {
+      version: 1,
+      jobId: "runtime-test",
+      matrix: { runtime: "node22", os: "ubuntu" },
+    });
+
+    expect(observation).toMatchObject({
+      baseJob: "runtime-test",
+      axes: { os: "ubuntu", runtime: "node22" },
+      axisSource: "capture-evidence",
+      cell: "opaque runtime cell [os=ubuntu, runtime=node22]",
+    });
+  });
+
   it("keeps cells that only ever succeeded in the analysis universe", () => {
     const matrixJobs: MatrixJobObservation[] = [
       {

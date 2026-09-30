@@ -262,6 +262,27 @@ describe("matrix axis inference", () => {
       });
   });
 
+  it("marks dynamic jobs with an explicit capture-evidence step", () => {
+    const workflow = [
+      "jobs:",
+      "  test:",
+      "    strategy:",
+      "      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}",
+      "    steps:",
+      "      - uses: eburairu/matrixtrim@v0",
+      "        with:",
+      "          mode: capture",
+      "          matrix: ${{ toJSON(matrix) }}",
+    ].join("\n");
+
+    const [definition] = workflowMatrixDefinitions(workflow);
+    expect(definition).toMatchObject({
+      jobId: "test",
+      dynamic: true,
+      captureEvidence: true,
+    });
+  });
+
   it("recovers observed values from mixed literal/runtime axis arrays", () => {
     const workflow = [
       "jobs:",

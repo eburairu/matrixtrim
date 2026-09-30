@@ -16,7 +16,7 @@ MatrixTrim은 단순히 job 수를 줄이는 도구가 아닙니다. 핵심 질�
 
 목표는 **과거 failure coverage, 실행 비용, matrix 구조, holdout backtest**를 바탕으로 더 작은 CI matrix 후보를 제안하는 것입니다.
 
-> **현재 상태: v0.15 experimental.** multi-event root-cause fingerprint, 과거 failure evidence, 관측된 1-wise / pairwise / t-wise configuration coverage, 사람이 명시하는 keep / compatibility constraint, exact branch-and-bound optimizer, runtime cost와 runner-aware 금액 추정, time-based holdout backtest, 렌더링된 matrix job 이름 복원, GitHub Action, 재현 가능한 공개 OSS benchmark, 명시적 opt-in draft 최적화 PR 생성까지 지원합니다.
+> **현재 상태: v0.16 experimental.** multi-event root-cause fingerprint, 과거 failure evidence, 관측된 1-wise / pairwise / t-wise configuration coverage, 사람이 명시하는 keep / compatibility constraint, exact branch-and-bound optimizer, runtime cost와 runner-aware 금액 추정, time-based holdout backtest, 렌더링된 matrix job 이름 복원, GitHub Action, 재현 가능한 공개 OSS benchmark, 명시적 opt-in draft 최적화 PR 생성까지 지원합니다.
 
 ## 왜 MatrixTrim인가?
 
@@ -85,7 +85,7 @@ os=ubuntu-latest
 node=22
 ```
 
-v0.15에서는 direct / bracket `matrix.*` 참조와 비교·논리 연산자, `format`, `contains`, `startsWith`, `endsWith`, `join`, `toJSON`, `fromJSON`, `case`, object filter를 deterministic하게 평가합니다. dynamic matrix도 관측된 job을 안전하게 식별할 수 있으면 분석하지만, runtime에서만 알 수 있는 값은 추측하지 않고 unresolved로 유지하며 자동 rewrite하지 않습니다.
+v0.16에서는 v0.15의 deterministic GitHub 표현식 평가에 더해, 명시적 `mode: capture` step으로 실행 시점의 `toJSON(matrix)`를 Check Run annotation에 저장하고 이후 분석에서 정확히 복원할 수 있습니다. capture는 opt-in이며 사용하지 않는 job에는 annotation API call이 추가되지 않습니다. runtime evidence가 없으면 계속 unresolved로 유지하고 dynamic matrix는 자동 rewrite하지 않습니다.
 
 ## 더 작은 matrix 추천
 
@@ -279,7 +279,7 @@ timestamp, 절대 경로, UUID, duration, line number처럼 흔들리는 정보�
 - [x] static `include` / `exclude` 전개 및 렌더링된job 이름 복원
 - [x] 관측된 dynamic matrix 분석 + 알려진 axis 순서 / job 이름 template 기반 안전한 axis 복원
 - [x] deterministic GitHub 표현식 함수 + bracket / object-filter 지원
-- [ ] opaque runtime output을 위한 deterministic evidence source
+- [x] Check Run annotation을 이용한 opt-in deterministic runtime matrix evidence capture
 - [x] 명시적 keep / compatibility constraint
 - [x] GitHub Action + PR comment
 - [x] matrix-heavy OSS 재현 가능benchmark

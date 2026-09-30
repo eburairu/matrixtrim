@@ -10,6 +10,7 @@ import { formatActionReport } from "./action-report.js";
 import { GitHubClient } from "./github.js";
 import { createOrUpdateOptimizationPullRequest } from "./optimization-pr.js";
 import { loadRepositoryConfig } from "./config.js";
+import { encodeMatrixEvidence } from "./evidence.js";
 
 function input(name: string): string {
   return process.env[`INPUT_${name.toUpperCase().replace(/-/g, "_")}`]?.trim() ?? "";
@@ -70,7 +71,25 @@ function warning(message: string): void {
   console.log(`::warning::${message.replace(/\r?\n/g, " ")}`);
 }
 
+function notice(message: string): void {
+  console.log(`::notice title=MatrixTrim evidence::${message}`);
+}
+
 async function main(): Promise<void> {
+  const mode = input("mode") || "analyze";
+  if (!["analyze", "capture"].includes(mode)) {
+    throw new Error("mode must be analyze or capture");
+  }
+
+  if (mode === "capture") {
+    const matrixJson = input("matrix");
+    if (!matrixJson) throw new Error("matrix input is required in capture mode");
+    const evidence = encodeMatrixEvidence(process.env.GITHUB_JOB ?? "", matrixJson);
+    notice(evidence);
+    await writeOutput("capture-status", "captured");
+    return;
+  }
+
   const repository = process.env.GITHUB_REPOSITORY;
   if (!repository) throw new Error("GITHUB_REPOSITORY is not available");
 

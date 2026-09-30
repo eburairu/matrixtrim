@@ -16,7 +16,7 @@ MatrixTrim 關心的不是單純把 job 數量砍到最低，而是：
 
 目標是結合 **歷史 failure coverage、執行成本、matrix 結構與 holdout backtest**，提出更小、也更有依據的 CI matrix 候選方案。
 
-> **目前狀態：v0.15 experimental。** MatrixTrim 已能結合 multi-event root-cause fingerprint、歷史 failure evidence、已觀測的 1-wise / pairwise / t-wise 組態 coverage、人為明確指定的 keep / compatibility constraint、exact branch-and-bound optimizer、runtime cost 與 runner-aware 金額估算、time-based holdout backtest、render 後 matrix job 名稱還原、GitHub Action、可重現的公開 OSS benchmark，以及明確 opt-in 的 draft 最佳化 PR 產生。
+> **目前狀態：v0.16 experimental。** MatrixTrim 已能結合 multi-event root-cause fingerprint、歷史 failure evidence、已觀測的 1-wise / pairwise / t-wise 組態 coverage、人為明確指定的 keep / compatibility constraint、exact branch-and-bound optimizer、runtime cost 與 runner-aware 金額估算、time-based holdout backtest、render 後 matrix job 名稱還原、GitHub Action、可重現的公開 OSS benchmark，以及明確 opt-in 的 draft 最佳化 PR 產生。
 
 ## 為什麼需要 MatrixTrim？
 
@@ -85,7 +85,7 @@ os=ubuntu-latest
 node=22
 ```
 
-v0.15 可deterministic地求值 direct / bracket 形式的 `matrix.*` 參照、比較與邏輯運算、`format`、`contains`、`startsWith`、`endsWith`、`join`、`toJSON`、`fromJSON`、`case` 與 object filter。dynamic matrix 在能安全識別實際 job 時仍會納入分析，但僅在 runtime 才能取得的值不會被猜測，而是維持 unresolved，也不會自動 rewrite。
+v0.16 在 v0.15 的deterministic GitHub expression求值基礎上，可透過明確的 `mode: capture` step 將執行時 `toJSON(matrix)` 保存到 Check Run annotation，並在後續分析中精確還原。capture為opt-in，未啟用的job不會增加annotation API call。沒有runtime evidence時仍維持 unresolved，dynamic matrix也不會自動rewrite。
 
 ## 建議更小的 matrix
 
@@ -279,7 +279,7 @@ MatrixTrim 會移除 timestamp、絕對路徑、UUID、duration、line number �
 - [x] static `include` / `exclude` 展開與render後job名稱還原
 - [x] 已觀測 dynamic matrix 分析＋從已知 axis 順序 / job 名 template 安全還原 axis
 - [x] deterministic GitHub 表達式函數＋bracket / object-filter 支援
-- [ ] opaque runtime output 的 deterministic evidence source
+- [x] 透過 Check Run annotation 提供opt-in deterministic runtime matrix evidence capture
 - [x] 明確的 keep / compatibility constraint
 - [x] GitHub Action + PR comment
 - [x] matrix-heavy OSS可重現benchmark

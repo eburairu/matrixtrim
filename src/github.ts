@@ -17,6 +17,12 @@ export type WorkflowJob = {
   labels?: string[];
 };
 
+export type CheckRunAnnotation = {
+  annotation_level: "notice" | "warning" | "failure" | string;
+  message: string;
+  title?: string | null;
+};
+
 export type IssueComment = {
   id: number;
   body: string | null;
@@ -136,6 +142,18 @@ export class GitHubClient {
       );
       result.push(...data.jobs);
       if (data.jobs.length < 100) break;
+    }
+    return result;
+  }
+
+  async listCheckRunAnnotations(checkRunId: number): Promise<CheckRunAnnotation[]> {
+    const result: CheckRunAnnotation[] = [];
+    for (let page = 1; page <= 10; page++) {
+      const items = await this.json<CheckRunAnnotation[]>(
+        `/repos/${repoPath(this.repo)}/check-runs/${checkRunId}/annotations?per_page=100&page=${page}`,
+      );
+      result.push(...items);
+      if (items.length < 100) break;
     }
     return result;
   }

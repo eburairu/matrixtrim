@@ -1,10 +1,12 @@
 import { fingerprintFailures } from "./fingerprint.js";
 import { GitHubClient, GitHubHttpError, type WorkflowRun } from "./github.js";
 import {
+  axesFromMatrixEvidence,
   inferAxesFromExpandedJobName,
   workflowMatrixDefinitions,
   type MatrixDefinition,
 } from "./axes.js";
+import { decodeMatrixEvidence, type MatrixEvidence } from "./evidence.js";
 
 export type FailureObservation = {
   runId: number;
@@ -17,6 +19,12 @@ export type FailureObservation = {
   evidence: string[];
 };
 
+export type AxisSource =
+  | "workflow-rendered-name"
+  | "workflow-job-name"
+  | "capture-evidence"
+  | "unavailable";
+
 export type MatrixJobObservation = {
   runId: number;
   runNumber: number;
@@ -25,7 +33,7 @@ export type MatrixJobObservation = {
   cell: string;
   baseJob: string;
   axes: Record<string, string> | null;
-  axisSource: "workflow-rendered-name" | "workflow-job-name" | "unavailable";
+  axisSource: AxisSource;
   conclusion: string | null;
   runtimeSeconds: number | null;
   runnerLabels?: string[];
@@ -35,7 +43,7 @@ export type CellSummary = {
   cell: string;
   baseJob: string;
   axes: Record<string, string> | null;
-  axisSource: "workflow-rendered-name" | "workflow-job-name" | "unavailable";
+  axisSource: AxisSource;
   runsObserved: number;
   successRuns: number;
   failureRuns: number;
@@ -75,6 +83,9 @@ export type AnalysisReport = {
   workflowMatchCoverage?: number | null;
   inactiveStaticMatrixFamilies?: number;
   dynamicMatrixDefinitions?: number;
+  captureEvidenceCandidates?: number;
+  captureEvidenceJobs?: number;
+  captureEvidenceErrors?: number;
   runWindowDays?: number | null;
   projectedRunsPer30Days?: number | null;
   cells: CellSummary[];
@@ -149,6 +160,20 @@ function knownMatrixBase(
   );
 }
 
+export function applyCapturedMatrixEvidence(
+  observation: MatrixJobObservation,
+  evidence: MatrixEvidence,
+): void {
+  const axes = axesFromMatrixEvidence(evidence.matrix);
+  const suffix = Object.entries(axes)
+    .map(([axis, value]) => `${axis}=${value}`)
+    .join(", ");
+  observation.baseJob = evidence.jobId;
+  observation.axes = axes;
+  observation.axisSource = "capture-evidence";
+  observation.cell = `${observation.cell} [${suffix}]`;
+}
+
 export function summarizeCells(
   matrixJobs: MatrixJobObservation[],
   observations: FailureObservation[],
@@ -171,7 +196,7 @@ export function summarizeCells(
     {
       baseJob: string;
       axes: Record<string, string> | null;
-      axisSource: "workflow-rendered-name" | "workflow-job-name" | "unavailable";
+      axisSource: AxisSource;
       runs: Set<number>;
       successRuns: Set<number>;
       failureRuns: Set<number>;
@@ -376,6 +401,12 @@ export async function analyzeRepository(
   const definitionsByRevision = new Map(
     definitionResults.map((item) => [item.key, item.definitions]),
   );
+  const definitionsByRunId = new Map(
+    runs.map((run) => [
+      run.id,
+      definitionsByRevision.get(`${run.path}@${run.head_sha}`) ?? [],
+    ]),
+  );
   const workflowDefinitionFallbacks = definitionResults.filter(
     (item) => item.usedFallback,
   ).length;
@@ -446,8 +477,14 @@ export async function analyzeRepository(
       const renderedMatch = inferred.source !== "unavailable";
       const defaultNameFallback =
         parsed.matrixLike && knownMatrixBase(parsed.baseJob, definitions);
+      const exactDynamicDefinition = definitions.find(
+        (definition) =>
+          definition.dynamic &&
+          definition.captureEvidence &&
+          (definition.displayName === job.name || definition.jobId === job.name),
+      );
 
-      if (!renderedMatch && !defaultNameFallback) {
+      if (!renderedMatch && !defaultNameFallback && !exactDynamicDefinition) {
         continue;
       }
 
@@ -457,7 +494,9 @@ export async function analyzeRepository(
         runConclusion: run.conclusion,
         jobId: job.id,
         cell: job.name,
-        baseJob: renderedMatch ? inferred.baseJob : parsed.baseJob,
+        baseJob: renderedMatch
+          ? inferred.baseJob
+          : exactDynamicDefinition?.jobId ?? parsed.baseJob,
         axes: inferred.axes,
         axisSource: inferred.source,
         conclusion: job.conclusion,
@@ -470,6 +509,51 @@ export async function analyzeRepository(
       matrixJobById.set(job.id, observation);
     }
   }
+
+  const captureCandidates = matrixJobs.filter((observation) => {
+    if (observation.axes !== null) return false;
+    return definitionsByRunId.get(observation.runId)?.some(
+      (definition) =>
+        definition.dynamic &&
+        definition.captureEvidence &&
+        definition.jobId === observation.baseJob,
+    ) ?? false;
+  });
+  let captureEvidenceJobs = 0;
+  let captureEvidenceErrors = 0;
+
+  await mapLimit(
+    captureCandidates,
+    Math.min(concurrency, 4),
+    async (observation) => {
+      try {
+        const annotations = await client.listCheckRunAnnotations(observation.jobId);
+        const matches = annotations
+          .map((annotation) => decodeMatrixEvidence(annotation.message))
+          .filter(
+            (evidence): evidence is MatrixEvidence =>
+              evidence !== null && evidence.jobId === observation.baseJob,
+          );
+        if (!matches.length) return;
+
+        const unique = new Map(
+          matches.map((evidence) => [
+            JSON.stringify(axesFromMatrixEvidence(evidence.matrix)),
+            evidence,
+          ]),
+        );
+        if (unique.size !== 1) {
+          captureEvidenceErrors++;
+          return;
+        }
+
+        applyCapturedMatrixEvidence(observation, [...unique.values()][0]!);
+        captureEvidenceJobs++;
+      } catch {
+        captureEvidenceErrors++;
+      }
+    },
+  );
 
   const allFailedJobs = jobsByRun.flatMap(({ run, jobs }) =>
     jobs
@@ -571,6 +655,9 @@ export async function analyzeRepository(
       : null,
     inactiveStaticMatrixFamilies,
     dynamicMatrixDefinitions,
+    captureEvidenceCandidates: captureCandidates.length,
+    captureEvidenceJobs,
+    captureEvidenceErrors,
     runWindowDays,
     projectedRunsPer30Days,
     cells,

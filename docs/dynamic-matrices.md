@@ -1,6 +1,6 @@
 # Dynamic matrix analysis
 
-MatrixTrim v0.14 adds safe analysis support for GitHub Actions matrices that are not fully static in workflow YAML.
+MatrixTrim v0.14 added safe analysis support for GitHub Actions matrices that are not fully static in workflow YAML. v0.16 adds explicit runtime evidence capture for cases where the exact matrix value cannot be reconstructed later.
 
 The key rule is unchanged: **do not invent runtime matrix values**. MatrixTrim only uses values it can recover from the workflow shape or from job names that GitHub actually rendered.
 
@@ -12,7 +12,7 @@ The key rule is unchanged: **do not invent runtime matrix values**. MatrixTrim o
 | Partially dynamic object | yes | known axis order can be recovered from default names | no |
 | Whole dynamic matrix + direct `matrix.*` custom name | yes | supported | no |
 | Whole dynamic matrix + supported `format(...)` name | yes | supported | no |
-| Opaque whole dynamic matrix | best effort | unresolved | no |
+| Opaque whole dynamic matrix | yes when capture is enabled | exact top-level runtime keys from capture evidence; otherwise unresolved | no |
 
 ## Partially dynamic matrices
 
@@ -55,6 +55,11 @@ name: ${{ format('Test {0} / {1}', matrix.os, matrix.python) }}
 ```
 
 Reusable-workflow child suffixes such as ` / child job` remain compatible with this matching.
+
+## Runtime evidence capture
+
+When a dynamic matrix remains opaque, add a `mode: capture` MatrixTrim step to the matrix job and pass `toJSON(matrix)`. The exact runtime matrix object is stored as a versioned Check Run notice annotation and can be replayed by later analysis. See [runtime-evidence.md](runtime-evidence.md) for setup, permissions, security, and limits.
+
 ## Safety behavior
 
 When MatrixTrim cannot recover an axis value safely, it leaves `axes` unresolved. The recommendation layer then retains that observed cell individually as a safety constraint instead of pretending it has combinatorial coverage.
@@ -67,13 +72,13 @@ Dynamic matrix definitions are still reported as dynamic because they cannot be 
 
 Automatic rewriting remains intentionally static-only. The draft-PR path requires a fully resolved static matrix, complete workflow/job-name mapping, preserved historical and combinatorial coverage, and successful available holdout checks.
 
-## What v0.14 does not do
+## What MatrixTrim still does not do
 
 MatrixTrim does **not** currently:
 
-- execute producer jobs to obtain `needs.*.outputs.*`;
-- evaluate arbitrary GitHub expression contexts such as repository variables, secrets, or runtime-only event data;
-- decode opaque dynamic matrices whose job names do not expose enough structure;
+- execute producer jobs later to recreate historical `needs.*.outputs.*` values;
+- evaluate arbitrary GitHub expression contexts such as repository variables, secrets, or runtime-only event data when their value was not captured;
+- scrape arbitrary logs to guess opaque runtime values;
 - rewrite a dynamic matrix into a smaller workflow definition.
 
-Those cases remain unresolved rather than guessed. Future work can add runtime-output decoding only where GitHub exposes deterministic evidence that can be replayed safely.
+Without explicit capture evidence, those cases remain unresolved rather than guessed.

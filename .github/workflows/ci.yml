@@ -6,9 +6,33 @@ on:
 
 permissions:
   actions: read
+  checks: read
   contents: read
 
 jobs:
+  prepare-capture-smoke:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - id: matrix
+        run: echo 'matrix={"include":[{"runtime":"node20","flavor":"fast"},{"runtime":"node22","flavor":"safe"}]}' >> "$GITHUB_OUTPUT"
+
+  capture-smoke:
+    needs: prepare-capture-smoke
+    name: opaque runtime cell
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: ${{ fromJSON(needs.prepare-capture-smoke.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Capture MatrixTrim runtime evidence
+        uses: ./
+        with:
+          mode: capture
+          matrix: ${{ toJSON(matrix) }}
+      - run: echo "runtime=${{ matrix.runtime }} flavor=${{ matrix.flavor }}"
+
   test:
     runs-on: ubuntu-latest
     strategy:

@@ -419,6 +419,19 @@ export function recommendMatrix(
       `${report.dynamicMatrixDefinitions} dynamic matrix definition(s) could not be statically expanded; observed jobs are still analyzed when they can be identified, but axis coverage may be incomplete when runtime values cannot be recovered safely.`,
     );
   }
+  if (
+    report.captureEvidenceCandidates &&
+    (report.captureEvidenceJobs ?? 0) < report.captureEvidenceCandidates
+  ) {
+    warnings.push(
+      `Runtime matrix evidence recovered ${report.captureEvidenceJobs ?? 0}/${report.captureEvidenceCandidates} opted-in unresolved job(s); missing evidence remains unresolved.`,
+    );
+  }
+  if (report.captureEvidenceErrors) {
+    warnings.push(
+      `${report.captureEvidenceErrors} runtime matrix evidence lookup(s) failed or were conflicting; verify checks: read permission and capture-step execution.`,
+    );
+  }
 
   return {
     mode: "history+combinatorial",

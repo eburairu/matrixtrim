@@ -7,6 +7,13 @@ branding:
   color: blue
 
 inputs:
+  mode:
+    description: analyze runs historical analysis; capture emits deterministic runtime matrix evidence for later analysis.
+    required: false
+    default: analyze
+  matrix:
+    description: In capture mode, pass the current matrix as JSON, typically with toJSON(matrix). Do not include sensitive values.
+    required: false
   token:
     description: GitHub token used to read Actions history and, when enabled, comment on or create/update draft optimization pull requests.
     required: false
@@ -48,6 +55,8 @@ inputs:
     default: "false"
 
 outputs:
+  capture-status:
+    description: captured when mode=capture successfully emitted runtime matrix evidence.
   current-cells:
     description: Number of matrix cells observed.
   selected-cells:

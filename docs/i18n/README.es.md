@@ -16,7 +16,7 @@ MatrixTrim no intenta simplemente ejecutar menos jobs. La pregunta útil es otra
 
 El objetivo es proponer una CI matrix más pequeña basándose en **cobertura histórica de fallos, coste de ejecución, estructura de la matrix y backtesting con holdout temporal**.
 
-> **Estado actual: v0.15 experimental.** MatrixTrim combina multi-event root-cause fingerprints, evidencia histórica de fallos, cobertura observada 1-wise / pairwise / t-wise, restricciones keep / compatibility definidas explícitamente por humanos, exact branch-and-bound optimizer, coste de runtime y estimación monetaria según runner, backtesting temporal, reconstrucción de nombres de jobs de matrix ya renderizados, GitHub Action, benchmark reproducible sobre OSS público y generación opt-in de draft PRs de optimización.
+> **Estado actual: v0.16 experimental.** MatrixTrim combina multi-event root-cause fingerprints, evidencia histórica de fallos, cobertura observada 1-wise / pairwise / t-wise, restricciones keep / compatibility definidas explícitamente por humanos, exact branch-and-bound optimizer, coste de runtime y estimación monetaria según runner, backtesting temporal, reconstrucción de nombres de jobs de matrix ya renderizados, GitHub Action, benchmark reproducible sobre OSS público y generación opt-in de draft PRs de optimización.
 
 ## ¿Por qué MatrixTrim?
 
@@ -85,7 +85,7 @@ os=ubuntu-latest
 node=22
 ```
 
-En v0.15, MatrixTrim evalúa de forma determinista referencias `matrix.*` directas o con brackets, operadores lógicos y de comparación, `format`, `contains`, `startsWith`, `endsWith`, `join`, `toJSON`, `fromJSON`, `case` y object filters. Las matrices dinámicas observadas también se analizan cuando sus jobs pueden identificarse con seguridad; los valores disponibles solo en runtime permanecen unresolved y nunca se reescriben automáticamente.
+En v0.16, además de la evaluación determinista de expresiones de v0.15, un step explícito `mode: capture` puede guardar `toJSON(matrix)` en una anotación de Check Run y permitir su recuperación exacta en análisis posteriores. La captura es opt-in y no añade llamadas a annotations en jobs que no la usan. Sin evidencia runtime, los valores siguen unresolved y las matrices dinámicas nunca se reescriben automáticamente.
 
 ## Recomendar una matrix más pequeña
 
@@ -279,7 +279,7 @@ El núcleo es determinista y no depende de un LLM.
 - [x] Expansión estática de `include` / `exclude` y reconstrucción del nombre renderizado del job
 - [x] Análisis de matrices dinámicas observadas + recuperación segura de ejes desde orden conocido / nombres de job
 - [x] Funciones de expresiones GitHub deterministas + soporte de brackets / object filters
-- [ ] Fuente de evidencia determinista para outputs opacos en runtime
+- [x] Captura opt-in de evidencia runtime determinista mediante anotaciones de Check Run
 - [x] Restricciones explícitas keep / compatibility
 - [x] GitHub Action + comentarios en PR
 - [x] Benchmark reproducible en repos OSS con matrices grandes

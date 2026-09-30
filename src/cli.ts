@@ -190,6 +190,14 @@ async function analyzeCommand(args: string[], json: boolean): Promise<void> {
       `Dynamic matrix definitions:    ${report.dynamicMatrixDefinitions}`,
     );
   }
+  if (report.captureEvidenceCandidates) {
+    console.log(
+      `Runtime matrix evidence:       ${report.captureEvidenceJobs ?? 0}/${report.captureEvidenceCandidates} job(s) recovered`,
+    );
+  }
+  if (report.captureEvidenceErrors) {
+    console.log(`Runtime evidence errors:      ${report.captureEvidenceErrors}`);
+  }
 
   if (!report.cells.length) {
     console.log("\nNo failed job logs were available in the selected runs.");

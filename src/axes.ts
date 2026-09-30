@@ -17,6 +17,7 @@ export type MatrixDefinition = {
   renderedCells: number;
   cells: ExpandedMatrixCell[];
   nameTemplate?: string;
+  captureEvidence: boolean;
 };
 
 export type AxisInference = {
@@ -35,6 +36,16 @@ function stableStringify(value: unknown): string {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item)}`);
   return `{${entries.join(",")}}`;
+}
+
+export function axesFromMatrixEvidence(
+  matrix: Record<string, unknown>,
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(matrix)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([axis, value]) => [axis, stableStringify(value)]),
+  );
 }
 
 function deepEqual(a: unknown, b: unknown): boolean {
@@ -688,6 +699,16 @@ function defaultExpandedName(
   return values.length ? `${label} (${values.join(", ")})` : label;
 }
 
+function hasCaptureEvidenceStep(spec: any): boolean {
+  if (!Array.isArray(spec?.steps)) return false;
+  return spec.steps.some((step: any) =>
+    step && typeof step === "object" &&
+    String(step?.with?.mode ?? "").trim().toLowerCase() === "capture" &&
+    typeof step?.with?.matrix === "string" &&
+    step.with.matrix.includes("matrix"),
+  );
+}
+
 export function workflowMatrixDefinitions(text: string): MatrixDefinition[] {
   const doc = parse(text) as Record<string, unknown> | null;
   const jobs = (doc?.jobs ?? {}) as Record<string, any>;
@@ -698,6 +719,7 @@ export function workflowMatrixDefinitions(text: string): MatrixDefinition[] {
     if (!matrix) continue;
 
     const rawName = typeof spec?.name === "string" ? spec.name : jobId;
+    const captureEvidence = hasCaptureEvidenceStep(spec);
     const nameTemplate =
       typeof spec?.name === "string" && spec.name.includes("${{")
         ? spec.name
@@ -714,6 +736,7 @@ export function workflowMatrixDefinitions(text: string): MatrixDefinition[] {
         renderedCells: 0,
         cells: [],
         nameTemplate,
+        captureEvidence,
       });
       continue;
     }
@@ -747,6 +770,7 @@ export function workflowMatrixDefinitions(text: string): MatrixDefinition[] {
       renderedCells: cells.length,
       cells,
       nameTemplate,
+      captureEvidence,
     });
   }
 

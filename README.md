@@ -16,7 +16,7 @@ MatrixTrim analyzes GitHub Actions matrix jobs and asks a practical question:
 
 The goal is to recommend a smaller CI matrix using **historical failure coverage, runtime cost, matrix structure, and holdout backtesting**.
 
-> **Status: v0.15 experimental.** MatrixTrim combines multi-event root-cause fingerprints, empirical failure evidence, observed 1-wise / pairwise / t-wise configuration coverage, explicit human keep / compatibility constraints, exact branch-and-bound optimization, runtime and runner-aware monetary cost, time-based holdout backtesting, static and observed dynamic matrix-name recovery, broader deterministic GitHub expression evaluation, a GitHub Action, reproducible public-OSS benchmarking, and opt-in draft optimization PR generation.
+> **Status: v0.16 experimental.** MatrixTrim combines multi-event root-cause fingerprints, empirical failure evidence, observed 1-wise / pairwise / t-wise configuration coverage, explicit human keep / compatibility constraints, exact branch-and-bound optimization, runtime and runner-aware monetary cost, time-based holdout backtesting, static and observed dynamic matrix-name recovery, broader deterministic GitHub expression evaluation, opt-in runtime matrix evidence capture, a GitHub Action, reproducible public-OSS benchmarking, and opt-in draft optimization PR generation.
 
 ## Why MatrixTrim?
 
@@ -85,7 +85,7 @@ os=ubuntu-latest
 node=22
 ```
 
-For static matrices, MatrixTrim can reconstruct common rendered job names using direct or bracketed `matrix.*` references, boolean/comparison operators, `format(...)`, `contains(...)`, `startsWith(...)`, `endsWith(...)`, `join(...)`, `toJSON(...)`, `fromJSON(...)`, `case(...)`, object filters, fallback expressions, and include-only matrices. For dynamic matrices, MatrixTrim keeps observed jobs in the analysis when they can be identified safely and only inverts deterministic name mappings. Opaque runtime-generated values remain unresolved rather than guessed, and dynamic matrices are still ineligible for automatic workflow rewriting. See [docs/dynamic-matrices.md](docs/dynamic-matrices.md) and [docs/expression-support.md](docs/expression-support.md).
+For static matrices, MatrixTrim can reconstruct common rendered job names using direct or bracketed `matrix.*` references, boolean/comparison operators, `format(...)`, `contains(...)`, `startsWith(...)`, `endsWith(...)`, `join(...)`, `toJSON(...)`, `fromJSON(...)`, `case(...)`, object filters, fallback expressions, and include-only matrices. For dynamic matrices, MatrixTrim keeps observed jobs in the analysis when they can be identified safely and only inverts deterministic name mappings. When runtime outputs are otherwise opaque, an explicit `mode: capture` step can preserve the exact `toJSON(matrix)` value in a versioned Check Run annotation for later analysis. Dynamic matrices remain ineligible for automatic workflow rewriting. See [docs/dynamic-matrices.md](docs/dynamic-matrices.md), [docs/expression-support.md](docs/expression-support.md), and [docs/runtime-evidence.md](docs/runtime-evidence.md).
 
 ## Recommend a smaller matrix
 
@@ -279,7 +279,7 @@ The core is deterministic. No LLM is required.
 - [x] Static `include` / `exclude` expansion and rendered job-name recovery
 - [x] Observed dynamic matrix analysis + safe axis recovery from known axis order / job-name templates
 - [x] Broader deterministic GitHub expression functions + bracket/object-filter support
-- [ ] Deterministic opaque runtime-output evidence source
+- [x] Opt-in deterministic runtime matrix evidence capture via Check Run annotations
 - [x] Explicit keep / compatibility constraints
 - [x] GitHub Action + PR comments
 - [x] Reproducible benchmark across matrix-heavy OSS repositories

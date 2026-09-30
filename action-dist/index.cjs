@@ -7563,6 +7563,17 @@ var GitHubClient = class {
     }
     return result;
   }
+  async listCheckRunAnnotations(checkRunId) {
+    const result = [];
+    for (let page = 1; page <= 10; page++) {
+      const items = await this.json(
+        `/repos/${repoPath(this.repo)}/check-runs/${checkRunId}/annotations?per_page=100&page=${page}`
+      );
+      result.push(...items);
+      if (items.length < 100) break;
+    }
+    return result;
+  }
   async file(path, ref) {
     const encodedPath = path.split("/").filter(Boolean).map(encodeURIComponent).join("/");
     const refQuery = ref ? `?ref=${encodeURIComponent(ref)}` : "";
@@ -7717,6 +7728,11 @@ function stableStringify(value) {
   }
   const entries = Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item)}`);
   return `{${entries.join(",")}}`;
+}
+function axesFromMatrixEvidence(matrix) {
+  return Object.fromEntries(
+    Object.entries(matrix).sort(([a], [b]) => a.localeCompare(b)).map(([axis, value]) => [axis, stableStringify(value)])
+  );
 }
 function deepEqual(a, b) {
   return stableStringify(a) === stableStringify(b);
@@ -8233,6 +8249,12 @@ function defaultExpandedName(label, row, axisNames) {
   const values = axisNames.filter((axis) => axis in row).map((axis) => stableStringify(row[axis]));
   return values.length ? `${label} (${values.join(", ")})` : label;
 }
+function hasCaptureEvidenceStep(spec) {
+  if (!Array.isArray(spec?.steps)) return false;
+  return spec.steps.some(
+    (step) => step && typeof step === "object" && String(step?.with?.mode ?? "").trim().toLowerCase() === "capture" && typeof step?.with?.matrix === "string" && step.with.matrix.includes("matrix")
+  );
+}
 function workflowMatrixDefinitions(text) {
   const doc = (0, import_yaml.parse)(text);
   const jobs = doc?.jobs ?? {};
@@ -8241,6 +8263,7 @@ function workflowMatrixDefinitions(text) {
     const matrix = spec?.strategy?.matrix;
     if (!matrix) continue;
     const rawName = typeof spec?.name === "string" ? spec.name : jobId;
+    const captureEvidence = hasCaptureEvidenceStep(spec);
     const nameTemplate = typeof spec?.name === "string" && spec.name.includes("${{") ? spec.name : void 0;
     if (typeof matrix !== "object" || Array.isArray(matrix)) {
       if (typeof matrix !== "string" || !matrix.includes("${{")) continue;
@@ -8252,7 +8275,8 @@ function workflowMatrixDefinitions(text) {
         expectedCells: 0,
         renderedCells: 0,
         cells: [],
-        nameTemplate
+        nameTemplate,
+        captureEvidence
       });
       continue;
     }
@@ -8278,7 +8302,8 @@ function workflowMatrixDefinitions(text) {
       expectedCells: expanded.dynamic ? 0 : expanded.rows.length,
       renderedCells: cells.length,
       cells,
-      nameTemplate
+      nameTemplate,
+      captureEvidence
     });
   }
   return definitions;
@@ -8335,6 +8360,55 @@ function inferAxesFromExpandedJobName(name, definitions) {
   };
 }
 
+// src/evidence.ts
+var MATRIX_EVIDENCE_PREFIX = "matrixtrim-evidence:v1:";
+function isObject(value) {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+function encodeMatrixEvidence(jobId, matrixJson) {
+  if (!jobId.trim()) throw new Error("GITHUB_JOB is required in capture mode");
+  let matrix;
+  try {
+    matrix = JSON.parse(matrixJson);
+  } catch {
+    throw new Error("matrix input must be valid JSON from toJSON(matrix)");
+  }
+  if (!isObject(matrix)) {
+    throw new Error("matrix input must decode to a JSON object");
+  }
+  const payload = {
+    version: 1,
+    jobId: jobId.trim(),
+    matrix
+  };
+  const serialized = JSON.stringify(payload);
+  if (Buffer.byteLength(serialized, "utf8") > 24 * 1024) {
+    throw new Error("matrix evidence exceeds the 24 KiB capture limit");
+  }
+  return MATRIX_EVIDENCE_PREFIX + Buffer.from(serialized, "utf8").toString("base64url");
+}
+function decodeMatrixEvidence(message) {
+  const index = message.indexOf(MATRIX_EVIDENCE_PREFIX);
+  if (index < 0) return null;
+  const encoded = message.slice(index + MATRIX_EVIDENCE_PREFIX.length).trim().match(/^[A-Za-z0-9_-]+/)?.[0];
+  if (!encoded) return null;
+  try {
+    const value = JSON.parse(
+      Buffer.from(encoded, "base64url").toString("utf8")
+    );
+    if (!isObject(value)) return null;
+    if (value.version !== 1 || typeof value.jobId !== "string") return null;
+    if (!isObject(value.matrix)) return null;
+    return {
+      version: 1,
+      jobId: value.jobId,
+      matrix: value.matrix
+    };
+  } catch {
+    return null;
+  }
+}
+
 // src/analyze.ts
 function splitJobName(name) {
   const match = name.match(/^(.*?)\s+\((.+)\)$/);
@@ -8376,6 +8450,14 @@ function knownMatrixBase(baseJob, definitions) {
   return definitions.some(
     (definition) => definition.displayName === baseJob || definition.jobId === baseJob
   );
+}
+function applyCapturedMatrixEvidence(observation, evidence) {
+  const axes = axesFromMatrixEvidence(evidence.matrix);
+  const suffix = Object.entries(axes).map(([axis, value]) => `${axis}=${value}`).join(", ");
+  observation.baseJob = evidence.jobId;
+  observation.axes = axes;
+  observation.axisSource = "capture-evidence";
+  observation.cell = `${observation.cell} [${suffix}]`;
 }
 function summarizeCells(matrixJobs, observations) {
   const byFingerprint = /* @__PURE__ */ new Map();
@@ -8545,6 +8627,12 @@ async function analyzeRepository(repository, options) {
   const definitionsByRevision = new Map(
     definitionResults.map((item) => [item.key, item.definitions])
   );
+  const definitionsByRunId = new Map(
+    runs.map((run) => [
+      run.id,
+      definitionsByRevision.get(`${run.path}@${run.head_sha}`) ?? []
+    ])
+  );
   const workflowDefinitionFallbacks = definitionResults.filter(
     (item) => item.usedFallback
   ).length;
@@ -8599,7 +8687,10 @@ async function analyzeRepository(repository, options) {
       const inferred = inferAxesFromExpandedJobName(job.name, definitions);
       const renderedMatch = inferred.source !== "unavailable";
       const defaultNameFallback = parsed.matrixLike && knownMatrixBase(parsed.baseJob, definitions);
-      if (!renderedMatch && !defaultNameFallback) {
+      const exactDynamicDefinition = definitions.find(
+        (definition) => definition.dynamic && definition.captureEvidence && (definition.displayName === job.name || definition.jobId === job.name)
+      );
+      if (!renderedMatch && !defaultNameFallback && !exactDynamicDefinition) {
         continue;
       }
       const observation = {
@@ -8608,7 +8699,7 @@ async function analyzeRepository(repository, options) {
         runConclusion: run.conclusion,
         jobId: job.id,
         cell: job.name,
-        baseJob: renderedMatch ? inferred.baseJob : parsed.baseJob,
+        baseJob: renderedMatch ? inferred.baseJob : exactDynamicDefinition?.jobId ?? parsed.baseJob,
         axes: inferred.axes,
         axisSource: inferred.source,
         conclusion: job.conclusion,
@@ -8620,6 +8711,41 @@ async function analyzeRepository(repository, options) {
       matrixJobById.set(job.id, observation);
     }
   }
+  const captureCandidates = matrixJobs.filter((observation) => {
+    if (observation.axes !== null) return false;
+    return definitionsByRunId.get(observation.runId)?.some(
+      (definition) => definition.dynamic && definition.captureEvidence && definition.jobId === observation.baseJob
+    ) ?? false;
+  });
+  let captureEvidenceJobs = 0;
+  let captureEvidenceErrors = 0;
+  await mapLimit(
+    captureCandidates,
+    Math.min(concurrency, 4),
+    async (observation) => {
+      try {
+        const annotations = await client.listCheckRunAnnotations(observation.jobId);
+        const matches = annotations.map((annotation) => decodeMatrixEvidence(annotation.message)).filter(
+          (evidence) => evidence !== null && evidence.jobId === observation.baseJob
+        );
+        if (!matches.length) return;
+        const unique = new Map(
+          matches.map((evidence) => [
+            JSON.stringify(axesFromMatrixEvidence(evidence.matrix)),
+            evidence
+          ])
+        );
+        if (unique.size !== 1) {
+          captureEvidenceErrors++;
+          return;
+        }
+        applyCapturedMatrixEvidence(observation, [...unique.values()][0]);
+        captureEvidenceJobs++;
+      } catch {
+        captureEvidenceErrors++;
+      }
+    }
+  );
   const allFailedJobs = jobsByRun.flatMap(
     ({ run, jobs }) => jobs.filter((job) => ["failure", "timed_out"].includes(job.conclusion ?? "")).map((job) => ({ run, job }))
   );
@@ -8693,6 +8819,9 @@ async function analyzeRepository(repository, options) {
     workflowMatchCoverage: workflowExpectedMatrixCells ? workflowMatchedMatrixCells / workflowExpectedMatrixCells : null,
     inactiveStaticMatrixFamilies,
     dynamicMatrixDefinitions,
+    captureEvidenceCandidates: captureCandidates.length,
+    captureEvidenceJobs,
+    captureEvidenceErrors,
     runWindowDays,
     projectedRunsPer30Days,
     cells,
@@ -9598,6 +9727,16 @@ function recommendMatrix(report, options = {}) {
       `${report.dynamicMatrixDefinitions} dynamic matrix definition(s) could not be statically expanded; observed jobs are still analyzed when they can be identified, but axis coverage may be incomplete when runtime values cannot be recovered safely.`
     );
   }
+  if (report.captureEvidenceCandidates && (report.captureEvidenceJobs ?? 0) < report.captureEvidenceCandidates) {
+    warnings.push(
+      `Runtime matrix evidence recovered ${report.captureEvidenceJobs ?? 0}/${report.captureEvidenceCandidates} opted-in unresolved job(s); missing evidence remains unresolved.`
+    );
+  }
+  if (report.captureEvidenceErrors) {
+    warnings.push(
+      `${report.captureEvidenceErrors} runtime matrix evidence lookup(s) failed or were conflicting; verify checks: read permission and capture-step execution.`
+    );
+  }
   return {
     mode: "history+combinatorial",
     algorithm,
@@ -10195,7 +10334,22 @@ async function writeOutput(name, value) {
 function warning(message) {
   console.log(`::warning::${message.replace(/\r?\n/g, " ")}`);
 }
+function notice(message) {
+  console.log(`::notice title=MatrixTrim evidence::${message}`);
+}
 async function main() {
+  const mode = input("mode") || "analyze";
+  if (!["analyze", "capture"].includes(mode)) {
+    throw new Error("mode must be analyze or capture");
+  }
+  if (mode === "capture") {
+    const matrixJson = input("matrix");
+    if (!matrixJson) throw new Error("matrix input is required in capture mode");
+    const evidence = encodeMatrixEvidence(process.env.GITHUB_JOB ?? "", matrixJson);
+    notice(evidence);
+    await writeOutput("capture-status", "captured");
+    return;
+  }
   const repository = process.env.GITHUB_REPOSITORY;
   if (!repository) throw new Error("GITHUB_REPOSITORY is not available");
   const token = input("token") || process.env.GITHUB_TOKEN || "";
