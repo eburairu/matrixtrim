@@ -16,7 +16,7 @@ MatrixTrim은 단순히 job 수를 줄이는 도구가 아닙니다. 핵심 질�
 
 목표는 **과거 failure coverage, 실행 비용, matrix 구조, holdout backtest**를 바탕으로 더 작은 CI matrix 후보를 제안하는 것입니다.
 
-> **현재 상태: v0.5 experimental.** static matrix 분석, Actions 이력 수집, failure fingerprinting, success/failure runtime history, static axis 복원, history-only recommendation, time-based holdout backtest를 지원합니다.
+> **현재 상태: v0.6 experimental.** 과거 failure evidence에 관측된 1-wise / pairwise / t-wise configuration coverage, runtime cost, time-based holdout backtest를 함께 적용해 recommendation을 만들 수 있습니다.
 
 ## 왜 MatrixTrim인가?
 
@@ -96,15 +96,17 @@ GH_TOKEN="$(gh auth token)" \
   --limit 100
 ```
 
-현재 recommendation은 **history-only / experimental** 모드입니다.
+recommendation은 아직 **experimental**입니다. 핵심은 조합을 자동 삭제하는 것이 아니라 각 configuration이 실제로 제공하는 failure-detection value를 측정하는 것입니다.
 
-다음 조건을 만족하는 cell 집합을 고릅니다.
+기본값인 `--strength 2`에서는 다음을 모두 유지합니다.
 
-1. 분석 가능한 과거 failure fingerprint를 모두 커버
-2. 각 matrix job family에서 최소 1개 cell 유지
-3. median runtime을 비용으로 사용해 추정 CI compute 최소화
+1. 분석된 모든 과거 failure fingerprint
+2. 해석 가능한 각 axis의 모든 관측값(1-wise)
+3. 관측된 모든 axis-value pair(pairwise)
+4. 각 matrix job family에서 최소 1개 cell
+5. 위 조건을 지키는 범위에서 median runtime 기준 추정 compute 최소화
 
-현재 optimizer는 greedy weighted set cover를 사용합니다.
+`--strength 3`을 사용하면 관측된 3-wise 조합까지 유지합니다. 실제 matrix에 없던 조합을 새로 만들어 요구하지 않습니다. 현재 optimizer는 greedy weighted set cover입니다.
 
 ## 최신 failure로 backtest
 
@@ -163,13 +165,17 @@ timestamp, 절대 경로, UUID, duration, line number처럼 흔들리는 정보�
 - [x] failure signature normalization / clustering
 - [x] cell별 success/failure/runtime history
 - [x] static matrix axis 복원
-- [x] history-only weighted set-cover recommendation
+- [x] empirical failure-coverage recommendation
+- [x] 관측된 1-wise / pairwise / t-wise safety constraint
 - [x] time-based holdout backtest
 - [ ] `include` / `exclude` 완전 지원
-- [ ] pairwise / t-wise coverage constraint
-- [ ] 더 강한 optimizer
-- [ ] GitHub Action PR comment
+- [ ] 명시적 keep / compatibility constraint
+- [ ] GitHub Action + PR comment
+- [ ] matrix-heavy OSS benchmark
+- [ ] runner-aware monetary cost model
+- [ ] multi-event failure fingerprint
 - [ ] recommendation PR 자동 생성
+- [ ] 더 강한 / exact optimizer
 
 ## 설계 원칙
 

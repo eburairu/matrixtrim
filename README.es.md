@@ -16,7 +16,7 @@ MatrixTrim no intenta simplemente ejecutar menos jobs. La pregunta útil es otra
 
 El objetivo es proponer una CI matrix más pequeña basándose en **cobertura histórica de fallos, coste de ejecución, estructura de la matrix y backtesting con holdout temporal**.
 
-> **Estado actual: v0.5 experimental.** Ya funcionan la inspección de matrices estáticas, la lectura del historial de Actions, failure fingerprinting, historial de runtime para éxitos y fallos, recuperación de axes estáticos, recomendaciones history-only y backtesting temporal.
+> **Estado actual: v0.6 experimental.** Las recomendaciones ya combinan evidencia histórica de fallos, cobertura observada 1-wise / pairwise / t-wise, coste de runtime y backtesting temporal.
 
 ## ¿Por qué MatrixTrim?
 
@@ -96,15 +96,17 @@ GH_TOKEN="$(gh auth token)" \
   --limit 100
 ```
 
-La recomendación actual es **history-only / experimental**.
+La recomendación sigue siendo **experimental**. El objetivo principal no es borrar combinaciones automáticamente, sino medir el failure-detection value real de cada configuración.
 
-Selecciona celdas que:
+Con el valor predeterminado `--strength 2`, MatrixTrim conserva:
 
-1. mantienen la cobertura de todos los failure fingerprints históricos analizados;
-2. conservan al menos una celda por cada matrix job family;
-3. intentan minimizar el compute estimado usando el median runtime como coste.
+1. todos los failure fingerprints históricos analizados;
+2. todos los valores observados de cada axis resuelto (1-wise);
+3. todos los pares observados de valores entre axes (pairwise);
+4. al menos una celda por cada matrix job family;
+5. el menor compute estimado posible dentro de esas restricciones, usando median runtime como coste.
 
-El optimizador actual usa greedy weighted set cover.
+Con `--strength 3` también conserva las combinaciones 3-wise observadas. MatrixTrim no inventa combinaciones que no existían en la matrix observada. El optimizador actual usa greedy weighted set cover.
 
 ## Backtest con fallos más recientes
 
@@ -163,13 +165,17 @@ El núcleo es determinista y no depende de un LLM.
 - [x] Normalización y clustering de failure signatures
 - [x] Historial success/failure/runtime por celda
 - [x] Recuperación de axes de matrices estáticas
-- [x] Recomendación history-only con weighted set cover
+- [x] Recomendación basada en empirical failure coverage
+- [x] Restricciones de seguridad 1-wise / pairwise / t-wise observadas
 - [x] Backtest temporal
 - [ ] Soporte completo de `include` / `exclude`
-- [ ] Restricciones pairwise / t-wise
-- [ ] Optimizador más potente
-- [ ] Comentarios automáticos en PR mediante GitHub Action
+- [ ] Restricciones explícitas keep / compatibility
+- [ ] GitHub Action + comentarios en PR
+- [ ] Benchmark en repos OSS con matrices grandes
+- [ ] Modelo de coste monetario según runner
+- [ ] Multi-event failure fingerprinting
 - [ ] Generación automática de recommendation PR
+- [ ] Optimizador más potente / exacto
 
 ## Principios de diseño
 

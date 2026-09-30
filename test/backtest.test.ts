@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AnalysisReport } from "../src/analyze.js";
-import { backtestHistoryOnly } from "../src/backtest.js";
+import { backtestRecommendation } from "../src/backtest.js";
 
 function makeReport(): AnalysisReport {
   return {
@@ -53,17 +53,20 @@ function makeReport(): AnalysisReport {
 
 describe("time holdout backtest", () => {
   it("selects using only training-window runtimes and tests newer failures", () => {
-    const result = backtestHistoryOnly(makeReport(), 50);
+    const result = backtestRecommendation(makeReport(), 50);
 
     expect(result.trainingRuns).toBe(2);
     expect(result.holdoutRuns).toBe(2);
-    expect(result.selectedCells).toEqual(["test (a)"]);
+    expect(result.coverageStrength).toBe(2);
+    expect(result.selectedCells.sort()).toEqual(["test (a)", "test (b)"]);
     expect(result.holdoutFingerprints).toBe(2);
-    expect(result.coveredHoldoutFingerprints).toBe(1);
-    expect(result.holdoutRecall).toBe(0.5);
+    expect(result.coveredHoldoutFingerprints).toBe(2);
+    expect(result.holdoutRecall).toBe(1);
     expect(result.unseenHoldoutFingerprints).toBe(2);
-    expect(result.unseenHoldoutRecall).toBe(0.5);
-    expect(result.missed).toHaveLength(1);
-    expect(result.missed[0]?.fingerprint).toBe("f2");
+    expect(result.unseenHoldoutRecall).toBe(1);
+    expect(result.holdoutCombinatorialRequirements).toBe(2);
+    expect(result.coveredHoldoutCombinatorialRequirements).toBe(2);
+    expect(result.holdoutCombinatorialCoverage).toBe(1);
+    expect(result.missed).toHaveLength(0);
   });
 });

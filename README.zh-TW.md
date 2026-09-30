@@ -16,7 +16,7 @@ MatrixTrim 關心的不是單純把 job 數量砍到最低，而是：
 
 目標是結合 **歷史 failure coverage、執行成本、matrix 結構與 holdout backtest**，提出更小、也更有依據的 CI matrix 候選方案。
 
-> **目前狀態：v0.5 experimental。** 已支援 static matrix inspection、Actions 歷史讀取、failure fingerprinting、success/failure runtime history、static axis recovery、history-only recommendation，以及 time-based holdout backtest。
+> **目前狀態：v0.6 experimental。** recommendation 現在會同時考量歷史 failure evidence、已觀測的 1-wise / pairwise / t-wise 組態 coverage、runtime cost，以及 time-based holdout backtest。
 
 ## 為什麼需要 MatrixTrim？
 
@@ -96,15 +96,17 @@ GH_TOKEN="$(gh auth token)" \
   --limit 100
 ```
 
-目前 recommendation 是 **history-only / experimental**。
+recommendation 仍然是 **experimental**。MatrixTrim 的核心不是自動刪除組合，而是衡量每個 configuration 實際提供多少 failure-detection value。
 
-它會選出一組 cell，使其：
+預設的 `--strength 2` 會同時保留：
 
-1. 保留所有已分析歷史 failure fingerprint 的 coverage；
-2. 每個 matrix job family 至少留下一個 cell；
-3. 以 median runtime 作為成本，盡量降低估算的 CI compute。
+1. 所有已分析的歷史 failure fingerprint；
+2. 每個已解析 axis 的所有已觀測值（1-wise）；
+3. 所有已觀測的 axis-value pair（pairwise）；
+4. 每個 matrix job family 至少一個 cell；
+5. 在上述限制下，盡量降低以 median runtime 估算的 compute。
 
-目前使用 greedy weighted set cover。
+使用 `--strength 3` 可進一步保留已觀測的 3-wise 組合。MatrixTrim 不會憑空要求原 matrix 中不存在的組合。目前 optimizer 使用 greedy weighted set cover。
 
 ## 用較新的 failure 做 backtest
 
@@ -163,13 +165,17 @@ MatrixTrim 會移除 timestamp、絕對路徑、UUID、duration、line number �
 - [x] failure signature normalization / clustering
 - [x] 每個 cell 的 success/failure/runtime history
 - [x] static matrix axis recovery
-- [x] history-only weighted set-cover recommendation
+- [x] empirical failure-coverage recommendation
+- [x] 已觀測的 1-wise / pairwise / t-wise safety constraint
 - [x] time-based holdout backtest
 - [ ] 完整處理 `include` / `exclude`
-- [ ] pairwise / t-wise coverage constraint
-- [ ] 更強的 optimizer
-- [ ] GitHub Action PR comment
+- [ ] 明確的 keep / compatibility constraint
+- [ ] GitHub Action + PR comment
+- [ ] matrix-heavy OSS benchmark
+- [ ] runner-aware monetary cost model
+- [ ] multi-event failure fingerprint
 - [ ] 自動產生 recommendation PR
+- [ ] 更強 / exact optimizer
 
 ## 設計原則
 

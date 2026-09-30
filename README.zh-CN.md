@@ -16,7 +16,7 @@ MatrixTrim 关注的不是“任务越少越好”，而是一个更实际的问
 
 目标是结合 **历史失败覆盖、运行成本、matrix 结构和 holdout 回测**，给出更小、更有依据的 CI matrix 候选方案。
 
-> **当前状态：v0.5 experimental。** 已支持静态 matrix 检查、Actions 历史读取、failure fingerprint、成功/失败运行时间统计、静态 axis 恢复、history-only recommendation 和按时间切分的 holdout backtest。
+> **当前状态：v0.6 experimental。** recommendation 现在会同时考虑历史 failure evidence、已观测的 1-wise / pairwise / t-wise 配置覆盖、runtime cost 和按时间切分的 holdout backtest。
 
 ## 为什么需要 MatrixTrim？
 
@@ -96,15 +96,17 @@ GH_TOKEN="$(gh auth token)" \
   --limit 100
 ```
 
-当前 recommendation 是 **history-only / experimental** 模式。
+recommendation 仍然是 **experimental**。MatrixTrim 的核心价值不是自动删掉组合，而是衡量每个 configuration 实际提供了多少 failure-detection value。
 
-它会选择一组 cell，使其：
+默认使用 `--strength 2`，会同时保留：
 
-1. 覆盖所有已分析到的历史 failure fingerprint；
-2. 每个 matrix job family 至少保留一个 cell；
-3. 以 median runtime 作为成本，尽量降低估算的 CI 计算量。
+1. 所有已分析的历史 failure fingerprint；
+2. 每个已解析 axis 的所有已观测值（1-wise）；
+3. 所有已观测的 axis-value pair（pairwise）；
+4. 每个 matrix job family 至少一个 cell；
+5. 在这些约束下尽量降低基于 median runtime 的估算 compute。
 
-当前使用 greedy weighted set cover。
+使用 `--strength 3` 可以进一步保留已观测的 3-wise 组合。MatrixTrim 不会凭空制造原 matrix 中不存在的组合。当前优化器是 greedy weighted set cover。
 
 ## 用更新的 failure 做回测
 
@@ -163,13 +165,17 @@ MatrixTrim 会去除 timestamp、绝对路径、UUID、duration、line number �
 - [x] failure signature normalization / clustering
 - [x] 每个 cell 的 success/failure/runtime 历史
 - [x] 静态 matrix axis 恢复
-- [x] history-only weighted set-cover recommendation
+- [x] empirical failure-coverage recommendation
+- [x] 已观测的 1-wise / pairwise / t-wise safety constraint
 - [x] time-based holdout backtest
 - [ ] 完整支持 `include` / `exclude`
-- [ ] pairwise / t-wise coverage 约束
-- [ ] 更强的优化器
-- [ ] GitHub Action PR comment
+- [ ] 显式 keep / compatibility constraint
+- [ ] GitHub Action + PR comment
+- [ ] 在 matrix-heavy OSS 上做 benchmark
+- [ ] runner-aware monetary cost model
+- [ ] multi-event failure fingerprint
 - [ ] 自动生成 recommendation PR
+- [ ] 更强 / exact optimizer
 
 ## 设计原则
 

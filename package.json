@@ -1,7 +1,7 @@
 {
   "name": "matrixtrim",
-  "version": "0.5.0",
-  "description": "History-aware GitHub Actions matrix minimizer.",
+  "version": "0.6.0",
+  "description": "Evidence-based GitHub Actions matrix diagnostics and optimization.",
   "type": "module",
   "bin": {
     "matrixtrim": "dist/cli.js"

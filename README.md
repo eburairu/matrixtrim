@@ -16,7 +16,7 @@ MatrixTrim analyzes GitHub Actions matrix jobs and asks a practical question:
 
 The goal is to recommend a smaller CI matrix using **historical failure coverage, runtime cost, matrix structure, and holdout backtesting**.
 
-> **Status: v0.5 experimental.** Static inspection, Actions history ingestion, failure fingerprinting, success/failure runtime history, static-axis recovery, history-only recommendations, and time-based holdout backtesting work today.
+> **Status: v0.6 experimental.** MatrixTrim now combines empirical failure evidence with observed 1-wise / pairwise / t-wise configuration coverage, runtime cost, and time-based holdout backtesting.
 
 ## Why MatrixTrim?
 
@@ -96,15 +96,17 @@ GH_TOKEN="$(gh auth token)" \
   --limit 100
 ```
 
-The current recommendation mode is intentionally conservative in wording: **history-only, experimental**.
+The recommendation layer is still **experimental**. Its primary job is to measure configuration value; automatic deletion is not implied.
 
-It selects cells that:
+By default (`--strength 2`), selection preserves:
 
-1. preserve every analyzed historical failure fingerprint,
-2. retain at least one cell per matrix job family, and
-3. minimize estimated compute using median runtime as cost.
+1. every analyzed historical failure fingerprint,
+2. every observed value of each resolved matrix axis (1-wise coverage),
+3. every observed pair of axis values (pairwise coverage),
+4. at least one cell per matrix job family, and
+5. lower estimated compute where the constraints allow it.
 
-The optimizer currently uses greedy weighted set cover.
+Use `--strength 3` to preserve observed 3-wise combinations as well. MatrixTrim never invents combinations that were absent from the observed matrix. The optimizer currently uses greedy weighted set cover.
 
 ## Backtest against newer failures
 
@@ -163,13 +165,17 @@ The core is deterministic. No LLM is required.
 - [x] Failure signature normalization and clustering
 - [x] Per-cell success/failure/runtime history
 - [x] Static matrix axis recovery
-- [x] History-only weighted set-cover recommendation
+- [x] Empirical failure-coverage recommendation
+- [x] Observed 1-wise / pairwise / t-wise safety constraints
 - [x] Time-based holdout backtesting
 - [ ] Full `include` / `exclude` expansion
-- [ ] Pairwise / t-wise coverage constraints
-- [ ] Stronger optimizer
-- [ ] GitHub Action PR comments
+- [ ] Explicit keep / compatibility constraints
+- [ ] GitHub Action + PR comments
+- [ ] Benchmark across matrix-heavy OSS repositories
+- [ ] Runner-aware monetary cost model
+- [ ] Multi-event failure fingerprints
 - [ ] Recommendation PR generation
+- [ ] Stronger / exact optimizer
 
 ## Principles
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AnalysisReport } from "../src/analyze.js";
-import { recommendHistoryOnly } from "../src/recommend.js";
+import { recommendMatrix } from "../src/recommend.js";
 
 function report(): AnalysisReport {
   return {
@@ -111,7 +111,7 @@ function report(): AnalysisReport {
 
 describe("history-only recommendation", () => {
   it("keeps failure coverage and one cell per matrix job family", () => {
-    const recommendation = recommendHistoryOnly(report());
+    const recommendation = recommendMatrix(report(), { maxStrength: 1 });
 
     expect(recommendation.selectedCells.map((cell) => cell.cell).sort()).toEqual([
       "lint (node22)",

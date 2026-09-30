@@ -3,7 +3,8 @@ import {
   type AnalysisReport,
   type FailureObservation,
 } from "./analyze.js";
-import { recommendHistoryOnly } from "./recommend.js";
+import { recommendMatrix } from "./recommend.js";
+import { observedCombinatorialCoverage } from "./coverage.js";
 
 export type MissedFailure = {
   fingerprint: string;
@@ -15,6 +16,7 @@ export type MissedFailure = {
 export type BacktestReport = {
   mode: "time-holdout";
   holdoutPercent: number;
+  coverageStrength: number;
   trainingRuns: number;
   holdoutRuns: number;
   selectedCells: string[];
@@ -25,6 +27,9 @@ export type BacktestReport = {
   unseenHoldoutFingerprints: number;
   coveredUnseenHoldoutFingerprints: number;
   unseenHoldoutRecall: number | null;
+  holdoutCombinatorialRequirements: number;
+  coveredHoldoutCombinatorialRequirements: number;
+  holdoutCombinatorialCoverage: number | null;
   missed: MissedFailure[];
   warnings: string[];
 };
@@ -75,9 +80,10 @@ function subsetReport(
   };
 }
 
-export function backtestHistoryOnly(
+export function backtestRecommendation(
   report: AnalysisReport,
   holdoutPercent = 25,
+  coverageStrength = 2,
 ): BacktestReport {
   if (holdoutPercent <= 0 || holdoutPercent >= 100) {
     throw new Error("holdoutPercent must be between 0 and 100");
@@ -109,10 +115,25 @@ export function backtestHistoryOnly(
   }
 
   const trainingReport = subsetReport(report, training, trainingRunIds);
-  const recommendation = recommendHistoryOnly(trainingReport);
+  const holdoutReport = subsetReport(report, holdout, holdoutRunIds);
+  const recommendation = recommendMatrix(trainingReport, {
+    maxStrength: coverageStrength,
+  });
   const selected = new Set(recommendation.selectedCells.map((cell) => cell.cell));
   const trainingFingerprints = new Set(training.map((item) => item.fingerprint));
   const holdoutClusters = clustersFor(holdout);
+
+  const holdoutCombinatorial = observedCombinatorialCoverage(
+    holdoutReport.cells,
+    coverageStrength,
+  );
+  const coveredHoldoutCombinations = new Set<string>();
+  for (const cell of holdoutReport.cells) {
+    if (!selected.has(cell.cell)) continue;
+    for (const token of holdoutCombinatorial.byCell.get(cell.cell) ?? []) {
+      coveredHoldoutCombinations.add(token);
+    }
+  }
 
   let covered = 0;
   let unseen = 0;
@@ -138,14 +159,15 @@ export function backtestHistoryOnly(
   }
 
   const warnings = [
-    "Backtesting uses only runs with analyzable failed job logs.",
-    "Runtime costs for selection are computed from the training window only.",
-    "Pairwise/t-wise matrix coverage is not enforced yet.",
+    "Backtesting uses only runs with analyzable failed job logs for failure recall.",
+    "Runtime costs and combinatorial constraints are computed from the training window only.",
+    `Observed combinatorial coverage is preserved up to strength ${coverageStrength}.`,
   ];
 
   return {
     mode: "time-holdout",
     holdoutPercent,
+    coverageStrength,
     trainingRuns: trainingRunIds.size,
     holdoutRuns: holdoutRunIds.size,
     selectedCells: [...selected],
@@ -156,6 +178,11 @@ export function backtestHistoryOnly(
     unseenHoldoutFingerprints: unseen,
     coveredUnseenHoldoutFingerprints: coveredUnseen,
     unseenHoldoutRecall: unseen ? coveredUnseen / unseen : null,
+    holdoutCombinatorialRequirements: holdoutCombinatorial.tokens.length,
+    coveredHoldoutCombinatorialRequirements: coveredHoldoutCombinations.size,
+    holdoutCombinatorialCoverage: holdoutCombinatorial.tokens.length
+      ? coveredHoldoutCombinations.size / holdoutCombinatorial.tokens.length
+      : null,
     missed,
     warnings,
   };

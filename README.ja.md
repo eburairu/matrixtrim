@@ -16,7 +16,7 @@ MatrixTrimが見たいのは、単純なjob数ではありません。
 
 過去のfailure、実行コスト、matrix構造、holdout backtestを使って、より小さいCI matrix候補を作ることを目指しています。
 
-> **Status: v0.5 experimental.** static matrix解析、Actions履歴取得、failure fingerprinting、success/failureを含むruntime履歴、static axis復元、history-only recommendation、time-based holdout backtestまで動作します。
+> **Status: v0.6 experimental.** 過去のfailure evidenceに、観測済みの1-wise / pairwise / t-wise構成coverage、runtime cost、time-based holdout backtestを組み合わせてrecommendationを作れるようになりました。
 
 ## なぜ必要か
 
@@ -96,15 +96,17 @@ GH_TOKEN="$(gh auth token)" \
   --limit 100
 ```
 
-現在のrecommendationは **history-only / experimental** です。
+recommendationはまだ **experimental** です。中心は「自動で削除すること」ではなく、各configurationのfailure-detection valueを測ることです。
 
-次を満たすcell集合を探します。
+既定の `--strength 2` では、次をすべて維持した上で縮約候補を探します。
 
-1. 解析できた過去のfailure fingerprintをすべてカバー
-2. matrix job familyごとに最低1cellを維持
-3. median runtimeをコストとして推定computeを最小化
+1. 解析できた過去のfailure fingerprint
+2. 解決できた各axisの全観測値（1-wise）
+3. 観測されたaxis値の全ペア（pairwise）
+4. matrix job familyごと最低1cell
+5. 上記を満たす範囲で、median runtimeベースの推定computeを削減
 
-現在のoptimizerは greedy weighted set coverです。
+`--strength 3` にすると、観測済みの3-wise組み合わせまで維持します。実際のmatrixに存在しなかった組み合わせを勝手に要求することはありません。optimizerは現在 greedy weighted set coverです。
 
 ## 新しいfailureでbacktestする
 
@@ -163,13 +165,17 @@ coreはdeterministicで、LLMは必須ではありません。
 - [x] failure signature正規化・クラスタリング
 - [x] cellごとのsuccess/failure/runtime履歴
 - [x] static matrix axis復元
-- [x] history-only weighted set-cover recommendation
+- [x] empirical failure coverage recommendation
+- [x] 観測済み1-wise / pairwise / t-wise safety constraint
 - [x] time-based holdout backtest
 - [ ] `include` / `exclude` の完全展開
-- [ ] pairwise / t-wise coverage constraint
-- [ ] optimizer強化
-- [ ] GitHub ActionとしてPRへコメント
+- [ ] 明示的なkeep / compatibility constraint
+- [ ] GitHub Action化＋PRコメント
+- [ ] matrix-heavy OSSでのbenchmark
+- [ ] runner単価を含むmonetary cost model
+- [ ] 1 job内のmulti-event failure fingerprint
 - [ ] recommendation PR自動生成
+- [ ] exact / stronger optimizer
 
 ## 設計原則
 
