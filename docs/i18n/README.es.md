@@ -16,7 +16,7 @@ MatrixTrim no intenta simplemente ejecutar menos jobs. La pregunta útil es otra
 
 El objetivo es proponer una CI matrix más pequeña basándose en **cobertura histórica de fallos, coste de ejecución, estructura de la matrix y backtesting con holdout temporal**.
 
-> **Estado actual: v0.19 experimental.** MatrixTrim combina multi-event root-cause fingerprints, evidencia histórica de fallos, cobertura observada 1-wise / pairwise / t-wise, restricciones keep / compatibility definidas explícitamente por humanos, exact branch-and-bound optimizer, coste de runtime y estimación monetaria según runner, backtesting temporal, reconstrucción de nombres de jobs de matrix ya renderizados, GitHub Action, benchmark reproducible sobre OSS público y generación opt-in de draft PRs de optimización.
+> **Estado actual: v0.20 experimental.** MatrixTrim combina multi-event root-cause fingerprints, evidencia histórica de fallos, cobertura observada 1-wise / pairwise / t-wise, restricciones keep / compatibility definidas explícitamente por humanos, exact branch-and-bound optimizer, coste de runtime y estimación monetaria según runner, backtesting temporal, reconstrucción de nombres de jobs de matrix ya renderizados, GitHub Action, benchmark reproducible sobre OSS público y generación opt-in de draft PRs de optimización.
 
 ## ¿Por qué MatrixTrim?
 

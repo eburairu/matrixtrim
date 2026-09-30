@@ -16,7 +16,7 @@ MatrixTrimが見たいのは、単純なjob数ではありません。
 
 過去のfailure、実行コスト、matrix構造、holdout backtestを使って、より小さいCI matrix候補を作ることを目指しています。
 
-> **Status: v0.19 experimental.** multi-event root-cause fingerprint、過去のfailure evidence、観測済み1-wise / pairwise / t-wise構成coverage、人間が明示するkeep / compatibility constraint、exact branch-and-bound optimizer、runtime costとrunner-awareな金額推定、time-based holdout backtest、render済みmatrix job名の復元、GitHub Action、再現可能な公開OSS benchmark、明示opt-inのdraft最適化PR生成まで利用できます。
+> **Status: v0.20 experimental.** multi-event root-cause fingerprint、過去のfailure evidence、観測済み1-wise / pairwise / t-wise構成coverage、人間が明示するkeep / compatibility constraint、exact branch-and-bound optimizer、runtime costとrunner-awareな金額推定、time-based holdout backtest、render済みmatrix job名の復元、GitHub Action、再現可能な公開OSS benchmark、明示opt-inのdraft最適化PR生成まで利用できます。
 
 ## なぜ必要か
 

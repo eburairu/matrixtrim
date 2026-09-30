@@ -1,6 +1,6 @@
 {
   "name": "matrixtrim",
-  "version": "0.19.2",
+  "version": "0.20.0",
   "description": "Evidence-based GitHub Actions matrix diagnostics and optimization.",
   "type": "module",
   "bin": {
@@ -49,10 +49,24 @@
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
+    "docs",
+    "benchmark"
   ],
   "publishConfig": {
     "access": "public",
     "provenance": true
-  }
+  },
+  "keywords": [
+    "github-actions",
+    "continuous-integration",
+    "ci",
+    "matrix",
+    "ci-optimization",
+    "test-optimization",
+    "testing",
+    "devtools"
+  ]
 }

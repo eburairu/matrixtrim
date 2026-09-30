@@ -16,7 +16,39 @@ MatrixTrim analyzes GitHub Actions matrix jobs and asks a practical question:
 
 The goal is to recommend a smaller CI matrix using **historical failure coverage, runtime cost, matrix structure, and holdout backtesting**.
 
-> **Status: v0.19 experimental.** MatrixTrim combines multi-event root-cause fingerprints, empirical failure evidence, observed 1-wise / pairwise / t-wise configuration coverage, explicit human keep / compatibility constraints, exact branch-and-bound optimization, runtime and runner-aware monetary cost, time-based holdout backtesting, static and observed dynamic matrix-name recovery, broader deterministic GitHub expression evaluation, opt-in runtime matrix evidence capture, versioned GitHub Action releases, reproducible public-OSS benchmarking, and opt-in draft optimization PR generation.
+### Proven on real OSS workflows
+
+| Repository | Observed matrix | Suggested | Estimated compute reduction |
+| --- | ---: | ---: | ---: |
+| pandas | 34 | 32 | **7.2%** |
+| Flask | 12 | 10 | **13.6%** |
+| Diesel | 28 | 25 | **8.3%** |
+
+These are fixed-snapshot benchmark results, not universal promises. MatrixTrim deliberately leaves a matrix unchanged when the evidence does not justify a reduction.
+
+## Try it in a workflow
+
+```yaml
+permissions:
+  actions: read
+  contents: read
+
+steps:
+  - uses: eburairu/matrixtrim@v0
+    with:
+      workflow: ci.yml
+      limit: "100"
+      strength: "2"
+      holdout: "25"
+```
+
+MatrixTrim is **read-only by default**. It writes an analysis to the GitHub Actions Step Summary; draft optimization PR generation is opt-in.
+
+![MatrixTrim Step Summary rendered from actual action output](docs/assets/step-summary.png)
+
+> The image above is rendered from actual MatrixTrim action output produced against this repository. GitHub's Step Summary UI itself is not exposed through the public API.
+
+> **Status: v0.20 experimental.** MatrixTrim combines multi-event root-cause fingerprints, empirical failure evidence, observed 1-wise / pairwise / t-wise configuration coverage, explicit human keep / compatibility constraints, exact branch-and-bound optimization, runtime and runner-aware monetary cost, time-based holdout backtesting, static and observed dynamic matrix-name recovery, broader deterministic GitHub expression evaluation, opt-in runtime matrix evidence capture, versioned GitHub Action releases, reproducible public-OSS benchmarking, and opt-in draft optimization PR generation.
 
 ## Why MatrixTrim?
 
