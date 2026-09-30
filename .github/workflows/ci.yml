@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   prepare-capture-smoke:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
@@ -21,7 +21,7 @@ jobs:
   capture-smoke:
     needs: prepare-capture-smoke
     name: opaque runtime cell
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       matrix: ${{ fromJSON(needs.prepare-capture-smoke.outputs.matrix) }}
     steps:
@@ -34,7 +34,7 @@ jobs:
       - run: echo "runtime=${{ matrix.runtime }} flavor=${{ matrix.flavor }}"
 
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         node: [20, 22, 24]
@@ -48,7 +48,7 @@ jobs:
       - run: npm run check
 
   action-smoke:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Run MatrixTrim action against its own CI
@@ -77,7 +77,7 @@ jobs:
         run: test "${{ steps.matrixtrim.outputs.optimization-pr-status }}" = "skipped"
 
   quality:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
@@ -92,7 +92,7 @@ jobs:
 
   dependency-review:
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Review dependency changes
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
@@ -107,7 +107,7 @@ jobs:
       - action-smoke
       - quality
       - dependency-review
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Verify required CI results
         env:
