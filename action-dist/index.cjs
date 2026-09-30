@@ -7721,6 +7721,14 @@ function stableStringify(value) {
 function deepEqual(a, b) {
   return stableStringify(a) === stableStringify(b);
 }
+function hasRuntimeExpression(value) {
+  if (typeof value === "string") return value.includes("${{");
+  if (Array.isArray(value)) return value.some(hasRuntimeExpression);
+  if (value && typeof value === "object") {
+    return Object.values(value).some(hasRuntimeExpression);
+  }
+  return false;
+}
 function cartesian(entries) {
   let rows = [{}];
   for (const [axis, values] of entries) {
@@ -7737,19 +7745,21 @@ function matchesRule(row, rule) {
 }
 function expandStaticMatrix(matrix) {
   const axisEntries = [];
-  let dynamic = false;
+  const axisNames = [];
+  let dynamic = "include" in matrix && !Array.isArray(matrix.include) || "exclude" in matrix && !Array.isArray(matrix.exclude) || hasRuntimeExpression(matrix.include) || hasRuntimeExpression(matrix.exclude);
   for (const [key, value] of Object.entries(matrix)) {
     if (key === "include" || key === "exclude") continue;
-    if (!Array.isArray(value)) {
+    axisNames.push(key);
+    if (!Array.isArray(value) || hasRuntimeExpression(value)) {
       dynamic = true;
       continue;
     }
     axisEntries.push([key, value]);
   }
   if (dynamic) {
-    return { rows: [], axes: axisEntries.map(([key]) => key), dynamic: true };
+    return { rows: [], axes: axisNames, dynamic: true };
   }
-  const originalAxes = axisEntries.map(([key]) => key);
+  const originalAxes = axisNames;
   let baseRows = cartesian(axisEntries);
   const exclude = Array.isArray(matrix.exclude) ? matrix.exclude.filter(
     (item) => !!item && typeof item === "object" && !Array.isArray(item)
@@ -7959,6 +7969,77 @@ function renderName(template, row) {
   });
   return failed ? null : rendered;
 }
+function escapeRegex(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+function directMatrixAxis(expression) {
+  const match = expression.trim().match(/^matrix\.([A-Za-z0-9_.-]+)$/);
+  return match?.[1] ?? null;
+}
+function matrixAxesInTemplate(template) {
+  return [...new Set(
+    [...template.matchAll(/\bmatrix\.([A-Za-z0-9_.-]+)/g)].map((match) => match[1]).filter(Boolean)
+  )];
+}
+function dynamicExpressionMatcher(expression) {
+  const direct = directMatrixAxis(expression);
+  if (direct) {
+    return { pattern: "(.+?)", axes: [direct] };
+  }
+  const formatMatch = expression.trim().match(/^format\((.*)\)$/s);
+  if (!formatMatch) return null;
+  const args = splitArgs(formatMatch[1]);
+  if (!args.length) return null;
+  const template = evalExpression(args[0], {});
+  if (typeof template !== "string") return null;
+  const axisArgs = args.slice(1).map(directMatrixAxis);
+  if (axisArgs.some((axis) => axis === null)) return null;
+  let pattern = "";
+  const axes = [];
+  let start = 0;
+  for (const match of template.matchAll(/\{(\d+)\}/g)) {
+    const index = match.index ?? 0;
+    pattern += escapeRegex(template.slice(start, index));
+    const argIndex = Number(match[1]);
+    const axis = axisArgs[argIndex];
+    if (!axis) return null;
+    pattern += "(.+?)";
+    axes.push(axis);
+    start = index + match[0].length;
+  }
+  pattern += escapeRegex(template.slice(start));
+  return axes.length ? { pattern, axes } : null;
+}
+function matchDynamicNameTemplate(template, name) {
+  const expressionPattern = /\$\{\{([\s\S]*?)\}\}/g;
+  let pattern = "^";
+  const axes = [];
+  let start = 0;
+  let found = false;
+  for (const match of template.matchAll(expressionPattern)) {
+    found = true;
+    const index = match.index ?? 0;
+    pattern += escapeRegex(template.slice(start, index));
+    const matcher = dynamicExpressionMatcher(match[1]);
+    if (!matcher) return null;
+    pattern += matcher.pattern;
+    axes.push(...matcher.axes);
+    start = index + match[0].length;
+  }
+  if (!found || !axes.length) return null;
+  pattern += escapeRegex(template.slice(start));
+  pattern += "(?: / .*)?$";
+  const matched = name.match(new RegExp(pattern));
+  if (!matched) return null;
+  const result = {};
+  for (let index = 0; index < axes.length; index++) {
+    const axis = axes[index];
+    const value = matched[index + 1] ?? "";
+    if (axis in result && result[axis] !== value) return null;
+    result[axis] = value;
+  }
+  return result;
+}
 function axesForRow(row, axisNames) {
   const result = {};
   for (const axis of axisNames) {
@@ -7977,9 +8058,24 @@ function workflowMatrixDefinitions(text) {
   const definitions = [];
   for (const [jobId, spec] of Object.entries(jobs)) {
     const matrix = spec?.strategy?.matrix;
-    if (!matrix || typeof matrix !== "object" || Array.isArray(matrix)) continue;
-    const expanded = expandStaticMatrix(matrix);
+    if (!matrix) continue;
     const rawName = typeof spec?.name === "string" ? spec.name : jobId;
+    const nameTemplate = typeof spec?.name === "string" && spec.name.includes("${{") ? spec.name : void 0;
+    if (typeof matrix !== "object" || Array.isArray(matrix)) {
+      if (typeof matrix !== "string" || !matrix.includes("${{")) continue;
+      definitions.push({
+        jobId,
+        displayName: rawName.includes("${{") ? jobId : rawName,
+        axes: nameTemplate ? matrixAxesInTemplate(nameTemplate) : [],
+        dynamic: true,
+        expectedCells: 0,
+        renderedCells: 0,
+        cells: [],
+        nameTemplate
+      });
+      continue;
+    }
+    const expanded = expandStaticMatrix(matrix);
     const cells = [];
     if (!expanded.dynamic) {
       for (const row of expanded.rows) {
@@ -8000,7 +8096,8 @@ function workflowMatrixDefinitions(text) {
       dynamic: expanded.dynamic,
       expectedCells: expanded.dynamic ? 0 : expanded.rows.length,
       renderedCells: cells.length,
-      cells
+      cells,
+      nameTemplate
     });
   }
   return definitions;
@@ -8019,6 +8116,19 @@ function inferAxesFromExpandedJobName(name, definitions) {
       source: "workflow-rendered-name"
     };
   }
+  const dynamicMatches = definitions.flatMap((definition2) => {
+    if (!definition2.dynamic || !definition2.nameTemplate) return [];
+    const axes = matchDynamicNameTemplate(definition2.nameTemplate, name);
+    return axes ? [{ definition: definition2, axes }] : [];
+  });
+  if (dynamicMatches.length === 1) {
+    const match2 = dynamicMatches[0];
+    return {
+      baseJob: match2.definition.jobId,
+      axes: match2.axes,
+      source: "workflow-rendered-name"
+    };
+  }
   const match = name.match(/^(.*?)\s+\((.*)\)$/);
   if (!match) {
     return { baseJob: name, axes: null, source: "unavailable" };
@@ -8028,7 +8138,7 @@ function inferAxesFromExpandedJobName(name, definitions) {
   const definition = definitions.find(
     (candidate) => candidate.displayName === baseJob || candidate.jobId === baseJob
   );
-  if (!definition || definition.dynamic || !definition.axes.length) {
+  if (!definition || !definition.axes.length) {
     return { baseJob, axes: null, source: "unavailable" };
   }
   const values = definition.axes.length === 1 ? [inner] : inner.split(",").map((value) => value.trim());
@@ -9304,7 +9414,7 @@ function recommendMatrix(report, options = {}) {
   }
   if (report.dynamicMatrixDefinitions) {
     warnings.push(
-      `${report.dynamicMatrixDefinitions} dynamic matrix definition(s) could not be statically expanded; recommendation coverage may be incomplete.`
+      `${report.dynamicMatrixDefinitions} dynamic matrix definition(s) could not be statically expanded; observed jobs are still analyzed when they can be identified, but axis coverage may be incomplete when runtime values cannot be recovered safely.`
     );
   }
   return {

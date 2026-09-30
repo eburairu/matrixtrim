@@ -24,4 +24,41 @@ describe("inspectWorkflow", () => {
       dynamic: false,
     }]);
   });
+  it("reports whole dynamic matrix expressions instead of dropping them", () => {
+    const source = [
+      "jobs:",
+      "  test:",
+      "    strategy:",
+      "      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}",
+    ].join("\n");
+
+    expect(inspectWorkflow(source)).toEqual([{
+      job: "test",
+      axes: {},
+      baseCells: null,
+      excludeRules: 0,
+      includeEntries: 0,
+      dynamic: true,
+    }]);
+  });
+
+  it("flags runtime expressions nested inside matrix arrays", () => {
+    const source = [
+      "jobs:",
+      "  test:",
+      "    strategy:",
+      "      matrix:",
+      "        os: [ubuntu, windows]",
+      "        node: [20, '${{ inputs.node }}']",
+    ].join("\n");
+
+    expect(inspectWorkflow(source)).toEqual([{
+      job: "test",
+      axes: { os: 2, node: 2 },
+      baseCells: null,
+      excludeRules: 0,
+      includeEntries: 0,
+      dynamic: true,
+    }]);
+  });
 });

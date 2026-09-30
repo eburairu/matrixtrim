@@ -233,4 +233,96 @@ describe("matrix axis inference", () => {
     expect(inferAxesFromExpandedJobName("test (ubuntu, 22)", definitions).axes)
       .toBeNull();
   });
+
+  it("recovers axes from custom names for whole dynamic matrices", () => {
+    const workflow = [
+      "jobs:",
+      "  prepare:",
+      "    runs-on: ubuntu-latest",
+      "  test:",
+      '    name: "Test ${{ matrix.os }} / Node ${{ matrix.node }}"',
+      "    needs: prepare",
+      "    strategy:",
+      "      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}",
+    ].join("\n");
+
+    const definitions = workflowMatrixDefinitions(workflow);
+    expect(definitions).toHaveLength(1);
+    expect(definitions[0]).toMatchObject({
+      jobId: "test",
+      dynamic: true,
+      axes: ["os", "node"],
+      expectedCells: 0,
+    });
+    expect(inferAxesFromExpandedJobName("Test windows / Node 22", definitions))
+      .toEqual({
+        baseJob: "test",
+        axes: { os: "windows", node: "22" },
+        source: "workflow-rendered-name",
+      });
+  });
+
+  it("recovers known axis order for partially dynamic matrices", () => {
+    const workflow = [
+      "jobs:",
+      "  test:",
+      "    strategy:",
+      "      matrix:",
+      "        os: [ubuntu, windows]",
+      "        node: ${{ fromJSON(needs.prepare.outputs.nodes) }}",
+    ].join("\n");
+
+    const definitions = workflowMatrixDefinitions(workflow);
+    expect(definitions[0]).toMatchObject({
+      jobId: "test",
+      dynamic: true,
+      axes: ["os", "node"],
+    });
+    expect(inferAxesFromExpandedJobName("test (windows, 24)", definitions))
+      .toEqual({
+        baseJob: "test",
+        axes: { os: "windows", node: "24" },
+        source: "workflow-job-name",
+      });
+  });
+
+  it("recovers dynamic axes from format() job names", () => {
+    const workflow = [
+      "jobs:",
+      "  test:",
+      "    name: ${{ format('Test {0} / {1}', matrix.os, matrix.python) }}",
+      "    strategy:",
+      "      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}",
+    ].join("\n");
+
+    const definitions = workflowMatrixDefinitions(workflow);
+    expect(inferAxesFromExpandedJobName("Test ubuntu / 3.13", definitions))
+      .toEqual({
+        baseJob: "test",
+        axes: { os: "ubuntu", python: "3.13" },
+        source: "workflow-rendered-name",
+      });
+  });
+
+  it("treats runtime include expressions as dynamic without losing axis order", () => {
+    const workflow = [
+      "jobs:",
+      "  test:",
+      "    strategy:",
+      "      matrix:",
+      "        os: [ubuntu, windows]",
+      "        node: [20, 22]",
+      "        include: ${{ fromJSON(needs.prepare.outputs.extra) }}",
+    ].join("\n");
+
+    const definitions = workflowMatrixDefinitions(workflow);
+    expect(definitions[0]).toMatchObject({
+      jobId: "test",
+      dynamic: true,
+      axes: ["os", "node"],
+      expectedCells: 0,
+    });
+    expect(inferAxesFromExpandedJobName("test (windows, 22)", definitions).axes)
+      .toEqual({ os: "windows", node: "22" });
+  });
 });

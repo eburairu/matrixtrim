@@ -16,7 +16,7 @@ MatrixTrim 关注的不是“任务越少越好”，而是一个更实际的问
 
 目标是结合 **历史失败覆盖、运行成本、matrix 结构和 holdout 回测**，给出更小、更有依据的 CI matrix 候选方案。
 
-> **当前状态：v0.13 experimental。** MatrixTrim 已可结合 multi-event root-cause fingerprint、历史 failure evidence、已观测的 1-wise / pairwise / t-wise 配置覆盖、人工显式 keep / compatibility constraint、exact branch-and-bound optimizer、runtime cost 与 runner-aware 金额估算、time-based holdout backtest、渲染后 matrix job 名恢复、GitHub Action、可复现的公开 OSS benchmark，以及显式 opt-in 的 draft 优化 PR 生成。
+> **当前状态：v0.14 experimental。** MatrixTrim 已可结合 multi-event root-cause fingerprint、历史 failure evidence、已观测的 1-wise / pairwise / t-wise 配置覆盖、人工显式 keep / compatibility constraint、exact branch-and-bound optimizer、runtime cost 与 runner-aware 金额估算、time-based holdout backtest、渲染后 matrix job 名恢复、GitHub Action、可复现的公开 OSS benchmark，以及显式 opt-in 的 draft 优化 PR 生成。
 
 ## 为什么需要 MatrixTrim？
 
@@ -85,7 +85,7 @@ os=ubuntu-latest
 node=22
 ```
 
-对于静态 matrix，MatrixTrim 可以从直接的 `matrix.*` 表达式、`format(...)`、类似 `matrix.name || matrix.python` 的 fallback 表达式以及 include-only matrix 中恢复渲染后的 job 名。dynamic matrix 和尚未支持的 GitHub 表达式会保留为 unresolved，而不是强行猜测。
+对于静态 matrix，MatrixTrim 可以从直接的 `matrix.*` 表达式、`format(...)`、类似 `matrix.name || matrix.python` 的 fallback 表达式以及 include-only matrix 中恢复渲染后的 job 名。v0.14 也会在能够安全识别实际 job 时分析 dynamic matrix。对于部分动态的 matrix，可根据已知 axis 顺序恢复值；对于 custom job 名，可从直接暴露的 `matrix.*` / `format(...)` 参数恢复 axis。仅在 runtime 才能得到的值不会被猜测，而是保持 unresolved，dynamic matrix 也不会自动 rewrite。
 
 ## 推荐更小的 matrix
 
@@ -277,7 +277,8 @@ MatrixTrim 会去除 timestamp、绝对路径、UUID、duration、line number �
 - [x] 已观测的 1-wise / pairwise / t-wise safety constraint
 - [x] time-based holdout backtest
 - [x] static `include` / `exclude` 展开与渲染后job名恢复
-- [ ] dynamic matrix / 更广泛的GitHub表达式支持
+- [x] 已观测 dynamic matrix 分析 + 从已知 axis 顺序 / job 名模板安全恢复 axis
+- [ ] opaque runtime output 解码 + 更广泛的 GitHub 表达式支持
 - [x] 显式 keep / compatibility constraint
 - [x] GitHub Action + PR comment
 - [x] 在 matrix-heavy OSS 上完成可复现 benchmark

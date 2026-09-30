@@ -16,7 +16,7 @@ MatrixTrim no intenta simplemente ejecutar menos jobs. La pregunta útil es otra
 
 El objetivo es proponer una CI matrix más pequeña basándose en **cobertura histórica de fallos, coste de ejecución, estructura de la matrix y backtesting con holdout temporal**.
 
-> **Estado actual: v0.13 experimental.** MatrixTrim combina multi-event root-cause fingerprints, evidencia histórica de fallos, cobertura observada 1-wise / pairwise / t-wise, restricciones keep / compatibility definidas explícitamente por humanos, exact branch-and-bound optimizer, coste de runtime y estimación monetaria según runner, backtesting temporal, reconstrucción de nombres de jobs de matrix ya renderizados, GitHub Action, benchmark reproducible sobre OSS público y generación opt-in de draft PRs de optimización.
+> **Estado actual: v0.14 experimental.** MatrixTrim combina multi-event root-cause fingerprints, evidencia histórica de fallos, cobertura observada 1-wise / pairwise / t-wise, restricciones keep / compatibility definidas explícitamente por humanos, exact branch-and-bound optimizer, coste de runtime y estimación monetaria según runner, backtesting temporal, reconstrucción de nombres de jobs de matrix ya renderizados, GitHub Action, benchmark reproducible sobre OSS público y generación opt-in de draft PRs de optimización.
 
 ## ¿Por qué MatrixTrim?
 
@@ -85,7 +85,7 @@ os=ubuntu-latest
 node=22
 ```
 
-En matrices estáticas, MatrixTrim puede reconstruir nombres renderizados a partir de expresiones directas `matrix.*`, `format(...)`, fallbacks como `matrix.name || matrix.python` y matrices definidas solo con `include`. Las matrices dinámicas y las expresiones de GitHub aún no soportadas quedan como unresolved en vez de inventar una interpretación.
+En matrices estáticas, MatrixTrim puede reconstruir nombres renderizados a partir de expresiones directas `matrix.*`, `format(...)`, fallbacks como `matrix.name || matrix.python` y matrices definidas solo con `include`. En v0.14, las matrices dinámicas observadas también se analizan cuando sus jobs pueden identificarse de forma segura. Los ejes pueden recuperarse desde el orden conocido de una matriz parcialmente dinámica o desde valores directos `matrix.*` / `format(...)` expuestos en el nombre del job. Los valores disponibles solo en runtime permanecen unresolved y las matrices dinámicas no se reescriben automáticamente.
 
 ## Recomendar una matrix más pequeña
 
@@ -277,7 +277,8 @@ El núcleo es determinista y no depende de un LLM.
 - [x] Restricciones de seguridad 1-wise / pairwise / t-wise observadas
 - [x] Backtest temporal
 - [x] Expansión estática de `include` / `exclude` y reconstrucción del nombre renderizado del job
-- [ ] Matrices dinámicas / soporte más amplio de expresiones de GitHub
+- [x] Análisis de matrices dinámicas observadas + recuperación segura de ejes desde orden conocido / nombres de job
+- [ ] Decodificación de outputs opacos en runtime + más funciones de expresiones de GitHub
 - [x] Restricciones explícitas keep / compatibility
 - [x] GitHub Action + comentarios en PR
 - [x] Benchmark reproducible en repos OSS con matrices grandes

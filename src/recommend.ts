@@ -416,7 +416,7 @@ export function recommendMatrix(
   }
   if (report.dynamicMatrixDefinitions) {
     warnings.push(
-      `${report.dynamicMatrixDefinitions} dynamic matrix definition(s) could not be statically expanded; recommendation coverage may be incomplete.`,
+      `${report.dynamicMatrixDefinitions} dynamic matrix definition(s) could not be statically expanded; observed jobs are still analyzed when they can be identified, but axis coverage may be incomplete when runtime values cannot be recovered safely.`,
     );
   }
 

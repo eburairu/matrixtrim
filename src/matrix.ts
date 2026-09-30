@@ -9,6 +9,16 @@ export type MatrixSummary = {
   dynamic: boolean;
 };
 
+function hasRuntimeExpression(value: unknown): boolean {
+  if (typeof value === "string") return value.includes("${{");
+  if (Array.isArray(value)) return value.some(hasRuntimeExpression);
+  if (value && typeof value === "object") {
+    return Object.values(value as Record<string, unknown>)
+      .some(hasRuntimeExpression);
+  }
+  return false;
+}
+
 export function inspectWorkflow(text: string): MatrixSummary[] {
   const doc = parse(text) as Record<string, unknown> | null;
   const jobs = (doc?.jobs ?? {}) as Record<string, any>;
@@ -16,14 +26,36 @@ export function inspectWorkflow(text: string): MatrixSummary[] {
 
   for (const [job, spec] of Object.entries(jobs)) {
     const matrix = spec?.strategy?.matrix;
-    if (!matrix || typeof matrix !== "object") continue;
+    if (!matrix) continue;
+
+    if (typeof matrix !== "object" || Array.isArray(matrix)) {
+      if (typeof matrix === "string" && matrix.includes("${{")) {
+        result.push({
+          job,
+          axes: {},
+          baseCells: null,
+          excludeRules: 0,
+          includeEntries: 0,
+          dynamic: true,
+        });
+      }
+      continue;
+    }
 
     const axes: Record<string, number> = {};
-    let dynamic = false;
+    let dynamic =
+      ("include" in matrix && !Array.isArray(matrix.include)) ||
+      ("exclude" in matrix && !Array.isArray(matrix.exclude)) ||
+      hasRuntimeExpression(matrix.include) ||
+      hasRuntimeExpression(matrix.exclude);
     for (const [key, value] of Object.entries(matrix)) {
       if (key === "include" || key === "exclude") continue;
-      if (Array.isArray(value)) axes[key] = value.length;
-      else dynamic = true;
+      if (Array.isArray(value)) {
+        axes[key] = value.length;
+        if (hasRuntimeExpression(value)) dynamic = true;
+      } else {
+        dynamic = true;
+      }
     }
 
     const sizes = Object.values(axes);

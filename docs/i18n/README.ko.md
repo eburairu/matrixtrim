@@ -16,7 +16,7 @@ MatrixTrim은 단순히 job 수를 줄이는 도구가 아닙니다. 핵심 질�
 
 목표는 **과거 failure coverage, 실행 비용, matrix 구조, holdout backtest**를 바탕으로 더 작은 CI matrix 후보를 제안하는 것입니다.
 
-> **현재 상태: v0.13 experimental.** multi-event root-cause fingerprint, 과거 failure evidence, 관측된 1-wise / pairwise / t-wise configuration coverage, 사람이 명시하는 keep / compatibility constraint, exact branch-and-bound optimizer, runtime cost와 runner-aware 금액 추정, time-based holdout backtest, 렌더링된 matrix job 이름 복원, GitHub Action, 재현 가능한 공개 OSS benchmark, 명시적 opt-in draft 최적화 PR 생성까지 지원합니다.
+> **현재 상태: v0.14 experimental.** multi-event root-cause fingerprint, 과거 failure evidence, 관측된 1-wise / pairwise / t-wise configuration coverage, 사람이 명시하는 keep / compatibility constraint, exact branch-and-bound optimizer, runtime cost와 runner-aware 금액 추정, time-based holdout backtest, 렌더링된 matrix job 이름 복원, GitHub Action, 재현 가능한 공개 OSS benchmark, 명시적 opt-in draft 최적화 PR 생성까지 지원합니다.
 
 ## 왜 MatrixTrim인가?
 
@@ -85,7 +85,7 @@ os=ubuntu-latest
 node=22
 ```
 
-static matrix에서는 직접적인 `matrix.*` 표현식, `format(...)`, `matrix.name || matrix.python` 같은 fallback 표현식, include-only matrix를 이용해 렌더링된 job 이름을 복원할 수 있습니다. dynamic matrix와 아직 지원하지 않는 GitHub 표현식은 억지로 추측하지 않고 unresolved로 남깁니다.
+static matrix에서는 직접적인 `matrix.*` 표현식, `format(...)`, `matrix.name || matrix.python` 같은 fallback 표현식, include-only matrix를 이용해 렌더링된 job 이름을 복원할 수 있습니다. v0.14에서는 dynamic matrix도 관측된 job을 안전하게 식별할 수 있으면 분석에 포함합니다. 부분적으로 dynamic한 matrix의 알려진 axis 순서 또는 custom job 이름에 노출된 직접 `matrix.*` / `format(...)` 값에서 axis를 복원합니다. runtime에서만 알 수 있는 값은 추측하지 않고 unresolved로 유지하며 dynamic matrix는 자동 rewrite하지 않습니다.
 
 ## 더 작은 matrix 추천
 
@@ -277,7 +277,8 @@ timestamp, 절대 경로, UUID, duration, line number처럼 흔들리는 정보�
 - [x] 관측된 1-wise / pairwise / t-wise safety constraint
 - [x] time-based holdout backtest
 - [x] static `include` / `exclude` 전개 및 렌더링된job 이름 복원
-- [ ] dynamic matrix / 더 넓은GitHub 표현식 지원
+- [x] 관측된 dynamic matrix 분석 + 알려진 axis 순서 / job 이름 template 기반 안전한 axis 복원
+- [ ] opaque runtime output 해석 + 더 넓은 GitHub 표현식 지원
 - [x] 명시적 keep / compatibility constraint
 - [x] GitHub Action + PR comment
 - [x] matrix-heavy OSS 재현 가능benchmark
