@@ -125,13 +125,16 @@ async function analyzeCommand(args: string[], json: boolean): Promise<void> {
     }
   }
 
-  console.log("\nFailure detection by job variant");
+  console.log("\nMatrix cell history");
   for (const cell of report.cells) {
     const runtime = cell.medianRuntimeSeconds === null
       ? "runtime=n/a"
       : `runtime=${cell.medianRuntimeSeconds.toFixed(1)}s`;
+    const axes = cell.axes
+      ? Object.entries(cell.axes).map(([key, value]) => `${key}=${value}`).join(",")
+      : "axes=unresolved";
     console.log(
-      `  ${cell.cell}: distinct=${cell.distinctFailures}, unique=${cell.uniqueFailures}, observations=${cell.observations}, ${runtime}`,
+      `  ${cell.cell}: runs=${cell.runsObserved}, success=${cell.successRuns}, failure=${cell.failureRuns}, distinct=${cell.distinctFailures}, unique=${cell.uniqueFailures}, ${runtime}, ${axes}`,
     );
   }
 }

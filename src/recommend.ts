@@ -146,7 +146,7 @@ export function recommendHistoryOnly(
   const warnings = [
     "History-only mode preserves observed failure fingerprints, not unseen future failures.",
     "Pairwise/t-wise matrix coverage is not enforced yet.",
-    "Runtime estimates come from matrix jobs observed in failed workflow runs.",
+    "Runtime estimates come from matrix jobs observed across completed workflow runs.",
   ];
   if (failureRuns < 5) {
     warnings.unshift(

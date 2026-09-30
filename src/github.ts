@@ -1,6 +1,7 @@
 export type WorkflowRun = {
   id: number;
   name: string;
+  path: string;
   run_number: number;
   conclusion: string | null;
   created_at: string;
@@ -94,6 +95,21 @@ export class GitHubClient {
       if (data.jobs.length < 100) break;
     }
     return result;
+  }
+
+  async fileText(path: string, ref: string): Promise<string> {
+    const encodedPath = path
+      .split("/")
+      .filter(Boolean)
+      .map(encodeURIComponent)
+      .join("/");
+    const data = await this.json<{ content: string; encoding: string }>(
+      `/repos/${repoPath(this.repo)}/contents/${encodedPath}?ref=${encodeURIComponent(ref)}`,
+    );
+    if (data.encoding !== "base64") {
+      throw new Error(`unsupported GitHub content encoding: ${data.encoding}`);
+    }
+    return Buffer.from(data.content.replace(/\n/g, ""), "base64").toString("utf8");
   }
 
   async jobLog(jobId: number): Promise<string> {

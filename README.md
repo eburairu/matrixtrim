@@ -1,20 +1,26 @@
 # MatrixTrim
 
-**English** | [日本語](README.ja.md)
+[![CI](https://github.com/eburairu/matrixtrim/actions/workflows/ci.yml/badge.svg)](https://github.com/eburairu/matrixtrim/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/eburairu/matrixtrim)](LICENSE)
+![Node.js](https://img.shields.io/badge/Node.js-%3E%3D20-339933?logo=node.js&logoColor=white)
+[![GitHub stars](https://img.shields.io/github/stars/eburairu/matrixtrim?style=flat)](https://github.com/eburairu/matrixtrim/stargazers)
+[![Last commit](https://img.shields.io/github/last-commit/eburairu/matrixtrim)](https://github.com/eburairu/matrixtrim/commits/main)
+
+**English** | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Español](README.es.md)
 
 **Shrink GitHub Actions matrices without throwing away the failure signals that matter.**
 
 MatrixTrim analyzes GitHub Actions matrix jobs and asks a practical question:
 
-> Which matrix cells have actually detected unique failures, and which keep detecting the same failures as other cells?
+> Which matrix cells actually catch unique failures, and which ones keep rediscovering the same failures?
 
-The long-term goal is to recommend the smallest useful CI matrix using historical failures, combinatorial coverage, runtime cost, and holdout backtesting.
+The goal is to recommend a smaller CI matrix using **historical failure coverage, runtime cost, matrix structure, and holdout backtesting**.
 
-> **Status: v0.4 experimental.** Static matrix inspection, Actions history ingestion, failure fingerprinting, unique-failure analysis, runtime aggregation, history-only recommendations, and time-based holdout backtesting work today.
+> **Status: v0.5 experimental.** Static inspection, Actions history ingestion, failure fingerprinting, success/failure runtime history, static-axis recovery, history-only recommendations, and time-based holdout backtesting work today.
 
-## Why
+## Why MatrixTrim?
 
-A small-looking matrix grows quickly:
+A matrix like this already creates 18 jobs per run:
 
 ```yaml
 strategy:
@@ -24,9 +30,14 @@ strategy:
     postgres: [14, 16]
 ```
 
-That is 18 base cells per run. Teams often trim these by intuition. MatrixTrim builds evidence from what the cells have actually caught.
+Teams often trim these matrices by intuition. MatrixTrim instead asks what each cell has **actually contributed**:
 
-## Install for development
+- Did this cell ever catch a failure no other cell caught?
+- Does it mostly duplicate failures found elsewhere?
+- How expensive is it?
+- Does a smaller selection still catch newer failures in a holdout window?
+
+## Install
 
 Node.js 20+ is required.
 
@@ -41,18 +52,9 @@ npm run build
 node dist/cli.js inspect .github/workflows
 ```
 
-Example:
-
-```text
-.github/workflows/ci.yml
-  test: 9 base cells
-    axes: os=3, node=3
-    include=0, exclude=0
-```
-
 ## Analyze GitHub Actions history
 
-Job-log analysis needs a GitHub token with permission to read Actions logs.
+Actions log analysis requires a GitHub token.
 
 ```bash
 GH_TOKEN="$(gh auth token)" \
@@ -61,14 +63,29 @@ GH_TOKEN="$(gh auth token)" \
   --limit 100
 ```
 
-Analyze one known run:
+MatrixTrim now fetches **job metadata from every completed run, including successful runs**. Failed matrix jobs get deeper log analysis.
 
-```bash
-GH_TOKEN="$(gh auth token)" \
-  node dist/cli.js analyze owner/repo --run 123456789
+Example output:
+
+```text
+Matrix cell history
+  test (20): runs=5, success=5, failure=0, runtime=13.0s, node=20
+  test (22): runs=5, success=5, failure=0, runtime=12.0s, node=22
+  test (24): runs=5, success=5, failure=0, runtime=10.0s, node=24
 ```
 
-Add `--json` for machine-readable output.
+That means a cell is no longer dropped from the analysis universe simply because it never failed.
+
+For static matrices, MatrixTrim also tries to recover axis names such as:
+
+```text
+test (ubuntu-latest, 22)
+↓
+os=ubuntu-latest
+node=22
+```
+
+Dynamic matrices and custom job names are left unresolved rather than guessed.
 
 ## Recommend a smaller matrix
 
@@ -79,23 +96,15 @@ GH_TOKEN="$(gh auth token)" \
   --limit 100
 ```
 
-`recommend` currently runs in **history-only experimental mode**. It:
+The current recommendation mode is intentionally conservative in wording: **history-only, experimental**.
 
-1. keeps coverage of every analyzed historical failure fingerprint,
-2. retains at least one cell per detected matrix job family, and
-3. uses median observed runtime as cost in a greedy weighted set-cover selection.
+It selects cells that:
 
-Example shape:
+1. preserve every analyzed historical failure fingerprint,
+2. retain at least one cell per matrix job family, and
+3. minimize estimated compute using median runtime as cost.
 
-```text
-Mode:       history-only (experimental)
-Historical failure recall: 18/18 (100.0%)
-Matrix cells: 24 -> 9
-Estimated compute: 1520.0s -> 611.0s
-Estimated reduction: 59.8%
-```
-
-This means the selected cells preserve all **observed** failure fingerprints. It does **not** mean unseen future failures are guaranteed to be detected.
+The optimizer currently uses greedy weighted set cover.
 
 ## Backtest against newer failures
 
@@ -107,30 +116,23 @@ GH_TOKEN="$(gh auth token)" \
   --holdout 25
 ```
 
-`backtest` sorts runs by run number, builds a recommendation from the older training window, then measures whether those selected cells actually detected failures in the newer holdout window. It reports overall holdout recall and recall for **new fingerprints that were not present in training**.
+The older runs are used for selection, then the newer holdout runs are used to measure:
 
-## What failure analysis does
+- overall holdout failure recall,
+- recall for **new fingerprints not seen during training**,
+- which failures the selected matrix missed.
 
-For failed matrix jobs, MatrixTrim:
+Runtime costs are computed from the **training window only**, avoiding leakage from the holdout period.
 
-1. reads completed GitHub Actions runs and expanded jobs,
-2. downloads failed job logs,
-3. removes timestamps, paths, durations, IDs, and other volatile data,
-4. prioritizes root-cause lines such as exceptions, assertions, panics, and compiler errors,
-5. clusters equivalent failures into deterministic fingerprints,
-6. counts distinct and **unique** failure fingerprints per matrix cell, and
-7. ignores downstream non-matrix failures when a matrix job family is detectable.
+## Real-world example: pytest
 
-## Real-world validation: pytest
+MatrixTrim was validated against a real failed `pytest-dev/pytest` Actions run:
 
-MatrixTrim was tested against a real `pytest-dev/pytest` failed Actions run:
+- 31 failed jobs
+- 30 matrix jobs
+- 1 downstream aggregate job
 
-- Run: https://github.com/pytest-dev/pytest/actions/runs/36195406393
-- 31 raw failed jobs
-- 30 matrix variants
-- 1 downstream aggregate `check` job
-
-Those 30 matrix jobs looked independent, but root-cause normalization showed that all 30 were failing from the same circular-import `ImportError`:
+Those 30 matrix jobs looked independent, but after root-cause normalization they collapsed to a single failure fingerprint:
 
 ```text
 windows-py311 ─┐
@@ -143,49 +145,39 @@ ImportError: cannot import name '_resolve_args_directness'
 from partially initialized module '_pytest.fixtures'
 ```
 
-This is evidence of historical redundancy for that failure—not evidence that 29 cells are universally safe to remove.
+That is evidence of redundancy for **that observed failure**, not proof that 29 cells are safe to remove.
 
-Read the full case study: [docs/case-study-pytest.md](docs/case-study-pytest.md)
+Full case study: [docs/case-study-pytest.md](docs/case-study-pytest.md)
 
-## Recommendation model
+## Failure fingerprinting
 
-The current optimizer treats matrix selection as a coverage problem:
+MatrixTrim removes volatile log data such as timestamps, paths, UUIDs, durations, and line numbers, then prioritizes root-cause headlines including exceptions, assertions, panics, compiler errors, and failing tests.
 
-```text
-cell A -> {F1, F2, F4}
-cell B -> {F1}
-cell C -> {F2, F3}
-cell D -> {F3, F4}
-```
-
-It uses median runtime as cost and applies greedy weighted set cover while retaining one cell for each detected matrix job family.
-
-Future versions will add pairwise/t-wise constraints, stronger optimization, and holdout backtesting.
+The core is deterministic. No LLM is required.
 
 ## Roadmap
 
-- [x] Parse static GitHub Actions matrices
+- [x] Static GitHub Actions matrix inspection
 - [x] CLI + JSON output
-- [x] GitHub Actions run-history ingestion
+- [x] Completed-run job history, including successful runs
 - [x] Failure signature normalization and clustering
-- [x] Unique failure detection per expanded matrix job
-- [x] Runtime aggregation
+- [x] Per-cell success/failure/runtime history
+- [x] Static matrix axis recovery
 - [x] History-only weighted set-cover recommendation
-- [ ] Correct local `include` / `exclude` expansion
-- [ ] Recover named matrix axes from historical jobs
-- [ ] Pairwise / t-wise coverage model
-- [ ] Exact / improved optimizer
 - [x] Time-based holdout backtesting
-- [ ] `matrixtrim/action` PR comment integration
+- [ ] Full `include` / `exclude` expansion
+- [ ] Pairwise / t-wise coverage constraints
+- [ ] Stronger optimizer
+- [ ] GitHub Action PR comments
 - [ ] Recommendation PR generation
 
 ## Principles
 
-- **Deterministic core.** No LLM is required for optimization.
-- **Explain every removal.** A cell should never disappear without evidence.
-- **Backtest recommendations.** Historical fit alone is not enough.
-- **Read-only by default.** Mutation should require an explicit command.
-- **Vendor-light.** Start with GitHub Actions, keep the optimization model reusable.
+- **Evidence over intuition**
+- **Deterministic core**
+- **Explain every removal**
+- **Backtest before trust**
+- **Read-only by default**
 
 ## Contributing
 

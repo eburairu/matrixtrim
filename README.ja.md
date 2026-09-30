@@ -1,20 +1,26 @@
 # MatrixTrim
 
-[English](README.md) | **日本語**
+[![CI](https://github.com/eburairu/matrixtrim/actions/workflows/ci.yml/badge.svg)](https://github.com/eburairu/matrixtrim/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/eburairu/matrixtrim)](LICENSE)
+![Node.js](https://img.shields.io/badge/Node.js-%3E%3D20-339933?logo=node.js&logoColor=white)
+[![GitHub stars](https://img.shields.io/github/stars/eburairu/matrixtrim?style=flat)](https://github.com/eburairu/matrixtrim/stargazers)
+[![Last commit](https://img.shields.io/github/last-commit/eburairu/matrixtrim)](https://github.com/eburairu/matrixtrim/commits/main)
 
-**GitHub Actions の大きな matrix を、「過去に実際に見つけた障害」をなるべく失わずに縮約するためのOSSです。**
+[English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | **日本語** | [한국어](README.ko.md) | [Español](README.es.md)
 
-MatrixTrim が答えたいのは、次の問いです。
+**GitHub Actions の巨大な matrix を、「本当に必要な failure signal」を残しながら小さくするためのOSSです。**
 
-> この CI matrix の各セルは、本当に別々の障害を見つけているのか？ それとも複数セルがずっと同じ障害を重複して検出しているのか？
+MatrixTrimが見たいのは、単純なjob数ではありません。
 
-最終的には、過去の failure、組み合わせ網羅性（pairwise / t-wise）、実行時間、holdout backtest を使って、**必要十分な CI matrix 候補**を提示することを目標にしています。
+> そのmatrix cellは、他では見つからない障害を本当に検出しているのか？ それとも、別のcellと同じ障害を繰り返し見つけているだけなのか？
 
-> **Status: v0.4 experimental.** static matrix解析、GitHub Actions履歴取得、failure fingerprinting、unique failure集計、history-only recommendation、time-based holdout backtestまで動作します。
+過去のfailure、実行コスト、matrix構造、holdout backtestを使って、より小さいCI matrix候補を作ることを目指しています。
+
+> **Status: v0.5 experimental.** static matrix解析、Actions履歴取得、failure fingerprinting、success/failureを含むruntime履歴、static axis復元、history-only recommendation、time-based holdout backtestまで動作します。
 
 ## なぜ必要か
 
-例えば次のmatrixは、一見小さく見えても18セルあります。
+例えば次のmatrixは18 jobs/runです。
 
 ```yaml
 strategy:
@@ -24,7 +30,12 @@ strategy:
     postgres: [14, 16]
 ```
 
-CIが重くなると、人間は経験則で「Linuxだけ全バージョン」「Windows/macOSは最新版だけ」のように削り始めます。MatrixTrimはこれを、**そのセルが過去に何を見つけたか**という実績から判断できるようにします。
+CIが重くなると、経験則でmatrixを削りがちです。MatrixTrimは代わりに、各cellの実績を見ます。
+
+- 他のcellでは見つからなかったfailureを検出したか
+- 同じfailureを重複して検出していないか
+- 実行コストはどれくらいか
+- 縮約後のcellで新しいfailureも拾えているか
 
 ## セットアップ
 
@@ -35,24 +46,15 @@ npm install
 npm run build
 ```
 
-## ローカルworkflowのmatrixを確認
+## ローカルworkflowを確認
 
 ```bash
 node dist/cli.js inspect .github/workflows
 ```
 
-例:
-
-```text
-.github/workflows/ci.yml
-  test: 9 base cells
-    axes: os=3, node=3
-    include=0, exclude=0
-```
-
 ## GitHub Actions履歴を解析
 
-Job logの取得には、Actions logを読めるGitHub tokenが必要です。GitHub CLIを使っている場合:
+Actions logを読むため、GitHub tokenが必要です。
 
 ```bash
 GH_TOKEN="$(gh auth token)" \
@@ -61,14 +63,29 @@ GH_TOKEN="$(gh auth token)" \
   --limit 100
 ```
 
-特定runだけ確認することもできます。
+v0.5では、**failure runだけでなく、すべてのcompleted runからjob metadataを取得**します。failureになったmatrix jobだけlogまで深掘りします。
 
-```bash
-GH_TOKEN="$(gh auth token)" \
-  node dist/cli.js analyze owner/repo --run 123456789
+例えばMatrixTrim自身の直近5 runでは:
+
+```text
+Matrix cell history
+  test (20): runs=5, success=5, failure=0, runtime=13.0s, node=20
+  test (22): runs=5, success=5, failure=0, runtime=12.0s, node=22
+  test (24): runs=5, success=5, failure=0, runtime=10.0s, node=24
 ```
 
-`--json` を付けると機械可読JSONを出力します。
+このため、**一度も失敗していないcellが分析対象から消える**ことはありません。
+
+static matrixならaxis名も可能な範囲で復元します。
+
+```text
+test (ubuntu-latest, 22)
+↓
+os=ubuntu-latest
+node=22
+```
+
+dynamic matrixやcustom job nameは、無理に推測せず unresolved として扱います。
 
 ## matrix縮約候補を出す
 
@@ -79,23 +96,15 @@ GH_TOKEN="$(gh auth token)" \
   --limit 100
 ```
 
-現在の `recommend` は **history-only experimental mode** です。現時点では、次の制約で greedy weighted set cover を行います。
+現在のrecommendationは **history-only / experimental** です。
 
-1. 解析できた過去のfailure fingerprintをすべて検出できるセルを残す
-2. 各matrix job familyについて最低1セルは残す
-3. 各セルのmedian runtimeをコストとして、より少ない計算量で上記を満たす集合を選ぶ
+次を満たすcell集合を探します。
 
-例:
+1. 解析できた過去のfailure fingerprintをすべてカバー
+2. matrix job familyごとに最低1cellを維持
+3. median runtimeをコストとして推定computeを最小化
 
-```text
-Mode:       history-only (experimental)
-Historical failure recall: 18/18 (100.0%)
-Matrix cells: 24 -> 9
-Estimated compute: 1520.0s -> 611.0s
-Estimated reduction: 59.8%
-```
-
-これは「9セルだけで将来も安全」という意味ではありません。**解析できた過去の18種類の障害は、この9セルでも全部検出できた**という意味です。
+現在のoptimizerは greedy weighted set coverです。
 
 ## 新しいfailureでbacktestする
 
@@ -107,66 +116,68 @@ GH_TOKEN="$(gh auth token)" \
   --holdout 25
 ```
 
-`backtest` はrun number順に履歴を分割し、古い75%だけでセルを選び、新しい25%のfailureを実際に捕捉できたか測定します。全holdout failureのrecallに加えて、**training時点では存在しなかった新しいfingerprintのrecall**も表示します。
+古いrunだけでcellを選び、新しいholdout期間で次を測定します。
+
+- holdout failure全体のrecall
+- training時には存在しなかった**新しいfingerprint**のrecall
+- どのfailureを取り逃したか
+
+runtime costも**training期間だけ**から計算するため、holdout側の情報を先取りしません。
 
 ## 実例: pytest
 
-開発中に `pytest-dev/pytest` の実際のGitHub Actions failure runを解析しました。
+実際の `pytest-dev/pytest` のfailure runで検証しました。
 
-- Run: https://github.com/pytest-dev/pytest/actions/runs/36195406393
 - failed jobs: 31
 - matrix jobs: 30
-- downstream `check` job: 1
+- downstream aggregate job: 1
 
-最初は30個すべて別failureに見えましたが、root causeを正規化すると、30セルすべてが実際には同じ障害でした。
+一見30種類のfailureに見えましたが、root causeを正規化すると30cellすべて同じfingerprintでした。
 
 ```text
-Windows / Python 3.11 ─┐
-Ubuntu  / Python 3.12 ─┤
-macOS   / Python 3.14 ─┤
-...                     ├─ 1 failure fingerprint
-30 matrix cells ────────┘
+windows-py311 ─┐
+ubuntu-py312  ─┤
+macos-py314   ─┤
+...            ├─ 1 failure fingerprint
+30 cells ──────┘
 
-ImportError:
-cannot import name '_resolve_args_directness'
+ImportError: cannot import name '_resolve_args_directness'
 from partially initialized module '_pytest.fixtures'
 ```
 
-つまり、この障害1件を検出するという観点だけなら、**30セルは30個の異なるシグナルを提供していませんでした**。MatrixTrimはこのような重複を履歴から見つけます。
+これは**その障害について重複があった**という証拠であって、「29cell削除して安全」という意味ではありません。
 
 詳細: [pytest 実例ケーススタディ](docs/case-study-pytest.ja.md)
 
 ## Failure Fingerprint
 
-MatrixTrimはjob logからtimestamp、workspace path、OSごとの絶対パス、line/column、UUID、durationなどの揺れる情報を除去し、Exception / Error / Assertion / panic / compiler error / failing testなどのroot-cause headlineを優先してfingerprintを作ります。
+timestamp、絶対path、UUID、duration、line numberなどの揺れる情報を除去し、Exception / Assertion / panic / compiler error / failing testなどのroot-cause headlineを優先してfingerprint化します。
 
-LLMは使用しません。coreはdeterministicです。
+coreはdeterministicで、LLMは必須ではありません。
 
-## 現在のロードマップ
+## ロードマップ
 
 - [x] static GitHub Actions matrix解析
 - [x] CLI / JSON出力
-- [x] Actions run履歴取得
-- [x] failed job log取得
-- [x] Failure signature正規化・クラスタリング
-- [x] matrix cellごとのunique failure集計
-- [x] runtime集計
+- [x] success runを含むcompleted-run履歴
+- [x] failure signature正規化・クラスタリング
+- [x] cellごとのsuccess/failure/runtime履歴
+- [x] static matrix axis復元
 - [x] history-only weighted set-cover recommendation
+- [x] time-based holdout backtest
 - [ ] `include` / `exclude` の完全展開
-- [ ] historical job名からmatrix axis名を復元
-- [ ] pairwise / t-wise coverage
-- [ ] exact / improved optimizer
-- [x] time-based holdout backtesting
+- [ ] pairwise / t-wise coverage constraint
+- [ ] optimizer強化
 - [ ] GitHub ActionとしてPRへコメント
 - [ ] recommendation PR自動生成
 
 ## 設計原則
 
-- **Deterministic core** — 最適化にLLMを必須にしない
-- **Explain every removal** — 根拠なしにセルを削除しない
-- **Backtest before trust** — 過去へのfitだけで安全と主張しない
-- **Read-only by default** — 明示操作なしにworkflowを書き換えない
-- **Evidence over intuition** — 経験則ではなく実際のfailure historyを見る
+- **Evidence over intuition**
+- **Deterministic core**
+- **Explain every removal**
+- **Backtest before trust**
+- **Read-only by default**
 
 ## Contributing
 

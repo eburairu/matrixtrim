@@ -1,4 +1,8 @@
-import type { AnalysisReport, FailureObservation } from "./analyze.js";
+import {
+  summarizeCells,
+  type AnalysisReport,
+  type FailureObservation,
+} from "./analyze.js";
 import { recommendHistoryOnly } from "./recommend.js";
 
 export type MissedFailure = {
@@ -43,6 +47,7 @@ function clustersFor(observations: FailureObservation[]) {
 function subsetReport(
   source: AnalysisReport,
   observations: FailureObservation[],
+  runIds: Set<number>,
 ): AnalysisReport {
   const clusters = clustersFor(observations);
   const byFingerprint = new Map(
@@ -55,25 +60,18 @@ function subsetReport(
     byCell.set(item.cell, list);
   }
 
-  const cells = source.cells.map((cell) => {
-    const items = byCell.get(cell.cell) ?? [];
-    const fingerprints = new Set(items.map((item) => item.fingerprint));
-    return {
-      ...cell,
-      observations: items.length,
-      distinctFailures: fingerprints.size,
-      uniqueFailures: [...fingerprints].filter(
-        (fingerprint) => byFingerprint.get(fingerprint)?.size === 1,
-      ).length,
-    };
-  });
+  const matrixJobs = source.matrixJobs.filter((item) => runIds.has(item.runId));
+  const cells = summarizeCells(matrixJobs, observations);
 
   return {
     ...source,
+    runsAnalyzed: runIds.size,
     failedJobs: observations.length,
     fingerprints: clusters.length,
+    cells,
     clusters,
     observations,
+    matrixJobs,
   };
 }
 
@@ -86,14 +84,14 @@ export function backtestHistoryOnly(
   }
 
   const runs = [...new Map(
-    report.observations.map((item) => [
+    report.matrixJobs.map((item) => [
       item.runId,
       { runId: item.runId, runNumber: item.runNumber },
     ]),
   ).values()].sort((a, b) => a.runNumber - b.runNumber || a.runId - b.runId);
 
   if (runs.length < 2) {
-    throw new Error("backtest requires failures from at least two workflow runs");
+    throw new Error("backtest requires at least two completed matrix workflow runs");
   }
 
   const holdoutCount = Math.max(
@@ -110,7 +108,7 @@ export function backtestHistoryOnly(
     throw new Error("backtest split produced an empty training or holdout set");
   }
 
-  const trainingReport = subsetReport(report, training);
+  const trainingReport = subsetReport(report, training, trainingRunIds);
   const recommendation = recommendHistoryOnly(trainingReport);
   const selected = new Set(recommendation.selectedCells.map((cell) => cell.cell));
   const trainingFingerprints = new Set(training.map((item) => item.fingerprint));
@@ -141,7 +139,7 @@ export function backtestHistoryOnly(
 
   const warnings = [
     "Backtesting uses only runs with analyzable failed job logs.",
-    "Cell runtimes are aggregated from the full analyzed window, so runtime cost has minor holdout leakage.",
+    "Runtime costs for selection are computed from the training window only.",
     "Pairwise/t-wise matrix coverage is not enforced yet.",
   ];
 
