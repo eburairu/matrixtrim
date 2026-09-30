@@ -16,7 +16,7 @@ MatrixTrimが見たいのは、単純なjob数ではありません。
 
 過去のfailure、実行コスト、matrix構造、holdout backtestを使って、より小さいCI matrix候補を作ることを目指しています。
 
-> **Status: v0.6 experimental.** 過去のfailure evidenceに、観測済みの1-wise / pairwise / t-wise構成coverage、runtime cost、time-based holdout backtestを組み合わせてrecommendationを作れるようになりました。
+> **Status: v0.7 experimental.** 過去のfailure evidence、観測済み1-wise / pairwise / t-wise構成coverage、runtime cost、time-based holdout backtestに加えて、結果をPull Requestへ直接返すGitHub Actionまで利用できるようになりました。
 
 ## なぜ必要か
 
@@ -126,6 +126,29 @@ GH_TOKEN="$(gh auth token)" \
 
 runtime costも**training期間だけ**から計算するため、holdout側の情報を先取りしません。
 
+## GitHub Actionとして使う
+
+cloneやlocal buildは不要です。
+
+```yaml
+permissions:
+  actions: read
+  contents: read
+  pull-requests: write
+
+steps:
+  - uses: eburairu/matrixtrim@main
+    with:
+      workflow: ci.yml
+      limit: "100"
+      strength: "2"
+      holdout: "25"
+```
+
+Actionは必ず **Step Summary** を生成します。Pull Request上では、権限があればMatrixTrimコメントを1件だけ作成・更新します。fork PRなどでtokenがread-onlyの場合、コメント作成だけwarning付きでskipし、分析自体は成功させます。
+
+レポートには、現在cell数と推奨cell数、historical failure recall、combinatorial coverage、推定compute削減率、holdout recall、unseen-failure recall、推奨cell一覧を表示します。
+
 ## 実例: pytest
 
 実際の `pytest-dev/pytest` のfailure runで検証しました。
@@ -170,7 +193,7 @@ coreはdeterministicで、LLMは必須ではありません。
 - [x] time-based holdout backtest
 - [ ] `include` / `exclude` の完全展開
 - [ ] 明示的なkeep / compatibility constraint
-- [ ] GitHub Action化＋PRコメント
+- [x] GitHub Action化＋PRコメント
 - [ ] matrix-heavy OSSでのbenchmark
 - [ ] runner単価を含むmonetary cost model
 - [ ] 1 job内のmulti-event failure fingerprint

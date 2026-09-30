@@ -16,7 +16,7 @@ MatrixTrim은 단순히 job 수를 줄이는 도구가 아닙니다. 핵심 질�
 
 목표는 **과거 failure coverage, 실행 비용, matrix 구조, holdout backtest**를 바탕으로 더 작은 CI matrix 후보를 제안하는 것입니다.
 
-> **현재 상태: v0.6 experimental.** 과거 failure evidence에 관측된 1-wise / pairwise / t-wise configuration coverage, runtime cost, time-based holdout backtest를 함께 적용해 recommendation을 만들 수 있습니다.
+> **현재 상태: v0.7 experimental.** 과거 failure evidence, 관측된 1-wise / pairwise / t-wise configuration coverage, runtime cost, time-based holdout backtest에 더해 Pull Request에 결과를 직접 남기는 GitHub Action까지 사용할 수 있습니다.
 
 ## 왜 MatrixTrim인가?
 
@@ -126,6 +126,29 @@ GH_TOKEN="$(gh auth token)" \
 
 runtime cost도 **training window만 사용**해 계산하므로 holdout 정보를 미리 보지 않습니다.
 
+## GitHub Action으로 사용하기
+
+clone이나 로컬 build 없이 바로 사용할 수 있습니다.
+
+```yaml
+permissions:
+  actions: read
+  contents: read
+  pull-requests: write
+
+steps:
+  - uses: eburairu/matrixtrim@main
+    with:
+      workflow: ci.yml
+      limit: "100"
+      strength: "2"
+      holdout: "25"
+```
+
+Action은 항상 **Step Summary**를 생성합니다. Pull Request에서는 권한이 허용될 경우 MatrixTrim 댓글 하나를 생성하거나 갱신합니다. fork PR처럼 token이 read-only이면 댓글 작성만 warning과 함께 건너뛰고 분석 자체는 성공합니다.
+
+리포트에는 현재/추천 cell 수, historical failure recall, combinatorial coverage, 예상 compute 절감률, holdout recall, unseen-failure recall, 추천 cell 목록이 포함됩니다.
+
 ## 실제 사례: pytest
 
 실제 `pytest-dev/pytest` GitHub Actions failure run으로 검증했습니다.
@@ -170,7 +193,7 @@ timestamp, 절대 경로, UUID, duration, line number처럼 흔들리는 정보�
 - [x] time-based holdout backtest
 - [ ] `include` / `exclude` 완전 지원
 - [ ] 명시적 keep / compatibility constraint
-- [ ] GitHub Action + PR comment
+- [x] GitHub Action + PR comment
 - [ ] matrix-heavy OSS benchmark
 - [ ] runner-aware monetary cost model
 - [ ] multi-event failure fingerprint

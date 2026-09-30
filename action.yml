@@ -1,0 +1,52 @@
+name: MatrixTrim
+description: Measure GitHub Actions matrix failure-detection value and recommend a smaller configuration set.
+author: eburairu
+
+branding:
+  icon: filter
+  color: blue
+
+inputs:
+  token:
+    description: GitHub token used to read Actions history and optionally comment on pull requests.
+    required: false
+    default: ${{ github.token }}
+  workflow:
+    description: Workflow file name or ID to analyze. Defaults to the workflow currently running MatrixTrim.
+    required: false
+  limit:
+    description: Number of completed workflow runs to inspect.
+    required: false
+    default: "100"
+  holdout:
+    description: Percentage of newer runs reserved for time-based holdout backtesting.
+    required: false
+    default: "25"
+  strength:
+    description: Maximum observed combinatorial coverage strength to preserve. 2 means 1-wise + pairwise.
+    required: false
+    default: "2"
+  comment:
+    description: Create or update a MatrixTrim pull-request comment when possible.
+    required: false
+    default: "true"
+
+outputs:
+  current-cells:
+    description: Number of matrix cells observed.
+  selected-cells:
+    description: Number of cells in the recommendation.
+  compute-reduction-percent:
+    description: Estimated compute reduction percentage.
+  historical-recall:
+    description: Historical failure recall as a 0-1 ratio.
+  combinatorial-coverage:
+    description: Preserved observed combinatorial coverage as a 0-1 ratio.
+  holdout-recall:
+    description: Holdout failure recall as a 0-1 ratio.
+  unseen-failure-recall:
+    description: Holdout recall for fingerprints unseen in training as a 0-1 ratio.
+
+runs:
+  using: node24
+  main: action-dist/index.cjs

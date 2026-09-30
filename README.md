@@ -16,7 +16,7 @@ MatrixTrim analyzes GitHub Actions matrix jobs and asks a practical question:
 
 The goal is to recommend a smaller CI matrix using **historical failure coverage, runtime cost, matrix structure, and holdout backtesting**.
 
-> **Status: v0.6 experimental.** MatrixTrim now combines empirical failure evidence with observed 1-wise / pairwise / t-wise configuration coverage, runtime cost, and time-based holdout backtesting.
+> **Status: v0.7 experimental.** MatrixTrim combines empirical failure evidence with observed 1-wise / pairwise / t-wise configuration coverage, runtime cost, time-based holdout backtesting, and a GitHub Action that reports results directly on pull requests.
 
 ## Why MatrixTrim?
 
@@ -126,6 +126,29 @@ The older runs are used for selection, then the newer holdout runs are used to m
 
 Runtime costs are computed from the **training window only**, avoiding leakage from the holdout period.
 
+## Use as a GitHub Action
+
+No clone or local build is required.
+
+```yaml
+permissions:
+  actions: read
+  contents: read
+  pull-requests: write
+
+steps:
+  - uses: eburairu/matrixtrim@main
+    with:
+      workflow: ci.yml
+      limit: "100"
+      strength: "2"
+      holdout: "25"
+```
+
+The Action always writes a **Step Summary**. On pull requests it also creates or updates a single MatrixTrim comment when permissions allow it. If a fork PR has a read-only token, comment creation is skipped with a warning while the analysis still succeeds.
+
+The report includes current vs suggested cells, historical failure recall, combinatorial coverage, estimated compute reduction, holdout recall, unseen-failure recall, and the recommended cell set.
+
 ## Real-world example: pytest
 
 MatrixTrim was validated against a real failed `pytest-dev/pytest` Actions run:
@@ -170,7 +193,7 @@ The core is deterministic. No LLM is required.
 - [x] Time-based holdout backtesting
 - [ ] Full `include` / `exclude` expansion
 - [ ] Explicit keep / compatibility constraints
-- [ ] GitHub Action + PR comments
+- [x] GitHub Action + PR comments
 - [ ] Benchmark across matrix-heavy OSS repositories
 - [ ] Runner-aware monetary cost model
 - [ ] Multi-event failure fingerprints

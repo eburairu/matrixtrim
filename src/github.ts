@@ -16,6 +16,12 @@ export type WorkflowJob = {
   completed_at: string | null;
 };
 
+export type IssueComment = {
+  id: number;
+  body: string | null;
+  user: { login: string } | null;
+};
+
 export class GitHubHttpError extends Error {
   constructor(
     readonly status: number,
@@ -49,9 +55,16 @@ export class GitHubClient {
     };
   }
 
-  private async json<T>(path: string): Promise<T> {
+  private async json<T>(
+    path: string,
+    init: RequestInit = {},
+  ): Promise<T> {
     const response = await fetch(`https://api.github.com${path}`, {
-      headers: this.headers(),
+      ...init,
+      headers: {
+        ...this.headers(),
+        ...(init.headers ?? {}),
+      },
     });
     if (!response.ok) {
       throw new GitHubHttpError(
@@ -110,6 +123,40 @@ export class GitHubClient {
       throw new Error(`unsupported GitHub content encoding: ${data.encoding}`);
     }
     return Buffer.from(data.content.replace(/\n/g, ""), "base64").toString("utf8");
+  }
+
+  async listIssueComments(issueNumber: number): Promise<IssueComment[]> {
+    const result: IssueComment[] = [];
+    for (let page = 1; page <= 10; page++) {
+      const items = await this.json<IssueComment[]>(
+        `/repos/${repoPath(this.repo)}/issues/${issueNumber}/comments?per_page=100&page=${page}`,
+      );
+      result.push(...items);
+      if (items.length < 100) break;
+    }
+    return result;
+  }
+
+  async createIssueComment(issueNumber: number, body: string): Promise<IssueComment> {
+    return await this.json<IssueComment>(
+      `/repos/${repoPath(this.repo)}/issues/${issueNumber}/comments`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body }),
+      },
+    );
+  }
+
+  async updateIssueComment(commentId: number, body: string): Promise<IssueComment> {
+    return await this.json<IssueComment>(
+      `/repos/${repoPath(this.repo)}/issues/comments/${commentId}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body }),
+      },
+    );
   }
 
   async jobLog(jobId: number): Promise<string> {

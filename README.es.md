@@ -16,7 +16,7 @@ MatrixTrim no intenta simplemente ejecutar menos jobs. La pregunta útil es otra
 
 El objetivo es proponer una CI matrix más pequeña basándose en **cobertura histórica de fallos, coste de ejecución, estructura de la matrix y backtesting con holdout temporal**.
 
-> **Estado actual: v0.6 experimental.** Las recomendaciones ya combinan evidencia histórica de fallos, cobertura observada 1-wise / pairwise / t-wise, coste de runtime y backtesting temporal.
+> **Estado actual: v0.7 experimental.** MatrixTrim combina evidencia histórica de fallos, cobertura observada 1-wise / pairwise / t-wise, coste de runtime, backtesting temporal y una GitHub Action que publica el análisis directamente en los Pull Requests.
 
 ## ¿Por qué MatrixTrim?
 
@@ -126,6 +126,29 @@ Las ejecuciones más antiguas se usan para elegir las celdas. Después, las ejec
 
 El coste de runtime se calcula solo con la ventana de training, evitando leakage desde el holdout.
 
+## Usarlo como GitHub Action
+
+No hace falta clonar el repositorio ni compilar MatrixTrim localmente.
+
+```yaml
+permissions:
+  actions: read
+  contents: read
+  pull-requests: write
+
+steps:
+  - uses: eburairu/matrixtrim@main
+    with:
+      workflow: ci.yml
+      limit: "100"
+      strength: "2"
+      holdout: "25"
+```
+
+La Action siempre genera un **Step Summary**. En Pull Requests también crea o actualiza un único comentario de MatrixTrim si el token tiene permisos. En PRs desde forks con token de solo lectura, el comentario se omite con un warning y el análisis continúa correctamente.
+
+El informe muestra celdas actuales y sugeridas, historical failure recall, combinatorial coverage, reducción estimada de compute, holdout recall, unseen-failure recall y la lista de celdas recomendadas.
+
 ## Caso real: pytest
 
 MatrixTrim se validó con una ejecución fallida real de `pytest-dev/pytest`:
@@ -170,7 +193,7 @@ El núcleo es determinista y no depende de un LLM.
 - [x] Backtest temporal
 - [ ] Soporte completo de `include` / `exclude`
 - [ ] Restricciones explícitas keep / compatibility
-- [ ] GitHub Action + comentarios en PR
+- [x] GitHub Action + comentarios en PR
 - [ ] Benchmark en repos OSS con matrices grandes
 - [ ] Modelo de coste monetario según runner
 - [ ] Multi-event failure fingerprinting
