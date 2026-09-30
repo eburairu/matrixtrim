@@ -16,7 +16,7 @@ MatrixTrim 關心的不是單純把 job 數量砍到最低，而是：
 
 目標是結合 **歷史 failure coverage、執行成本、matrix 結構與 holdout backtest**，提出更小、也更有依據的 CI matrix 候選方案。
 
-> **目前狀態：v0.11 experimental。** MatrixTrim 已能結合歷史 failure evidence、已觀測的 1-wise / pairwise / t-wise 組態 coverage、人為明確指定的 keep / compatibility constraint、runtime cost 與 runner-aware 金額估算、time-based holdout backtest、render 後 matrix job 名稱還原、GitHub Action、可重現的公開 OSS benchmark，以及明確 opt-in 的 draft 最佳化 PR 產生。
+> **目前狀態：v0.12 experimental。** MatrixTrim 已能結合 multi-event root-cause fingerprint、歷史 failure evidence、已觀測的 1-wise / pairwise / t-wise 組態 coverage、人為明確指定的 keep / compatibility constraint、runtime cost 與 runner-aware 金額估算、time-based holdout backtest、render 後 matrix job 名稱還原、GitHub Action、可重現的公開 OSS benchmark，以及明確 opt-in 的 draft 最佳化 PR 產生。
 
 ## 為什麼需要 MatrixTrim？
 
@@ -126,6 +126,12 @@ GH_TOKEN="$(gh auth token)" \
 
 runtime cost 只使用 training window 計算，避免把 holdout 的未來資訊洩漏進 selection。
 
+## multi-event failure fingerprint
+
+一個 failed matrix job 可能同時包含多個獨立的 failure signal。MatrixTrim 現在會把強 root cause 分別產生 fingerprint，因此同一個 job 裡的 `Error X` 與 `Error Y` 會成為兩個 event，而不是單一不透明的 `X+Y` 組合 fingerprint。typed error / exception、panic / fatal、segmentation fault 等強 root cause會優先使用；只有找不到強 root cause時才使用test runner的summary行，以避免明顯的重複計數。
+
+相同normalized root cause重複出現時會dedup，每個job最多保留8個不同event。若無法辨識root-cause headline，則fallback到原本的single-fingerprint heuristic。完整說明請見 [Multi-event failure fingerprints](../fingerprints.md)。
+
 ## 作為 GitHub Action 使用
 
 不需要 clone，也不需要在本機 build。
@@ -147,7 +153,7 @@ steps:
 
 Action 一定會產生 **Step Summary**。在 Pull Request 上，若 token 權限允許，會建立或更新同一則 MatrixTrim 留言，不會每次新增一則。fork PR 等 read-only token 情況只會略過留言並顯示 warning，分析本身仍會成功。
 
-報告包含目前/建議 cell 數、historical failure recall、combinatorial coverage、估算 compute 降幅、runner-aware rate-card / 估算費用、holdout recall、unseen-failure recall，以及建議保留的 cell。
+報告包含目前/建議 cell 數、historical failure recall、failure event 數 / multi-event job 數、combinatorial coverage、估算 compute 降幅、runner-aware rate-card / 估算費用、holdout recall、unseen-failure recall，以及建議保留的 cell。
 
 ### 產生 draft 最佳化 PR（opt-in）
 
@@ -211,9 +217,10 @@ MatrixTrim 不再把所有 CI minute 視為相同成本，而是依實際 runner
 為了避免只挑對 MatrixTrim 有利的案例，我們固定了 **12 個公開 OSS repository各20次有明確結論的 completed workflow run**，以 `--strength 2` 與 25% time holdout 進行評估。
 
 - **12 個 repo 中有 10 個完整解析**：觀測cell的axis還原、workflow名稱render、active matrix family的實際job名稱比對都達到100%；另外2個為 partial，不列入 validated reduction。
-- 已驗證且有非零縮減的案例：**pandas 34 → 32 cells (-7.2%)**、**Flask 12 → 10 (-13.6%)**、**Diesel 28 → 25 (-7.6%)**。
-- 因為 runner 單價與每個 job 的整分鐘向上取整，compute 縮減率不會等於金額縮減率。依 standard runner rate-card：pandas **$25.148 → $24.671/run (-1.9%)**、Flask **$0.132 → $0.120/run (-9.1%)**、Diesel **$11.624 → $11.450/run (-1.5%)**。這三個 repo 都是 public，因此 standard runner 的估算 GitHub 實際費用仍為 **$0**。
-- pandas 與 Diesel 在可用的 backtest 視窗中都維持 **100% holdout recall 與 100% unseen-failure recall**。
+- 已驗證且有非零縮減的案例：**pandas 34 → 32 cells (-7.2%)**、**Flask 12 → 10 (-13.6%)**、**Diesel 28 → 25 (-7.2%)**。
+- 因為 runner 單價與每個 job 的整分鐘向上取整，compute 縮減率不會等於金額縮減率。依 standard runner rate-card：pandas **$25.148 → $24.671/run (-1.9%)**、Flask **$0.132 → $0.120/run (-9.1%)**、Diesel **$11.624 → $11.462/run (-1.4%)**。這三個 repo 都是 public，因此 standard runner 的估算 GitHub 實際費用仍為 **$0**。
+- pandas 與 Vite 在可用的 backtest 視窗中都維持 **100% holdout recall 與 100% unseen-failure recall**。Diesel 也維持 **100% holdout recall**；因為 holdout 中沒有新的 fingerprint，所以 unseen-failure recall 為 **n/a**。
+- 固定 snapshot 的真實log也驗證event-level抽取：**pandas 59個 failed jobs → 151 events → 5個不同root-cause fingerprints**，**Vite 8 → 25 → 23**；而在正規化Rust volatile值與派生summary後，**Diesel 40 → 40 → 1**。
 - 在10個完整解析的 repo 中，**有7個因安全限制而明確維持原matrix不變**。
 - aiohttp 與 Tokio 仍是 partial。目前的 recommendation 會把 unresolved cell 當成安全限制逐一保留，因此此 snapshot 為 **aiohttp 29 → 29 / Tokio 51 → 51**，兩者都不列入 validated reduction。
 
@@ -267,7 +274,7 @@ MatrixTrim 會移除 timestamp、絕對路徑、UUID、duration、line number �
 - [x] GitHub Action + PR comment
 - [x] matrix-heavy OSS可重現benchmark
 - [x] runner-aware monetary cost model
-- [ ] multi-event failure fingerprint
+- [x] multi-event failure fingerprint
 - [x] opt-in draft recommendation PR 產生
 - [ ] 更強 / exact optimizer
 

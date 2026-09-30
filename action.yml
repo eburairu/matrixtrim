@@ -72,6 +72,12 @@ outputs:
     description: Projected 30-day estimated GitHub Actions charge after reduction.
   historical-recall:
     description: Historical failure recall as a 0-1 ratio.
+  failure-events:
+    description: Number of extracted failure events across analyzed failed matrix jobs.
+  failed-jobs-with-events:
+    description: Number of failed matrix jobs that produced at least one analyzable failure event.
+  multi-event-jobs:
+    description: Number of failed matrix jobs that produced more than one distinct failure event.
   combinatorial-coverage:
     description: Preserved observed combinatorial coverage as a 0-1 ratio.
   constraint-requirements:

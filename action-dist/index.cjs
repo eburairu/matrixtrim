@@ -7367,37 +7367,116 @@ var import_node_path2 = require("node:path");
 var import_node_crypto = require("node:crypto");
 var interesting = /(error|fail(?:ed|ure)?|exception|panic|assert|fatal|traceback|segmentation|timeout)/i;
 var noise = /(process completed with exit code|##\[group\]|##\[endgroup\]|post job cleanup)/i;
-var rootCausePatterns = [
+var strongRootCausePatterns = [
   /^(?:[A-Za-z_][\w.]*(?:Error|Exception|Failure)): .+/,
-  /^FAILED\s+.+/,
-  /^ERROR\s+.+/,
-  /^E\s{2,}.+/,
   /^error(?:\[[^\]]+\])?:\s+.+/i,
   /^fatal:\s+.+/i,
   /^panic:\s+.+/i,
   /panicked at/i,
   /segmentation fault/i
 ];
+var summaryRootCausePatterns = [
+  /^FAILED\s+.+/,
+  /^ERROR\s+.+/,
+  /^E\s{2,}.+/
+];
+var derivativeRootCausePatterns = [
+  /^error: could not compile\b.*\bdue to \d+ previous errors?/i,
+  /^error: aborting due to \d+ previous errors?/i,
+  /^error: test run failed$/i,
+  /^error: test failed\b.*\bto rerun\b/i
+];
+var rootCausePatterns = [
+  ...strongRootCausePatterns,
+  ...summaryRootCausePatterns
+];
 function normalizeLogLine(input2) {
-  return input2.replace(/^\uFEFF/, "").replace(/\x1b\[[0-9;]*m/g, "").replace(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\s*/, "").replace(/##\[(?:error|warning)\]/gi, "").replace(/[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[1-5][A-Fa-f0-9]{3}-[89ABab][A-Fa-f0-9]{3}-[A-Fa-f0-9]{12}/g, "<uuid>").replace(/0x[A-Fa-f0-9]+/g, "<hex>").replace(/:\d+:\d+(?=\)?(?:\s|$))/g, ":<line>:<col>").replace(/\bline \d+\b/gi, "line <n>").replace(/\b\d+(?:\.\d+)?\s*(?:ms|s|sec|seconds|minutes|min)\b/gi, "<duration>").replace(/\/home\/runner\/work\/[^\s:]+/g, "<workspace>").replace(/\b[A-Za-z]:\\[^\s)]+/g, "<path>").replace(/\\Users\\[^\\\s]+\\/g, "<user>\\").replace(/\s+/g, " ").trim();
+  return input2.replace(/^\uFEFF/, "").replace(/\x1b\[[0-9;]*m/g, "").replace(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\s*/, "").replace(/##\[(?:error|warning)\]/gi, "").replace(/[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[1-5][A-Fa-f0-9]{3}-[89ABab][A-Fa-f0-9]{3}-[A-Fa-f0-9]{12}/g, "<uuid>").replace(/0x[A-Fa-f0-9]+/g, "<hex>").replace(/:\d+:\d+(?=\)?(?:\s|$|:))/g, ":<line>:<col>").replace(/\bline \d+\b/gi, "line <n>").replace(
+    /(\bthread\s+'[^']+'\s+)\(\d+\)(?=\s+panicked at)/gi,
+    "$1(<thread>)"
+  ).replace(/\b\d+(?:\.\d+)?\s*(?:ms|s|sec|seconds|minutes|min)\b/gi, "<duration>").replace(/\/home\/runner\/work\/[^\s:]+/g, "<workspace>").replace(/\b[A-Za-z]:\\[^\s)]+/g, "<path>").replace(/\\Users\\[^\\\s]+\\/g, "<user>\\").replace(/\s+/g, " ").trim();
 }
 function normalizeRootCause(line) {
   return line.replace(/\s+\((?:[A-Za-z]:\\|\/)[^)]+\)$/, " (<path>)").replace(/\s+\((?:<workspace>|<path>)\)?$/, " (<path>)").replace(/\b(?:py|node|python)\d{2,3}(?:-[\w-]+)?\b/gi, "<runtime>").replace(/\s+/g, " ").trim();
+}
+function normalizedLog(log) {
+  return log.split(/\r?\n/).map(normalizeLogLine).filter((line) => line && !noise.test(line));
 }
 function rootCauses(lines) {
   const causes = lines.filter((line) => rootCausePatterns.some((pattern) => pattern.test(line))).map(normalizeRootCause);
   return [...new Set(causes)].slice(-8);
 }
+function fingerprint(signature, evidence) {
+  const canonical = signature.join("\n").toLowerCase();
+  const id = (0, import_node_crypto.createHash)("sha256").update(canonical).digest("hex").slice(0, 16);
+  return { id, signature, evidence };
+}
+function embeddedSummaryRootCause(line) {
+  if (!summaryRootCausePatterns.some((pattern) => pattern.test(line))) {
+    return null;
+  }
+  const separator = line.lastIndexOf(" - ");
+  if (separator < 0) return null;
+  const tail = line.slice(separator + 3).trim();
+  if (!tail || !interesting.test(tail)) return null;
+  return normalizeRootCause(tail);
+}
+function eventRoots(lines, patterns) {
+  const bySignature = /* @__PURE__ */ new Map();
+  lines.forEach((line, index) => {
+    if (!patterns.some((pattern) => pattern.test(line))) return;
+    bySignature.set(normalizeRootCause(line), index);
+  });
+  return [...bySignature.entries()].map(([signature, index]) => ({ signature, index })).sort((a, b) => a.index - b.index).slice(-8);
+}
+function strongEventRoots(lines) {
+  const bySignature = /* @__PURE__ */ new Map();
+  lines.forEach((line, index) => {
+    const signature = strongRootCausePatterns.some(
+      (pattern) => pattern.test(line)
+    ) ? normalizeRootCause(line) : embeddedSummaryRootCause(line);
+    if (!signature) return;
+    bySignature.set(signature, index);
+  });
+  const roots = [...bySignature.entries()].map(([signature, index]) => ({ signature, index })).sort((a, b) => a.index - b.index);
+  const specific = roots.filter(
+    (root) => !derivativeRootCausePatterns.some(
+      (pattern) => pattern.test(root.signature)
+    )
+  );
+  return (specific.length ? specific : roots).slice(-8);
+}
+function eventEvidence(lines, index) {
+  const start = Math.max(0, index - 3);
+  const end = Math.min(lines.length, index + 4);
+  const nearby = lines.slice(start, end);
+  const interestingNearby = nearby.filter((line) => interesting.test(line));
+  return [...new Set(
+    interestingNearby.length ? interestingNearby : nearby
+  )].slice(-8);
+}
+function fingerprintFailures(log) {
+  const lines = normalizedLog(log);
+  const strong = strongEventRoots(lines);
+  const roots = strong.length ? strong : eventRoots(lines, summaryRootCausePatterns);
+  if (roots.length) {
+    return roots.map(
+      (root) => fingerprint(
+        [root.signature],
+        eventEvidence(lines, root.index)
+      )
+    );
+  }
+  return [fingerprintFailure(log)];
+}
 function fingerprintFailure(log) {
-  const normalized = log.split(/\r?\n/).map(normalizeLogLine).filter((line) => line && !noise.test(line));
+  const normalized = normalizedLog(log);
   const roots = rootCauses(normalized);
   const candidates = normalized.filter((line) => interesting.test(line));
   const evidenceSource = candidates.length ? candidates : normalized.slice(-20);
   const evidence = [...new Set(evidenceSource)].slice(-16);
   const signature = roots.length ? roots : [...new Set(evidenceSource)].slice(-6);
-  const canonical = signature.join("\n").toLowerCase();
-  const id = (0, import_node_crypto.createHash)("sha256").update(canonical).digest("hex").slice(0, 16);
-  return { id, signature, evidence };
+  return fingerprint(signature, evidence);
 }
 
 // src/github.ts
@@ -8087,7 +8166,7 @@ function summarizeCells(matrixJobs, observations) {
       observations: items.length,
       distinctFailures: fingerprints.size,
       uniqueFailures: [...fingerprints].filter(
-        (fingerprint) => byFingerprint.get(fingerprint)?.every((item) => item.cell === cell)
+        (fingerprint2) => byFingerprint.get(fingerprint2)?.every((item) => item.cell === cell)
       ).length,
       medianRuntimeSeconds: median(meta.runtimes),
       runnerLabels: [...meta.runnerLabelSets.values()].sort(
@@ -8260,38 +8339,38 @@ async function analyzeRepository(repository, options) {
   const observations = (await mapLimit(failed, concurrency, async ({ run, job }) => {
     try {
       const log = await client.jobLog(job.id);
-      const fingerprint = fingerprintFailure(log);
+      const fingerprints = fingerprintFailures(log);
       const matrixJob = matrixJobById.get(job.id);
       if (!matrixJob) {
         throw new Error(`matrix job metadata missing for job ${job.id}`);
       }
-      return {
+      return fingerprints.map((fingerprint2) => ({
         runId: run.id,
         runNumber: run.run_number,
         jobId: job.id,
         cell: matrixJob.cell,
         baseJob: matrixJob.baseJob,
-        fingerprint: fingerprint.id,
-        signature: fingerprint.signature,
-        evidence: fingerprint.evidence
-      };
+        fingerprint: fingerprint2.id,
+        signature: fingerprint2.signature,
+        evidence: fingerprint2.evidence
+      }));
     } catch (error) {
       if (error instanceof GitHubHttpError && error.status === 410) {
         expiredLogs++;
       } else {
         logErrors++;
       }
-      return null;
+      return [];
     }
-  })).filter((item) => item !== null);
+  })).flat();
   const byFingerprint = /* @__PURE__ */ new Map();
   for (const item of observations) {
     const cluster = byFingerprint.get(item.fingerprint) ?? [];
     cluster.push(item);
     byFingerprint.set(item.fingerprint, cluster);
   }
-  const clusters = [...byFingerprint.entries()].map(([fingerprint, items]) => ({
-    fingerprint,
+  const clusters = [...byFingerprint.entries()].map(([fingerprint2, items]) => ({
+    fingerprint: fingerprint2,
     signature: items[0].signature,
     cells: [...new Set(items.map((item) => item.cell))].sort(),
     observations: items.length
@@ -8827,8 +8906,8 @@ function recommendMatrix(report, options = {}) {
   const coverageByCell = /* @__PURE__ */ new Map();
   for (const cell of report.cells) {
     const coverage = /* @__PURE__ */ new Set([`base:${cell.baseJob}`]);
-    for (const fingerprint of failureCoverage.get(cell.cell) ?? []) {
-      coverage.add(`failure:${fingerprint}`);
+    for (const fingerprint2 of failureCoverage.get(cell.cell) ?? []) {
+      coverage.add(`failure:${fingerprint2}`);
     }
     for (const token of combinatorial.byCell.get(cell.cell) ?? []) {
       coverage.add(token);
@@ -8949,6 +9028,16 @@ function recommendMatrix(report, options = {}) {
   const failureRuns = new Set(
     report.observations.map((item) => item.runId)
   ).size;
+  const eventCountsByJob = /* @__PURE__ */ new Map();
+  for (const item of report.observations) {
+    eventCountsByJob.set(
+      item.jobId,
+      (eventCountsByJob.get(item.jobId) ?? 0) + 1
+    );
+  }
+  const multiEventJobs = [...eventCountsByJob.values()].filter(
+    (count) => count > 1
+  ).length;
   const warnings = [
     "Historical failure coverage does not guarantee detection of unseen future failures.",
     `Combinatorial coverage preserves observed axis combinations up to strength ${maxStrength}; it does not invent combinations absent from the observed matrix.`,
@@ -9028,6 +9117,9 @@ function recommendMatrix(report, options = {}) {
     historicalFingerprints: report.fingerprints,
     coveredFingerprints: coveredFailures.size,
     historicalRecall: report.fingerprints ? coveredFailures.size / report.fingerprints : null,
+    failureEvents: report.observations.length,
+    failedJobsWithEvents: eventCountsByJob.size,
+    multiEventJobs,
     combinatorialRequirements: combinatorial.tokens.length,
     coveredCombinatorialRequirements: coveredCombinations.size,
     combinatorialCoverage: combinatorial.tokens.length ? coveredCombinations.size / combinatorial.tokens.length : null,
@@ -9059,8 +9151,8 @@ function clustersFor(observations) {
     list.push(item);
     byFingerprint.set(item.fingerprint, list);
   }
-  return [...byFingerprint.entries()].map(([fingerprint, items]) => ({
-    fingerprint,
+  return [...byFingerprint.entries()].map(([fingerprint2, items]) => ({
+    fingerprint: fingerprint2,
     signature: items[0].signature,
     cells: [...new Set(items.map((item) => item.cell))].sort(),
     observations: items.length
@@ -9225,6 +9317,9 @@ function formatActionReport(repository, workflow, recommendation, backtest, back
 | Current matrix cells | ${recommendation.currentCells} |
 | Suggested cells | ${recommendation.selectedCells.length} |
 | Historical failure recall | ${historical} |
+| Failure events | ${recommendation.failureEvents} |
+| Failed jobs with events | ${recommendation.failedJobsWithEvents} |
+| Multi-event jobs | ${recommendation.multiEventJobs} |
 | Observed combinatorial coverage | ${combinatorial} |
 | Explicit hard constraints | ${recommendation.coveredConstraintRequirements}/${recommendation.constraintRequirements} |
 | Estimated compute | ${seconds(recommendation.currentEstimatedSeconds)} \u2192 ${seconds(recommendation.selectedEstimatedSeconds)} |
@@ -9691,6 +9786,12 @@ async function main() {
     "historical-recall",
     recommendation.historicalRecall?.toFixed(4) ?? ""
   );
+  await writeOutput("failure-events", recommendation.failureEvents);
+  await writeOutput(
+    "failed-jobs-with-events",
+    recommendation.failedJobsWithEvents
+  );
+  await writeOutput("multi-event-jobs", recommendation.multiEventJobs);
   await writeOutput(
     "combinatorial-coverage",
     recommendation.combinatorialCoverage?.toFixed(4) ?? ""

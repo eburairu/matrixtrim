@@ -189,6 +189,12 @@ async function main(): Promise<void> {
     "historical-recall",
     recommendation.historicalRecall?.toFixed(4) ?? "",
   );
+  await writeOutput("failure-events", recommendation.failureEvents);
+  await writeOutput(
+    "failed-jobs-with-events",
+    recommendation.failedJobsWithEvents,
+  );
+  await writeOutput("multi-event-jobs", recommendation.multiEventJobs);
   await writeOutput(
     "combinatorial-coverage",
     recommendation.combinatorialCoverage?.toFixed(4) ?? "",

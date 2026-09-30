@@ -36,8 +36,10 @@ jobs:
           strength: "2"
           comment: "false"
           create-pr: ${{ github.event_name == 'pull_request' }}
-      - name: Verify explicit compatibility constraint
+      - name: Verify analysis outputs
         run: |
+          test -n "${{ steps.matrixtrim.outputs.failure-events }}"
+          test -n "${{ steps.matrixtrim.outputs.multi-event-jobs }}"
           test "${{ steps.matrixtrim.outputs.constraint-requirements }}" = "1"
           test "${{ steps.matrixtrim.outputs.constraint-coverage }}" = "1.0000"
       - name: Verify PR-trigger safety guard

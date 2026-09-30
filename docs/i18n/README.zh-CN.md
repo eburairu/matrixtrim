@@ -16,7 +16,7 @@ MatrixTrim 关注的不是“任务越少越好”，而是一个更实际的问
 
 目标是结合 **历史失败覆盖、运行成本、matrix 结构和 holdout 回测**，给出更小、更有依据的 CI matrix 候选方案。
 
-> **当前状态：v0.11 experimental。** MatrixTrim 已可结合历史 failure evidence、已观测的 1-wise / pairwise / t-wise 配置覆盖、人工显式 keep / compatibility constraint、runtime cost 与 runner-aware 金额估算、time-based holdout backtest、渲染后 matrix job 名恢复、GitHub Action、可复现的公开 OSS benchmark，以及显式 opt-in 的 draft 优化 PR 生成。
+> **当前状态：v0.12 experimental。** MatrixTrim 已可结合 multi-event root-cause fingerprint、历史 failure evidence、已观测的 1-wise / pairwise / t-wise 配置覆盖、人工显式 keep / compatibility constraint、runtime cost 与 runner-aware 金额估算、time-based holdout backtest、渲染后 matrix job 名恢复、GitHub Action、可复现的公开 OSS benchmark，以及显式 opt-in 的 draft 优化 PR 生成。
 
 ## 为什么需要 MatrixTrim？
 
@@ -126,6 +126,12 @@ MatrixTrim 会使用较旧的 run 来选择 cell，再用较新的 holdout run �
 
 runtime cost 只使用 training window 计算，避免从 holdout 偷看未来信息。
 
+## multi-event failure fingerprint
+
+一个 failed matrix job 可能包含多个独立的 failure signal。MatrixTrim 现在会把强 root cause 分别生成 fingerprint，因此同一个 job 中的 `Error X` 与 `Error Y` 会成为两个 event，而不是一个不透明的 `X+Y` 组合 fingerprint。typed error / exception、panic / fatal、segmentation fault 等强 root cause 优先；只有找不到强 root cause 时才使用 test runner 的 summary 行，从而避免明显的重复计数。
+
+同一 normalized root cause 的重复出现会被去重，每个 job 最多保留 8 个不同 event。如果无法识别 root-cause headline，则回退到原有 single-fingerprint heuristic。详情见 [Multi-event failure fingerprints](../fingerprints.md)。
+
 ## 作为 GitHub Action 使用
 
 无需 clone，也无需本地 build。
@@ -147,7 +153,7 @@ steps:
 
 Action 一定会生成 **Step Summary**。在 Pull Request 中，如果 token 权限允许，还会创建或更新同一条 MatrixTrim 评论，不会每次都新增评论。对于 fork PR 等 read-only token 场景，只会跳过评论并给出 warning，分析本身仍然成功。
 
-报告会显示当前/建议 cell 数、historical failure recall、combinatorial coverage、估算 compute 降幅、runner-aware rate-card / 预计费用、holdout recall、unseen-failure recall 以及建议保留的 cell。
+报告会显示当前/建议 cell 数、historical failure recall、failure event 数 / multi-event job 数、combinatorial coverage、估算 compute 降幅、runner-aware rate-card / 预计费用、holdout recall、unseen-failure recall 以及建议保留的 cell。
 
 ### 生成 draft 优化 PR（opt-in）
 
@@ -211,9 +217,10 @@ MatrixTrim 不再把所有 CI minute 当成相同成本，而是根据实际 run
 为了避免只挑对 MatrixTrim 有利的例子，我们固定了 **12 个公开 OSS 仓库中各 20 次有明确结论的 completed workflow run**，使用 `--strength 2` 和 25% time holdout 进行评估。
 
 - **12 个仓库中有 10 个完全解析**：已观测 axis 恢复、workflow 名渲染、active matrix family 的实际 job 名匹配均达到 100%；另外 2 个为 partial，不计入已验证的缩减结果。
-- 已验证且出现非零缩减的案例：**pandas 34 → 32 cells (-7.2%)**、**Flask 12 → 10 (-13.6%)**、**Diesel 28 → 25 (-7.6%)**。
-- 由于 runner 单价和每个 job 的整分钟向上取整，compute 缩减率并不等于金额缩减率。按 standard runner rate-card 计算：pandas **$25.148 → $24.671/run (-1.9%)**、Flask **$0.132 → $0.120/run (-9.1%)**、Diesel **$11.624 → $11.450/run (-1.5%)**。这三个仓库都是 public，因此 standard runner 的预计 GitHub 实际费用仍为 **$0**。
-- pandas 和 Diesel 在可用的 backtest 窗口中都保持了 **100% holdout recall 和 100% unseen-failure recall**。
+- 已验证且出现非零缩减的案例：**pandas 34 → 32 cells (-7.2%)**、**Flask 12 → 10 (-13.6%)**、**Diesel 28 → 25 (-7.2%)**。
+- 由于 runner 单价和每个 job 的整分钟向上取整，compute 缩减率并不等于金额缩减率。按 standard runner rate-card 计算：pandas **$25.148 → $24.671/run (-1.9%)**、Flask **$0.132 → $0.120/run (-9.1%)**、Diesel **$11.624 → $11.462/run (-1.4%)**。这三个仓库都是 public，因此 standard runner 的预计 GitHub 实际费用仍为 **$0**。
+- pandas 和 Vite 在可用的 backtest 窗口中都保持了 **100% holdout recall 和 100% unseen-failure recall**。Diesel 也保持 **100% holdout recall**；由于 holdout 中没有新的 fingerprint，unseen-failure recall 为 **n/a**。
+- 固定 snapshot 的真实日志也验证了 event-level 提取：**pandas 59 个 failed jobs → 151 events → 5 个不同 root-cause fingerprints**，**Vite 8 → 25 → 23**；而对 Rust volatile 值和派生 summary 进行归一化后，**Diesel 40 → 40 → 1**。
 - 在 10 个完全解析的仓库中，**有 7 个被安全约束明确判断为“不应缩减”**。
 - aiohttp 和 Tokio 仍属于 partial。当前 recommendation 会把 unresolved cell 作为安全约束逐个保留，因此在这个 snapshot 中为 **aiohttp 29 → 29 / Tokio 51 → 51**，两者都不计入 validated reduction。
 
@@ -267,7 +274,7 @@ MatrixTrim 会去除 timestamp、绝对路径、UUID、duration、line number �
 - [x] GitHub Action + PR comment
 - [x] 在 matrix-heavy OSS 上完成可复现 benchmark
 - [x] runner-aware monetary cost model
-- [ ] multi-event failure fingerprint
+- [x] multi-event failure fingerprint
 - [x] opt-in draft recommendation PR 生成
 - [ ] 更强 / exact optimizer
 

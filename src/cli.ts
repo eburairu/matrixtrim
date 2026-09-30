@@ -124,7 +124,13 @@ async function analyzeCommand(args: string[], json: boolean): Promise<void> {
   console.log(`Repository: ${report.repository}`);
   console.log(`Workflow:   ${report.workflow ?? "all"}`);
   console.log(`Runs:       ${report.runsAnalyzed}`);
-  console.log(`Failed matrix jobs with logs: ${report.observations.length}/${report.failedJobs}`);
+  const analyzedFailedJobs = new Set(
+    report.observations.map((item) => item.jobId),
+  ).size;
+  console.log(
+    `Failed matrix jobs with analyzable events: ${analyzedFailedJobs}/${report.failedJobs}`,
+  );
+  console.log(`Failure events: ${report.observations.length}`);
   if (report.ignoredNonMatrixJobs) {
     console.log(`Ignored non-matrix failures: ${report.ignoredNonMatrixJobs}`);
   }
@@ -243,6 +249,9 @@ async function recommendCommand(args: string[], json: boolean): Promise<void> {
       `Historical failure recall: ${recommendation.coveredFingerprints}/${recommendation.historicalFingerprints} (${(recommendation.historicalRecall * 100).toFixed(1)}%)`,
     );
   }
+  console.log(
+    `Failure events: ${recommendation.failureEvents} across ${recommendation.failedJobsWithEvents} failed job(s); multi-event jobs=${recommendation.multiEventJobs}`,
+  );
   if (recommendation.combinatorialCoverage === null) {
     console.log("Combinatorial coverage: n/a");
   } else {

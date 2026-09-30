@@ -91,6 +91,9 @@ export function formatActionReport(
 | Current matrix cells | ${recommendation.currentCells} |
 | Suggested cells | ${recommendation.selectedCells.length} |
 | Historical failure recall | ${historical} |
+| Failure events | ${recommendation.failureEvents} |
+| Failed jobs with events | ${recommendation.failedJobsWithEvents} |
+| Multi-event jobs | ${recommendation.multiEventJobs} |
 | Observed combinatorial coverage | ${combinatorial} |
 | Explicit hard constraints | ${recommendation.coveredConstraintRequirements}/${recommendation.constraintRequirements} |
 | Estimated compute | ${seconds(recommendation.currentEstimatedSeconds)} → ${seconds(recommendation.selectedEstimatedSeconds)} |

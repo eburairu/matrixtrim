@@ -68,4 +68,51 @@ describe("cell history summarization", () => {
       distinctFailures: 1,
     });
   });
+
+  it("counts multiple failure events in one failed job without inflating failure runs", () => {
+    const matrixJobs: MatrixJobObservation[] = [
+      {
+        runId: 1,
+        runNumber: 1,
+        jobId: 11,
+        cell: "test (20)",
+        baseJob: "test",
+        axes: { node: "20" },
+        axisSource: "workflow-job-name",
+        conclusion: "failure",
+        runtimeSeconds: 12,
+      },
+    ];
+
+    const cells = summarizeCells(matrixJobs, [
+      {
+        runId: 1,
+        runNumber: 1,
+        jobId: 11,
+        cell: "test (20)",
+        baseJob: "test",
+        fingerprint: "f1",
+        signature: ["TypeError: x"],
+        evidence: ["TypeError: x"],
+      },
+      {
+        runId: 1,
+        runNumber: 1,
+        jobId: 11,
+        cell: "test (20)",
+        baseJob: "test",
+        fingerprint: "f2",
+        signature: ["AssertionError: y"],
+        evidence: ["AssertionError: y"],
+      },
+    ]);
+
+    expect(cells[0]).toMatchObject({
+      runsObserved: 1,
+      failureRuns: 1,
+      observations: 2,
+      distinctFailures: 2,
+      uniqueFailures: 2,
+    });
+  });
 });

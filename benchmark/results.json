@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-30T06:08:50.247Z",
+  "generatedAt": "2026-09-30T09:15:36.964Z",
   "snapshotCapturedAt": "2026-09-30T04:29:07.793Z",
   "snapshotPath": "benchmark/snapshot.json",
   "limit": 20,
@@ -82,8 +82,11 @@
       "holdout": 25,
       "runsAnalyzed": 20,
       "matrixCells": 30,
-      "fingerprints": 2,
+      "fingerprints": 1,
       "failedJobs": 3,
+      "failureEvents": 3,
+      "analyzedFailedJobs": 3,
+      "multiEventJobs": 0,
       "expiredLogs": 0,
       "logErrors": 0,
       "workflowDefinitionFallbacks": 0,
@@ -120,7 +123,7 @@
       "selectedEstimatedChargeUsdPer30Days": null,
       "backtest": null,
       "backtestReason": "backtest needs at least one analyzable failure in both the training and holdout windows",
-      "elapsedSeconds": 14.289350999999998
+      "elapsedSeconds": 14.616752916000001
     },
     {
       "repository": "numpy/numpy",
@@ -200,6 +203,9 @@
       "matrixCells": 6,
       "fingerprints": 1,
       "failedJobs": 1,
+      "failureEvents": 1,
+      "analyzedFailedJobs": 1,
+      "multiEventJobs": 0,
       "expiredLogs": 0,
       "logErrors": 0,
       "workflowDefinitionFallbacks": 0,
@@ -236,7 +242,7 @@
       "selectedEstimatedChargeUsdPer30Days": null,
       "backtest": null,
       "backtestReason": "backtest needs at least one analyzable failure in both the training and holdout windows",
-      "elapsedSeconds": 10.505259917000002
+      "elapsedSeconds": 10.390446
     },
     {
       "repository": "pandas-dev/pandas",
@@ -314,8 +320,11 @@
       "holdout": 25,
       "runsAnalyzed": 20,
       "matrixCells": 34,
-      "fingerprints": 3,
+      "fingerprints": 5,
       "failedJobs": 59,
+      "failureEvents": 151,
+      "analyzedFailedJobs": 59,
+      "multiEventJobs": 59,
       "expiredLogs": 0,
       "logErrors": 0,
       "workflowDefinitionFallbacks": 0,
@@ -355,10 +364,10 @@
         "holdoutRuns": 5,
         "holdoutRecall": 1,
         "unseenFailureRecall": 1,
-        "unseenHoldoutFingerprints": 1,
+        "unseenHoldoutFingerprints": 3,
         "holdoutCombinatorialCoverage": 1
       },
-      "elapsedSeconds": 28.338610916
+      "elapsedSeconds": 29.465470959
     },
     {
       "repository": "pydantic/pydantic",
@@ -438,6 +447,9 @@
       "matrixCells": 101,
       "fingerprints": 23,
       "failedJobs": 75,
+      "failureEvents": 75,
+      "analyzedFailedJobs": 75,
+      "multiEventJobs": 0,
       "expiredLogs": 0,
       "logErrors": 0,
       "workflowDefinitionFallbacks": 0,
@@ -474,7 +486,7 @@
       "selectedEstimatedChargeUsdPer30Days": null,
       "backtest": null,
       "backtestReason": "backtest needs at least one analyzable failure in both the training and holdout windows",
-      "elapsedSeconds": 39.949831041
+      "elapsedSeconds": 40.7351895
     },
     {
       "repository": "encode/httpx",
@@ -554,6 +566,9 @@
       "matrixCells": 5,
       "fingerprints": 1,
       "failedJobs": 6,
+      "failureEvents": 1,
+      "analyzedFailedJobs": 1,
+      "multiEventJobs": 0,
       "expiredLogs": 5,
       "logErrors": 0,
       "workflowDefinitionFallbacks": 0,
@@ -590,7 +605,7 @@
       "selectedEstimatedChargeUsdPer30Days": 0,
       "backtest": null,
       "backtestReason": "backtest needs at least one analyzable failure in both the training and holdout windows",
-      "elapsedSeconds": 9.521042708000008
+      "elapsedSeconds": 10.718410084000002
     },
     {
       "repository": "pallets/flask",
@@ -670,6 +685,9 @@
       "matrixCells": 12,
       "fingerprints": 4,
       "failedJobs": 4,
+      "failureEvents": 4,
+      "analyzedFailedJobs": 4,
+      "multiEventJobs": 0,
       "expiredLogs": 0,
       "logErrors": 0,
       "workflowDefinitionFallbacks": 0,
@@ -706,7 +724,7 @@
       "selectedEstimatedChargeUsdPer30Days": 0,
       "backtest": null,
       "backtestReason": "backtest needs at least one analyzable failure in both the training and holdout windows",
-      "elapsedSeconds": 9.443632249999995
+      "elapsedSeconds": 10.037510250000008
     },
     {
       "repository": "aio-libs/aiohttp",
@@ -786,6 +804,9 @@
       "matrixCells": 29,
       "fingerprints": 0,
       "failedJobs": 0,
+      "failureEvents": 0,
+      "analyzedFailedJobs": 0,
+      "multiEventJobs": 0,
       "expiredLogs": 0,
       "logErrors": 0,
       "workflowDefinitionFallbacks": 0,
@@ -823,7 +844,7 @@
       "backtest": null,
       "backtestReason": "backtest needs at least one analyzable failure in both the training and holdout windows",
       "reason": "17 observed cell(s) have unresolved axes.",
-      "elapsedSeconds": 11.989790791999999
+      "elapsedSeconds": 12.369395625000005
     },
     {
       "repository": "tokio-rs/tokio",
@@ -903,6 +924,9 @@
       "matrixCells": 51,
       "fingerprints": 0,
       "failedJobs": 0,
+      "failureEvents": 0,
+      "analyzedFailedJobs": 0,
+      "multiEventJobs": 0,
       "expiredLogs": 0,
       "logErrors": 0,
       "workflowDefinitionFallbacks": 0,
@@ -940,7 +964,7 @@
       "backtest": null,
       "backtestReason": "backtest needs at least one analyzable failure in both the training and holdout windows",
       "reason": "4 observed cell(s) have unresolved axes.",
-      "elapsedSeconds": 19.988621790999996
+      "elapsedSeconds": 19.759328166000007
     },
     {
       "repository": "serde-rs/serde",
@@ -1020,6 +1044,9 @@
       "matrixCells": 6,
       "fingerprints": 0,
       "failedJobs": 0,
+      "failureEvents": 0,
+      "analyzedFailedJobs": 0,
+      "multiEventJobs": 0,
       "expiredLogs": 0,
       "logErrors": 0,
       "workflowDefinitionFallbacks": 0,
@@ -1056,7 +1083,7 @@
       "selectedEstimatedChargeUsdPer30Days": 0,
       "backtest": null,
       "backtestReason": "backtest needs at least one analyzable failure in both the training and holdout windows",
-      "elapsedSeconds": 7.522659542000008
+      "elapsedSeconds": 7.760234624999983
     },
     {
       "repository": "diesel-rs/diesel",
@@ -1134,8 +1161,11 @@
       "holdout": 25,
       "runsAnalyzed": 20,
       "matrixCells": 28,
-      "fingerprints": 40,
+      "fingerprints": 1,
       "failedJobs": 40,
+      "failureEvents": 40,
+      "analyzedFailedJobs": 40,
+      "multiEventJobs": 0,
       "expiredLogs": 0,
       "logErrors": 0,
       "workflowDefinitionFallbacks": 0,
@@ -1154,15 +1184,15 @@
       "axisResolvedPercent": 100,
       "historicalRecall": 1,
       "combinatorialCoverage": 1,
-      "computeReductionPercent": 7.551508462104484,
+      "computeReductionPercent": 7.178991905813092,
       "currentEstimatedSeconds": 21744,
-      "selectedEstimatedSeconds": 20102,
+      "selectedEstimatedSeconds": 20183,
       "combinatorialRequirements": 51,
       "repositoryVisibility": "public",
       "pricingCoverage": 1,
       "currentRateCardUsdPerRun": 11.624,
-      "selectedRateCardUsdPerRun": 11.45,
-      "rateCardReductionPercent": 1.4969029593943675,
+      "selectedRateCardUsdPerRun": 11.462,
+      "rateCardReductionPercent": 1.3936682725395801,
       "currentEstimatedChargeUsdPerRun": 0,
       "selectedEstimatedChargeUsdPerRun": 0,
       "projectedRunsPer30Days": null,
@@ -1174,11 +1204,11 @@
         "trainingRuns": 11,
         "holdoutRuns": 4,
         "holdoutRecall": 1,
-        "unseenFailureRecall": 1,
-        "unseenHoldoutFingerprints": 4,
+        "unseenFailureRecall": null,
+        "unseenHoldoutFingerprints": 0,
         "holdoutCombinatorialCoverage": 1
       },
-      "elapsedSeconds": 29.477775666000003
+      "elapsedSeconds": 30.75640408400001
     },
     {
       "repository": "pnpm/pnpm",
@@ -1258,6 +1288,9 @@
       "matrixCells": 3,
       "fingerprints": 1,
       "failedJobs": 1,
+      "failureEvents": 1,
+      "analyzedFailedJobs": 1,
+      "multiEventJobs": 0,
       "expiredLogs": 0,
       "logErrors": 0,
       "workflowDefinitionFallbacks": 0,
@@ -1294,7 +1327,7 @@
       "selectedEstimatedChargeUsdPer30Days": null,
       "backtest": null,
       "backtestReason": "backtest needs at least one analyzable failure in both the training and holdout windows",
-      "elapsedSeconds": 8.496004707999994
+      "elapsedSeconds": 8.911865667000006
     },
     {
       "repository": "vitejs/vite",
@@ -1372,8 +1405,11 @@
       "holdout": 25,
       "runsAnalyzed": 20,
       "matrixCells": 6,
-      "fingerprints": 7,
+      "fingerprints": 23,
       "failedJobs": 8,
+      "failureEvents": 25,
+      "analyzedFailedJobs": 7,
+      "multiEventJobs": 6,
       "expiredLogs": 0,
       "logErrors": 1,
       "workflowDefinitionFallbacks": 0,
@@ -1413,10 +1449,10 @@
         "holdoutRuns": 5,
         "holdoutRecall": 1,
         "unseenFailureRecall": 1,
-        "unseenHoldoutFingerprints": 3,
+        "unseenHoldoutFingerprints": 10,
         "holdoutCombinatorialCoverage": 1
       },
-      "elapsedSeconds": 10.203850082999997
+      "elapsedSeconds": 11.574557291000005
     }
   ]
 }

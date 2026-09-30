@@ -16,7 +16,7 @@ MatrixTrimが見たいのは、単純なjob数ではありません。
 
 過去のfailure、実行コスト、matrix構造、holdout backtestを使って、より小さいCI matrix候補を作ることを目指しています。
 
-> **Status: v0.11 experimental.** 過去のfailure evidence、観測済み1-wise / pairwise / t-wise構成coverage、人間が明示するkeep / compatibility constraint、runtime costとrunner-awareな金額推定、time-based holdout backtest、render済みmatrix job名の復元、GitHub Action、再現可能な公開OSS benchmark、明示opt-inのdraft最適化PR生成まで利用できます。
+> **Status: v0.12 experimental.** multi-event root-cause fingerprint、過去のfailure evidence、観測済み1-wise / pairwise / t-wise構成coverage、人間が明示するkeep / compatibility constraint、runtime costとrunner-awareな金額推定、time-based holdout backtest、render済みmatrix job名の復元、GitHub Action、再現可能な公開OSS benchmark、明示opt-inのdraft最適化PR生成まで利用できます。
 
 ## なぜ必要か
 
@@ -126,6 +126,12 @@ GH_TOKEN="$(gh auth token)" \
 
 runtime costも**training期間だけ**から計算するため、holdout側の情報を先取りしません。
 
+## multi-event failure fingerprint
+
+1つのfailed matrix jobに独立したfailure signalが複数含まれる場合、MatrixTrimはそれぞれを別eventとして扱います。`Error X` と `Error Y` が同じjobに出ても `X+Y` という複合fingerprintにはせず、XとYを個別にcoverage対象へ入れます。typed error / exception、panic / fatal、segmentation faultなどの強いroot causeを優先し、それらが無い場合だけtest runnerのsummary行を使うため、明らかな二重計上を避けます。
+
+同じroot causeの繰り返しはdedupし、1 jobあたり最大8個までに制限します。root-cause headlineを抽出できないlogでは従来のsingle-fingerprint heuristicへfallbackします。詳細は [Multi-event failure fingerprints](../fingerprints.md) を参照してください。
+
 ## GitHub Actionとして使う
 
 cloneやlocal buildは不要です。
@@ -147,7 +153,7 @@ steps:
 
 Actionは必ず **Step Summary** を生成します。Pull Request上では、権限があればMatrixTrimコメントを1件だけ作成・更新します。fork PRなどでtokenがread-onlyの場合、コメント作成だけwarning付きでskipし、分析自体は成功させます。
 
-レポートには、現在cell数と推奨cell数、historical failure recall、combinatorial coverage、推定compute削減率、runner-awareなrate-card / 推定請求額、holdout recall、unseen-failure recall、推奨cell一覧を表示します。
+レポートには、現在cell数と推奨cell数、historical failure recall、failure event数 / multi-event job数、combinatorial coverage、推定compute削減率、runner-awareなrate-card / 推定請求額、holdout recall、unseen-failure recall、推奨cell一覧を表示します。
 
 ### draft最適化PRを作る（opt-in）
 
@@ -211,9 +217,10 @@ MatrixTrimはCI minuteをすべて同じ価値として扱わず、実際のrunn
 都合の良い実例だけで評価しないため、**公開OSS 12 repositoryについてconclusiveなcompleted workflow runを各20件固定**し、`--strength 2`、time holdout 25%で評価しました。
 
 - **12 repo中10 repoは、観測cellのaxis復元・workflow名render・active matrix familyの実job名照合をすべて100%解決**できました。残り2 repoはpartialで、検証済み削減結果には含めていません。
-- 検証済みで削減が出たのは **pandas 34 → 32 cell (-7.2%)**、**Flask 12 → 10 (-13.6%)**、**Diesel 28 → 25 (-7.6%)** です。
-- runner単価とjob単位の1分丸めがあるため、compute削減率と金額削減率は一致しません。standard runnerのrate-cardでは、pandas **$25.148 → $24.671/run (-1.9%)**、Flask **$0.132 → $0.120/run (-9.1%)**、Diesel **$11.624 → $11.450/run (-1.5%)** でした。3 repoともpublicなのでstandard runnerの推定GitHub請求額は**$0**のままです。
-- pandasとDieselは、利用可能なbacktest期間で **holdout recall 100% / unseen-failure recall 100%** を維持しました。
+- 検証済みで削減が出たのは **pandas 34 → 32 cell (-7.2%)**、**Flask 12 → 10 (-13.6%)**、**Diesel 28 → 25 (-7.2%)** です。
+- runner単価とjob単位の1分丸めがあるため、compute削減率と金額削減率は一致しません。standard runnerのrate-cardでは、pandas **$25.148 → $24.671/run (-1.9%)**、Flask **$0.132 → $0.120/run (-9.1%)**、Diesel **$11.624 → $11.462/run (-1.4%)** でした。3 repoともpublicなのでstandard runnerの推定GitHub請求額は**$0**のままです。
+- pandasとViteは、利用可能なbacktest期間で **holdout recall 100% / unseen-failure recall 100%** を維持しました。Dieselも **holdout recall 100%** ですが、holdoutに未観測fingerprintが無かったためunseen-failure recallは **n/a** です。
+- 固定snapshotの実ログでもevent-level抽出が動いており、**pandasは59 failed jobs → 151 events → 5 distinct root-cause fingerprints**、**Viteは8 → 25 → 23**、一方でRustのvolatile値と派生summaryを正規化した **Dieselは40 → 40 → 1** に収束しました。
 - 完全解決できた10 repoのうち**7 repoは安全制約上「削らない」判定**でした。
 - aiohttpとTokioはpartialのままです。unresolved cellを安全制約として個別保持する現在のrecommendationでは、このsnapshotで **aiohttp 29 → 29 / Tokio 51 → 51** となり、どちらも検証済み削減には数えていません。
 
@@ -267,7 +274,7 @@ coreはdeterministicで、LLMは必須ではありません。
 - [x] GitHub Action化＋PRコメント
 - [x] matrix-heavy OSSでの再現可能benchmark
 - [x] runner単価を含むmonetary cost model
-- [ ] 1 job内のmulti-event failure fingerprint
+- [x] 1 job内のmulti-event failure fingerprint
 - [x] opt-in draft recommendation PR生成
 - [ ] exact / stronger optimizer
 

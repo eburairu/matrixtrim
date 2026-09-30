@@ -16,7 +16,7 @@ MatrixTrim analyzes GitHub Actions matrix jobs and asks a practical question:
 
 The goal is to recommend a smaller CI matrix using **historical failure coverage, runtime cost, matrix structure, and holdout backtesting**.
 
-> **Status: v0.11 experimental.** MatrixTrim combines empirical failure evidence, observed 1-wise / pairwise / t-wise configuration coverage, explicit human keep / compatibility constraints, runtime and runner-aware monetary cost, time-based holdout backtesting, rendered matrix-name reconstruction, a GitHub Action, reproducible public-OSS benchmarking, and opt-in draft optimization PR generation.
+> **Status: v0.12 experimental.** MatrixTrim combines multi-event root-cause fingerprints, empirical failure evidence, observed 1-wise / pairwise / t-wise configuration coverage, explicit human keep / compatibility constraints, runtime and runner-aware monetary cost, time-based holdout backtesting, rendered matrix-name reconstruction, a GitHub Action, reproducible public-OSS benchmarking, and opt-in draft optimization PR generation.
 
 ## Why MatrixTrim?
 
@@ -126,6 +126,12 @@ The older runs are used for selection, then the newer holdout runs are used to m
 
 Runtime costs are computed from the **training window only**, avoiding leakage from the holdout period.
 
+## Multi-event failure fingerprints
+
+A failed matrix job can contain more than one independent failure signal. MatrixTrim now fingerprints strong root causes separately, so a job containing `Error X` and `Error Y` contributes two events instead of one compound `X+Y` fingerprint. Typed errors/exceptions, panic/fatal lines and segmentation faults are preferred; test-runner summary lines are used only when no strong root cause is present, avoiding obvious double-counting.
+
+Repeated copies of the same normalized root cause are deduplicated, and extraction stays bounded to at most 8 distinct events per job. If no root-cause headline is recognized, MatrixTrim falls back to the legacy single-fingerprint heuristic. See [Multi-event failure fingerprints](docs/fingerprints.md).
+
 ## Use as a GitHub Action
 
 No clone or local build is required.
@@ -147,7 +153,7 @@ steps:
 
 The Action always writes a **Step Summary**. On pull requests it also creates or updates a single MatrixTrim comment when permissions allow it. If a fork PR has a read-only token, comment creation is skipped with a warning while the analysis still succeeds.
 
-The report includes current vs suggested cells, historical failure recall, combinatorial coverage, estimated compute reduction, runner-aware rate-card / charge estimates, holdout recall, unseen-failure recall, and the recommended cell set.
+The report includes current vs suggested cells, historical failure recall, failure-event / multi-event job counts, combinatorial coverage, estimated compute reduction, runner-aware rate-card / charge estimates, holdout recall, unseen-failure recall, and the recommended cell set.
 
 ### Draft optimization PR (opt-in)
 
@@ -211,9 +217,10 @@ Pricing reference: [GitHub Actions billing](https://docs.github.com/en/billing/c
 To avoid validating MatrixTrim only on hand-picked examples, we pinned **20 conclusive completed workflow runs each from 12 public OSS repositories** and evaluated them with `--strength 2` and a 25% time holdout.
 
 - **10/12 repositories were fully resolved** with 100% observed axis recovery, workflow-name rendering, and active-family job-name matching; 2 were partial and are not treated as validated reduction results.
-- Validated non-zero reductions: **pandas 34 → 32 cells (-7.2%)**, **Flask 12 → 10 (-13.6%)**, **Diesel 28 → 25 (-7.6%)**.
-- Monetary reduction is not identical to compute reduction because runner prices and per-job minute rounding matter: pandas **$25.148 → $24.671/run (-1.9%)**, Flask **$0.132 → $0.120/run (-9.1%)**, Diesel **$11.624 → $11.450/run (-1.5%)** on the standard-runner rate card. All three are public repositories, so estimated standard-runner GitHub charge remains **$0**.
-- pandas and Diesel both kept **100% holdout recall and 100% unseen-failure recall** in the available backtest windows.
+- Validated non-zero reductions: **pandas 34 → 32 cells (-7.2%)**, **Flask 12 → 10 (-13.6%)**, **Diesel 28 → 25 (-7.2%)**.
+- Monetary reduction is not identical to compute reduction because runner prices and per-job minute rounding matter: pandas **$25.148 → $24.671/run (-1.9%)**, Flask **$0.132 → $0.120/run (-9.1%)**, Diesel **$11.624 → $11.462/run (-1.4%)** on the standard-runner rate card. All three are public repositories, so estimated standard-runner GitHub charge remains **$0**.
+- pandas and Vite kept **100% holdout recall and 100% unseen-failure recall** in the available backtest windows. Diesel kept **100% holdout recall**; its holdout contained no unseen fingerprint, so unseen-failure recall is **n/a**.
+- Event-level extraction is exercised by real logs in the fixed snapshot: **pandas 59 failed jobs → 151 events → 5 distinct root-cause fingerprints**, **Vite 8 → 25 → 23**, while Rust volatility/derivative-summary normalization collapses **Diesel 40 → 40 → 1**.
 - **7 of the 10 fully resolved repositories were intentionally left unchanged** because the safety constraints did not justify a reduction.
 - aiohttp and Tokio remain partial. With unresolved cells retained as safety constraints, the current recommendation keeps **aiohttp 29 → 29** and **Tokio 51 → 51** in this snapshot; neither is counted as a validated reduction.
 
@@ -267,7 +274,7 @@ The core is deterministic. No LLM is required.
 - [x] GitHub Action + PR comments
 - [x] Reproducible benchmark across matrix-heavy OSS repositories
 - [x] Runner-aware monetary cost model
-- [ ] Multi-event failure fingerprints
+- [x] Multi-event failure fingerprints
 - [x] Opt-in draft recommendation PR generation
 - [ ] Stronger / exact optimizer
 

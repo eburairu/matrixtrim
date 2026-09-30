@@ -32,6 +32,9 @@ export type RecommendationReport = {
   historicalFingerprints: number;
   coveredFingerprints: number;
   historicalRecall: number | null;
+  failureEvents: number;
+  failedJobsWithEvents: number;
+  multiEventJobs: number;
   combinatorialRequirements: number;
   coveredCombinatorialRequirements: number;
   combinatorialCoverage: number | null;
@@ -333,6 +336,16 @@ export function recommendMatrix(
   const failureRuns = new Set(
     report.observations.map((item) => item.runId),
   ).size;
+  const eventCountsByJob = new Map<number, number>();
+  for (const item of report.observations) {
+    eventCountsByJob.set(
+      item.jobId,
+      (eventCountsByJob.get(item.jobId) ?? 0) + 1,
+    );
+  }
+  const multiEventJobs = [...eventCountsByJob.values()].filter(
+    (count) => count > 1,
+  ).length;
   const warnings = [
     "Historical failure coverage does not guarantee detection of unseen future failures.",
     `Combinatorial coverage preserves observed axis combinations up to strength ${maxStrength}; it does not invent combinations absent from the observed matrix.`,
@@ -430,6 +443,9 @@ export function recommendMatrix(
     historicalRecall: report.fingerprints
       ? coveredFailures.size / report.fingerprints
       : null,
+    failureEvents: report.observations.length,
+    failedJobsWithEvents: eventCountsByJob.size,
+    multiEventJobs,
     combinatorialRequirements: combinatorial.tokens.length,
     coveredCombinatorialRequirements: coveredCombinations.size,
     combinatorialCoverage: combinatorial.tokens.length

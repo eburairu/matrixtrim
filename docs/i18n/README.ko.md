@@ -16,7 +16,7 @@ MatrixTrim은 단순히 job 수를 줄이는 도구가 아닙니다. 핵심 질�
 
 목표는 **과거 failure coverage, 실행 비용, matrix 구조, holdout backtest**를 바탕으로 더 작은 CI matrix 후보를 제안하는 것입니다.
 
-> **현재 상태: v0.11 experimental.** 과거 failure evidence, 관측된 1-wise / pairwise / t-wise configuration coverage, 사람이 명시하는 keep / compatibility constraint, runtime cost와 runner-aware 금액 추정, time-based holdout backtest, 렌더링된 matrix job 이름 복원, GitHub Action, 재현 가능한 공개 OSS benchmark, 명시적 opt-in draft 최적화 PR 생성까지 지원합니다.
+> **현재 상태: v0.12 experimental.** multi-event root-cause fingerprint, 과거 failure evidence, 관측된 1-wise / pairwise / t-wise configuration coverage, 사람이 명시하는 keep / compatibility constraint, runtime cost와 runner-aware 금액 추정, time-based holdout backtest, 렌더링된 matrix job 이름 복원, GitHub Action, 재현 가능한 공개 OSS benchmark, 명시적 opt-in draft 최적화 PR 생성까지 지원합니다.
 
 ## 왜 MatrixTrim인가?
 
@@ -126,6 +126,12 @@ GH_TOKEN="$(gh auth token)" \
 
 runtime cost도 **training window만 사용**해 계산하므로 holdout 정보를 미리 보지 않습니다.
 
+## multi-event failure fingerprint
+
+하나의 failed matrix job에 여러 독립적인 failure signal이 들어 있을 수 있습니다. MatrixTrim은 이제 강한 root cause를 각각 fingerprint하므로 같은 job의 `Error X`와 `Error Y`를 하나의 `X+Y` 복합 fingerprint가 아니라 두 개의 event로 다룹니다. typed error / exception, panic / fatal, segmentation fault 같은 강한 root cause를 우선하며, 그런 원인이 없을 때만 test runner summary를 사용해 명백한 중복 집계를 피합니다.
+
+같은 normalized root cause가 반복되면 dedup하고 job당 최대 8개의 서로 다른 event만 유지합니다. root-cause headline을 찾지 못하면 기존 single-fingerprint heuristic으로 fallback합니다. 자세한 내용은 [Multi-event failure fingerprints](../fingerprints.md)를 참고하세요.
+
 ## GitHub Action으로 사용하기
 
 clone이나 로컬 build 없이 바로 사용할 수 있습니다.
@@ -147,7 +153,7 @@ steps:
 
 Action은 항상 **Step Summary**를 생성합니다. Pull Request에서는 권한이 허용될 경우 MatrixTrim 댓글 하나를 생성하거나 갱신합니다. fork PR처럼 token이 read-only이면 댓글 작성만 warning과 함께 건너뛰고 분석 자체는 성공합니다.
 
-리포트에는 현재/추천 cell 수, historical failure recall, combinatorial coverage, 예상 compute 절감률, runner-aware rate-card / 예상 청구액, holdout recall, unseen-failure recall, 추천 cell 목록이 포함됩니다.
+리포트에는 현재/추천 cell 수, historical failure recall, failure event 수 / multi-event job 수, combinatorial coverage, 예상 compute 절감률, runner-aware rate-card / 예상 청구액, holdout recall, unseen-failure recall, 추천 cell 목록이 포함됩니다.
 
 ### draft 최적화 PR 생성하기 (opt-in)
 
@@ -211,9 +217,10 @@ MatrixTrim은 모든 CI minute를 같은 비용으로 보지 않고, 실제 runn
 유리한 사례만 골라 검증하는 것을 피하기 위해 **12개 공개 OSS 저장소에서 결과가 확정된 completed workflow run을 각각 20개씩 고정**하고, `--strength 2`와 25% time holdout으로 평가했습니다.
 
 - **12개 중 10개 저장소를 완전히 해석**했습니다. 관측된 axis 복원, workflow 이름 렌더링, active matrix family의 실제 job 이름 매칭이 모두 100%였으며, 나머지 2개는 partial이라 검증된 축소 결과에 포함하지 않았습니다.
-- 검증된 비제로 축소 사례는 **pandas 34 → 32 cells (-7.2%)**, **Flask 12 → 10 (-13.6%)**, **Diesel 28 → 25 (-7.6%)**입니다.
-- runner 단가와 job별 1분 단위 올림 때문에 compute 감소율과 금액 감소율은 같지 않습니다. standard runner rate-card 기준으로 pandas **$25.148 → $24.671/run (-1.9%)**, Flask **$0.132 → $0.120/run (-9.1%)**, Diesel **$11.624 → $11.450/run (-1.5%)**였습니다. 세 저장소 모두 public이므로 standard runner의 예상 GitHub 실제 청구액은 **$0**입니다.
-- pandas와 Diesel은 사용 가능한 backtest 구간에서 **holdout recall 100%, unseen-failure recall 100%**를 유지했습니다.
+- 검증된 비제로 축소 사례는 **pandas 34 → 32 cells (-7.2%)**, **Flask 12 → 10 (-13.6%)**, **Diesel 28 → 25 (-7.2%)**입니다.
+- runner 단가와 job별 1분 단위 올림 때문에 compute 감소율과 금액 감소율은 같지 않습니다. standard runner rate-card 기준으로 pandas **$25.148 → $24.671/run (-1.9%)**, Flask **$0.132 → $0.120/run (-9.1%)**, Diesel **$11.624 → $11.462/run (-1.4%)**였습니다. 세 저장소 모두 public이므로 standard runner의 예상 GitHub 실제 청구액은 **$0**입니다.
+- pandas와 Vite는 사용 가능한 backtest 구간에서 **holdout recall 100%, unseen-failure recall 100%**를 유지했습니다. Diesel도 **holdout recall 100%**를 유지했지만 holdout에 새로운 fingerprint가 없어 unseen-failure recall은 **n/a**입니다.
+- 고정 snapshot의 실제 로그에서도 event-level 추출이 동작했습니다. **pandas는 failed jobs 59개 → events 151개 → 서로 다른 root-cause fingerprints 5개**, **Vite는 8 → 25 → 23**, Rust의 volatile 값과 파생 summary를 정규화한 **Diesel은 40 → 40 → 1**로 수렴했습니다.
 - 완전히 해석된 10개 저장소 중 **7개는 안전 제약 때문에 의도적으로 축소하지 않았습니다**.
 - aiohttp와 Tokio는 여전히 partial입니다. 현재 recommendation은 unresolved cell을 안전 제약으로 개별 유지하므로 이 snapshot에서 **aiohttp 29 → 29 / Tokio 51 → 51**이며, 둘 다 validated reduction에 포함하지 않습니다.
 
@@ -267,7 +274,7 @@ timestamp, 절대 경로, UUID, duration, line number처럼 흔들리는 정보�
 - [x] GitHub Action + PR comment
 - [x] matrix-heavy OSS 재현 가능benchmark
 - [x] runner-aware monetary cost model
-- [ ] multi-event failure fingerprint
+- [x] multi-event failure fingerprint
 - [x] opt-in draft recommendation PR 생성
 - [ ] 더 강한 / exact optimizer
 

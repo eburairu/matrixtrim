@@ -1,4 +1,4 @@
-import { fingerprintFailure } from "./fingerprint.js";
+import { fingerprintFailures } from "./fingerprint.js";
 import { GitHubClient, GitHubHttpError, type WorkflowRun } from "./github.js";
 import {
   inferAxesFromExpandedJobName,
@@ -486,12 +486,12 @@ export async function analyzeRepository(
     await mapLimit(failed, concurrency, async ({ run, job }) => {
       try {
         const log = await client.jobLog(job.id);
-        const fingerprint = fingerprintFailure(log);
+        const fingerprints = fingerprintFailures(log);
         const matrixJob = matrixJobById.get(job.id);
         if (!matrixJob) {
           throw new Error(`matrix job metadata missing for job ${job.id}`);
         }
-        return {
+        return fingerprints.map((fingerprint) => ({
           runId: run.id,
           runNumber: run.run_number,
           jobId: job.id,
@@ -500,17 +500,17 @@ export async function analyzeRepository(
           fingerprint: fingerprint.id,
           signature: fingerprint.signature,
           evidence: fingerprint.evidence,
-        } satisfies FailureObservation;
+        } satisfies FailureObservation));
       } catch (error) {
         if (error instanceof GitHubHttpError && error.status === 410) {
           expiredLogs++;
         } else {
           logErrors++;
         }
-        return null;
+        return [] as FailureObservation[];
       }
     })
-  ).filter((item): item is FailureObservation => item !== null);
+  ).flat();
 
   const byFingerprint = new Map<string, FailureObservation[]>();
   for (const item of observations) {

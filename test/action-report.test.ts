@@ -24,6 +24,9 @@ describe("GitHub Action report", () => {
       historicalFingerprints: 2,
       coveredFingerprints: 2,
       historicalRecall: 1,
+      failureEvents: 3,
+      failedJobsWithEvents: 2,
+      multiEventJobs: 1,
       combinatorialRequirements: 12,
       coveredCombinatorialRequirements: 12,
       combinatorialCoverage: 1,
@@ -98,6 +101,9 @@ describe("GitHub Action report", () => {
     expect(report).toContain("<!-- matrixtrim-report -->");
     expect(report).toContain("| Current matrix cells | 8 |");
     expect(report).toContain("| Suggested cells | 1 |");
+    expect(report).toContain("| Failure events | 3 |");
+    expect(report).toContain("| Failed jobs with events | 2 |");
+    expect(report).toContain("| Multi-event jobs | 1 |");
     expect(report).toContain("| Explicit hard constraints | 2/2 |");
     expect(report).toContain("| Estimated compute reduction | 50.0% |");
     expect(report).toContain("| Pricing coverage | 100.0% |");

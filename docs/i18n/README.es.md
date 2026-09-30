@@ -16,7 +16,7 @@ MatrixTrim no intenta simplemente ejecutar menos jobs. La pregunta útil es otra
 
 El objetivo es proponer una CI matrix más pequeña basándose en **cobertura histórica de fallos, coste de ejecución, estructura de la matrix y backtesting con holdout temporal**.
 
-> **Estado actual: v0.11 experimental.** MatrixTrim combina evidencia histórica de fallos, cobertura observada 1-wise / pairwise / t-wise, restricciones keep / compatibility definidas explícitamente por humanos, coste de runtime y estimación monetaria según runner, backtesting temporal, reconstrucción de nombres de jobs de matrix ya renderizados, GitHub Action, benchmark reproducible sobre OSS público y generación opt-in de draft PRs de optimización.
+> **Estado actual: v0.12 experimental.** MatrixTrim combina multi-event root-cause fingerprints, evidencia histórica de fallos, cobertura observada 1-wise / pairwise / t-wise, restricciones keep / compatibility definidas explícitamente por humanos, coste de runtime y estimación monetaria según runner, backtesting temporal, reconstrucción de nombres de jobs de matrix ya renderizados, GitHub Action, benchmark reproducible sobre OSS público y generación opt-in de draft PRs de optimización.
 
 ## ¿Por qué MatrixTrim?
 
@@ -126,6 +126,12 @@ Las ejecuciones más antiguas se usan para elegir las celdas. Después, las ejec
 
 El coste de runtime se calcula solo con la ventana de training, evitando leakage desde el holdout.
 
+## Multi-event failure fingerprints
+
+Un failed matrix job puede contener varias señales de fallo independientes. MatrixTrim ahora crea fingerprints separados para root causes fuertes, de modo que `Error X` y `Error Y` dentro del mismo job producen dos events en vez de un fingerprint compuesto `X+Y`. Se priorizan typed errors/exceptions, panic/fatal y segmentation faults; las líneas summary del test runner solo se usan cuando no existe un root cause fuerte, evitando duplicados evidentes.
+
+Las repeticiones del mismo normalized root cause se deduplican y cada job queda limitado a un máximo de 8 events distintos. Si no se reconoce ningún root-cause headline, MatrixTrim vuelve al heuristic single-fingerprint anterior. Consulta [Multi-event failure fingerprints](../fingerprints.md) para más detalles.
+
 ## Usarlo como GitHub Action
 
 No hace falta clonar el repositorio ni compilar MatrixTrim localmente.
@@ -147,7 +153,7 @@ steps:
 
 La Action siempre genera un **Step Summary**. En Pull Requests también crea o actualiza un único comentario de MatrixTrim si el token tiene permisos. En PRs desde forks con token de solo lectura, el comentario se omite con un warning y el análisis continúa correctamente.
 
-El informe muestra celdas actuales y sugeridas, historical failure recall, combinatorial coverage, reducción estimada de compute, rate-card / cargo estimado según runner, holdout recall, unseen-failure recall y la lista de celdas recomendadas.
+El informe muestra celdas actuales y sugeridas, historical failure recall, número de failure events / multi-event jobs, combinatorial coverage, reducción estimada de compute, rate-card / cargo estimado según runner, holdout recall, unseen-failure recall y la lista de celdas recomendadas.
 
 ### Crear un draft PR de optimización (opt-in)
 
@@ -211,9 +217,10 @@ Referencias de precios: [GitHub Actions billing](https://docs.github.com/en/bill
 Para evitar validar MatrixTrim solo con ejemplos favorables, fijamos **20 ejecuciones completadas con resultado concluyente en cada uno de 12 repositorios OSS públicos** y las evaluamos con `--strength 2` y un holdout temporal del 25%.
 
 - **10 de 12 repositorios quedaron completamente resueltos**: recuperación de axes observados, renderizado de nombres de workflow y correspondencia de nombres de jobs en matrix families activas alcanzaron el 100%; los otros 2 son partial y no cuentan como reducciones validadas.
-- Reducciones no nulas validadas: **pandas 34 → 32 celdas (-7.2%)**, **Flask 12 → 10 (-13.6%)** y **Diesel 28 → 25 (-7.6%)**.
-- La reducción de compute no coincide necesariamente con la reducción monetaria por las tarifas distintas de cada runner y el redondeo de cada job al minuto completo. En el rate-card de standard runners: pandas **$25.148 → $24.671/run (-1.9%)**, Flask **$0.132 → $0.120/run (-9.1%)** y Diesel **$11.624 → $11.450/run (-1.5%)**. Los tres repositorios son públicos, así que el cargo GitHub estimado para standard runners sigue siendo **$0**.
-- pandas y Diesel mantuvieron **100% de holdout recall y 100% de unseen-failure recall** en las ventanas de backtest disponibles.
+- Reducciones no nulas validadas: **pandas 34 → 32 celdas (-7.2%)**, **Flask 12 → 10 (-13.6%)** y **Diesel 28 → 25 (-7.2%)**.
+- La reducción de compute no coincide necesariamente con la reducción monetaria por las tarifas distintas de cada runner y el redondeo de cada job al minuto completo. En el rate-card de standard runners: pandas **$25.148 → $24.671/run (-1.9%)**, Flask **$0.132 → $0.120/run (-9.1%)** y Diesel **$11.624 → $11.462/run (-1.4%)**. Los tres repositorios son públicos, así que el cargo GitHub estimado para standard runners sigue siendo **$0**.
+- pandas y Vite mantuvieron **100% de holdout recall y 100% de unseen-failure recall** en las ventanas de backtest disponibles. Diesel mantuvo **100% de holdout recall**; como no hubo fingerprints nuevos en el holdout, unseen-failure recall es **n/a**.
+- La extracción por events también aparece en logs reales del snapshot fijo: **pandas 59 failed jobs → 151 events → 5 root-cause fingerprints distintos**, **Vite 8 → 25 → 23**, mientras que la normalización de valores volátiles de Rust y summaries derivados hace que **Diesel converja 40 → 40 → 1**.
 - **7 de los 10 repositorios completamente resueltos se dejaron sin cambios deliberadamente** porque las restricciones de seguridad no justificaban una reducción.
 - aiohttp y Tokio siguen siendo partial. En la recommendation actual los cells unresolved se conservan individualmente como restricción de seguridad, por lo que este snapshot queda en **aiohttp 29 → 29 / Tokio 51 → 51**; ninguno cuenta como reducción validada.
 
@@ -267,7 +274,7 @@ El núcleo es determinista y no depende de un LLM.
 - [x] GitHub Action + comentarios en PR
 - [x] Benchmark reproducible en repos OSS con matrices grandes
 - [x] Modelo de coste monetario según runner
-- [ ] Multi-event failure fingerprinting
+- [x] Multi-event failure fingerprinting
 - [x] Generación opt-in de draft recommendation PR
 - [ ] Optimizador más potente / exacto
 

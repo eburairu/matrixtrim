@@ -115,6 +115,17 @@ for (const target of snapshot.targets) {
     row.matrixCells = analysis.cells.length;
     row.fingerprints = analysis.fingerprints;
     row.failedJobs = analysis.failedJobs;
+    row.failureEvents = analysis.observations.length;
+    row.analyzedFailedJobs = new Set(
+      analysis.observations.map((item) => item.jobId),
+    ).size;
+    const eventsByJob = new Map();
+    for (const item of analysis.observations) {
+      eventsByJob.set(item.jobId, (eventsByJob.get(item.jobId) ?? 0) + 1);
+    }
+    row.multiEventJobs = [...eventsByJob.values()].filter(
+      (count) => count > 1,
+    ).length;
     row.expiredLogs = analysis.expiredLogs;
     row.logErrors = analysis.logErrors;
     row.workflowDefinitionFallbacks =
@@ -320,8 +331,8 @@ const lines = [
       `- **${row.repository}**: ${row.matrixCells} → ${row.selectedCells} cells, ${pctRaw(row.computeReductionPercent)} estimated compute reduction; standard-runner rate-card ${usdPair(row.currentRateCardUsdPerRun, row.selectedRateCardUsdPerRun)} per run; estimated GitHub charge ${usdPair(row.currentEstimatedChargeUsdPerRun, row.selectedEstimatedChargeUsdPerRun)} per run.`,
   ),
   "",
-  "| Repository | Status | Cells | Selected | Axis resolved | Workflow render | Job match | Fingerprints | Historical recall | Holdout recall | Unseen recall | Compute reduction | Pricing coverage | Rate-card/run | Est. charge/run |",
-  "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+  "| Repository | Status | Cells | Selected | Axis resolved | Workflow render | Job match | Failed jobs | Failure events | Multi-event jobs | Fingerprints | Historical recall | Holdout recall | Unseen recall | Compute reduction | Pricing coverage | Rate-card/run | Est. charge/run |",
+  "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
 ];
 
 for (const row of results) {
@@ -338,7 +349,7 @@ for (const row of results) {
     ? "n/a"
     : `${(row.workflowMatchCoverage * 100).toFixed(0)}%`;
   lines.push(
-    `| ${row.repository} | ${row.status} | ${row.matrixCells ?? "n/a"} | ${selected} | ${axis} | ${workflowRender} | ${workflowMatch} | ${row.fingerprints ?? "n/a"} | ${pct(row.historicalRecall)} | ${pct(row.backtest?.holdoutRecall)} | ${pct(row.backtest?.unseenFailureRecall)} | ${pctRaw(row.computeReductionPercent)} | ${pct(row.pricingCoverage)} | ${usdPair(row.currentRateCardUsdPerRun, row.selectedRateCardUsdPerRun)} | ${usdPair(row.currentEstimatedChargeUsdPerRun, row.selectedEstimatedChargeUsdPerRun)} |`,
+    `| ${row.repository} | ${row.status} | ${row.matrixCells ?? "n/a"} | ${selected} | ${axis} | ${workflowRender} | ${workflowMatch} | ${row.failedJobs ?? "n/a"} | ${row.failureEvents ?? "n/a"} | ${row.multiEventJobs ?? "n/a"} | ${row.fingerprints ?? "n/a"} | ${pct(row.historicalRecall)} | ${pct(row.backtest?.holdoutRecall)} | ${pct(row.backtest?.unseenFailureRecall)} | ${pctRaw(row.computeReductionPercent)} | ${pct(row.pricingCoverage)} | ${usdPair(row.currentRateCardUsdPerRun, row.selectedRateCardUsdPerRun)} | ${usdPair(row.currentEstimatedChargeUsdPerRun, row.selectedEstimatedChargeUsdPerRun)} |`,
   );
 }
 
