@@ -8,7 +8,7 @@ MatrixTrim publishes versioned GitHub Action releases from the repository's `mai
 
 A release creates two Git tags:
 
-- exact tag such as `v0.17.0`
+- exact tag such as `v0.18.0`
 - floating major tag `v0`
 
 Consumers should normally use the floating major tag:

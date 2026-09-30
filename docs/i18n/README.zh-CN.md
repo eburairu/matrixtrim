@@ -16,7 +16,7 @@ MatrixTrim 关注的不是“任务越少越好”，而是一个更实际的问
 
 目标是结合 **历史失败覆盖、运行成本、matrix 结构和 holdout 回测**，给出更小、更有依据的 CI matrix 候选方案。
 
-> **当前状态：v0.17 experimental。** MatrixTrim 已可结合 multi-event root-cause fingerprint、历史 failure evidence、已观测的 1-wise / pairwise / t-wise 配置覆盖、人工显式 keep / compatibility constraint、exact branch-and-bound optimizer、runtime cost 与 runner-aware 金额估算、time-based holdout backtest、渲染后 matrix job 名恢复、GitHub Action、可复现的公开 OSS benchmark，以及显式 opt-in 的 draft 优化 PR 生成。
+> **当前状态：v0.18 experimental。** MatrixTrim 已可结合 multi-event root-cause fingerprint、历史 failure evidence、已观测的 1-wise / pairwise / t-wise 配置覆盖、人工显式 keep / compatibility constraint、exact branch-and-bound optimizer、runtime cost 与 runner-aware 金额估算、time-based holdout backtest、渲染后 matrix job 名恢复、GitHub Action、可复现的公开 OSS benchmark，以及显式 opt-in 的 draft 优化 PR 生成。
 
 ## 为什么需要 MatrixTrim？
 
@@ -281,6 +281,7 @@ MatrixTrim 会去除 timestamp、绝对路径、UUID、duration、line number �
 - [x] deterministic GitHub 表达式函数 + bracket / object-filter 支持
 - [x] 通过 Check Run annotation 实现 opt-in 的 deterministic runtime matrix evidence capture
 - [x] Versioned GitHub Action releases + floating major tag
+- [x] SHA-pinned workflow dependencies + Dependabot enforcement
 - [x] 显式 keep / compatibility constraint
 - [x] GitHub Action + PR comment
 - [x] 在 matrix-heavy OSS 上完成可复现 benchmark
