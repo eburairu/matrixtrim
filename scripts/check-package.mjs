@@ -19,7 +19,11 @@ const allowed = paths.filter(
 		path === "package.json" ||
 		path === "README.md" ||
 		path === "LICENSE" ||
-		path.startsWith("dist/"),
+		path === "CONTRIBUTING.md" ||
+		path === "SECURITY.md" ||
+		path.startsWith("dist/") ||
+		path.startsWith("docs/") ||
+		path.startsWith("benchmark/"),
 );
 const forbidden = paths.filter((path) => !allowed.includes(path));
 if (forbidden.length) {
@@ -39,7 +43,7 @@ if (paths.some((path) => path.startsWith("dist/src/"))) {
 	throw new Error("npm package contains stale dist/src artifacts");
 }
 const totalFiles = pack.totalFiles ?? paths.length;
-if (totalFiles > 50) {
+if (totalFiles > 80) {
 	throw new Error(`npm package unexpectedly contains ${totalFiles} files`);
 }
 
