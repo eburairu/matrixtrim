@@ -16,7 +16,7 @@ MatrixTrim analyzes GitHub Actions matrix jobs and asks a practical question:
 
 The goal is to recommend a smaller CI matrix using **historical failure coverage, runtime cost, matrix structure, and holdout backtesting**.
 
-> **Status: v0.12 experimental.** MatrixTrim combines multi-event root-cause fingerprints, empirical failure evidence, observed 1-wise / pairwise / t-wise configuration coverage, explicit human keep / compatibility constraints, runtime and runner-aware monetary cost, time-based holdout backtesting, rendered matrix-name reconstruction, a GitHub Action, reproducible public-OSS benchmarking, and opt-in draft optimization PR generation.
+> **Status: v0.13 experimental.** MatrixTrim combines multi-event root-cause fingerprints, empirical failure evidence, observed 1-wise / pairwise / t-wise configuration coverage, explicit human keep / compatibility constraints, exact branch-and-bound optimization, runtime and runner-aware monetary cost, time-based holdout backtesting, rendered matrix-name reconstruction, a GitHub Action, reproducible public-OSS benchmarking, and opt-in draft optimization PR generation.
 
 ## Why MatrixTrim?
 
@@ -106,7 +106,13 @@ By default (`--strength 2`), selection preserves:
 4. at least one cell per matrix job family, and
 5. lower estimated compute where the constraints allow it.
 
-Use `--strength 3` to preserve observed 3-wise combinations as well. MatrixTrim never invents combinations that were absent from the observed matrix. The optimizer currently uses greedy weighted set cover.
+Use `--strength 3` to preserve observed 3-wise combinations as well. MatrixTrim never invents combinations that were absent from the observed matrix.
+
+## Exact optimizer
+
+The default `--optimizer auto` starts from the deterministic greedy solution, then runs an in-process branch-and-bound search to prove the minimum runtime-weighted set for the modeled coverage requirements. If the default **250,000-node** budget is exceeded, `auto` explicitly falls back to greedy. `--optimizer exact` fails instead of returning an unproven solution, while `--optimizer greedy` skips exact search.
+
+“Exact” means optimal for the **current weighted set-cover model**; it does not prove that removed environments can never catch a future failure. See [Exact optimizer](docs/optimizer.md).
 
 ## Backtest against newer failures
 
@@ -148,6 +154,7 @@ steps:
       workflow: ci.yml
       limit: "100"
       strength: "2"
+      optimizer: auto
       holdout: "25"
 ```
 
@@ -171,6 +178,7 @@ steps:
       workflow: ci.yml
       limit: "100"
       strength: "2"
+      optimizer: auto
       holdout: "25"
       create-pr: "true"
 ```
@@ -217,9 +225,9 @@ Pricing reference: [GitHub Actions billing](https://docs.github.com/en/billing/c
 To avoid validating MatrixTrim only on hand-picked examples, we pinned **20 conclusive completed workflow runs each from 12 public OSS repositories** and evaluated them with `--strength 2` and a 25% time holdout.
 
 - **10/12 repositories were fully resolved** with 100% observed axis recovery, workflow-name rendering, and active-family job-name matching; 2 were partial and are not treated as validated reduction results.
-- Validated non-zero reductions: **pandas 34 → 32 cells (-7.2%)**, **Flask 12 → 10 (-13.6%)**, **Diesel 28 → 25 (-7.2%)**.
-- Monetary reduction is not identical to compute reduction because runner prices and per-job minute rounding matter: pandas **$25.148 → $24.671/run (-1.9%)**, Flask **$0.132 → $0.120/run (-9.1%)**, Diesel **$11.624 → $11.462/run (-1.4%)** on the standard-runner rate card. All three are public repositories, so estimated standard-runner GitHub charge remains **$0**.
-- pandas and Vite kept **100% holdout recall and 100% unseen-failure recall** in the available backtest windows. Diesel kept **100% holdout recall**; its holdout contained no unseen fingerprint, so unseen-failure recall is **n/a**.
+- Validated non-zero reductions: **pandas 34 → 32 cells (-7.2%)**, **Flask 12 → 10 (-13.6%)**, **Diesel 28 → 25 (-8.3%)**.
+- Monetary reduction is not identical to compute reduction because runner prices and per-job minute rounding matter: pandas **$25.148 → $24.671/run (-1.9%)**, Flask **$0.132 → $0.120/run (-9.1%)**, Diesel **$11.624 → $11.438/run (-1.6%)** on the standard-runner rate card. All three are public repositories, so estimated standard-runner GitHub charge remains **$0**.
+- The exact optimizer proved optimality for **12/12 benchmark repositories**, used **0 greedy fallbacks**, and explored at most **102 search nodes**. It matched greedy on 11 repositories; on Diesel it improved the greedy runtime objective by **1.15%**, raising compute reduction from about **7.6% to 8.3%**. pandas and Vite kept **100% holdout recall and 100% unseen-failure recall** in the available backtest windows. Diesel kept **100% holdout recall**; its holdout contained no unseen fingerprint, so unseen-failure recall is **n/a**.
 - Event-level extraction is exercised by real logs in the fixed snapshot: **pandas 59 failed jobs → 151 events → 5 distinct root-cause fingerprints**, **Vite 8 → 25 → 23**, while Rust volatility/derivative-summary normalization collapses **Diesel 40 → 40 → 1**.
 - **7 of the 10 fully resolved repositories were intentionally left unchanged** because the safety constraints did not justify a reduction.
 - aiohttp and Tokio remain partial. With unresolved cells retained as safety constraints, the current recommendation keeps **aiohttp 29 → 29** and **Tokio 51 → 51** in this snapshot; neither is counted as a validated reduction.
@@ -276,7 +284,7 @@ The core is deterministic. No LLM is required.
 - [x] Runner-aware monetary cost model
 - [x] Multi-event failure fingerprints
 - [x] Opt-in draft recommendation PR generation
-- [ ] Stronger / exact optimizer
+- [x] Stronger / exact optimizer
 
 ## Principles
 

@@ -114,6 +114,12 @@ export function optimizationSafetyReason(
   ) {
     return "one or more explicit hard constraints are not satisfied";
   }
+  if (
+    recommendation.optimizerMode === "auto" &&
+    recommendation.optimizerOptimal === false
+  ) {
+    return "exact optimizer did not prove optimality within the node budget";
+  }
   if (backtest && backtest.holdoutRecall < 1) {
     return "holdout failure recall is below 100%";
   }
@@ -166,6 +172,8 @@ ${jobs}
 
 ### Evidence
 
+- Optimizer: ${recommendation.algorithm} (mode=${recommendation.optimizerMode}, optimal=${recommendation.optimizerOptimal ?? "n/a"}, nodes=${recommendation.optimizerSearchNodes})
+- Optimizer improvement vs greedy: ${recommendation.optimizerImprovementPercent.toFixed(1)}%
 - Historical failure recall: ${recommendation.historicalRecall === null ? "n/a" : `${(recommendation.historicalRecall * 100).toFixed(1)}%`}
 - Observed combinatorial coverage: ${recommendation.combinatorialCoverage === null ? "n/a" : `${(recommendation.combinatorialCoverage * 100).toFixed(1)}%`}
 - Explicit hard constraints: ${recommendation.coveredConstraintRequirements}/${recommendation.constraintRequirements}

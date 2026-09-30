@@ -16,7 +16,7 @@ MatrixTrim no intenta simplemente ejecutar menos jobs. La pregunta útil es otra
 
 El objetivo es proponer una CI matrix más pequeña basándose en **cobertura histórica de fallos, coste de ejecución, estructura de la matrix y backtesting con holdout temporal**.
 
-> **Estado actual: v0.12 experimental.** MatrixTrim combina multi-event root-cause fingerprints, evidencia histórica de fallos, cobertura observada 1-wise / pairwise / t-wise, restricciones keep / compatibility definidas explícitamente por humanos, coste de runtime y estimación monetaria según runner, backtesting temporal, reconstrucción de nombres de jobs de matrix ya renderizados, GitHub Action, benchmark reproducible sobre OSS público y generación opt-in de draft PRs de optimización.
+> **Estado actual: v0.13 experimental.** MatrixTrim combina multi-event root-cause fingerprints, evidencia histórica de fallos, cobertura observada 1-wise / pairwise / t-wise, restricciones keep / compatibility definidas explícitamente por humanos, exact branch-and-bound optimizer, coste de runtime y estimación monetaria según runner, backtesting temporal, reconstrucción de nombres de jobs de matrix ya renderizados, GitHub Action, benchmark reproducible sobre OSS público y generación opt-in de draft PRs de optimización.
 
 ## ¿Por qué MatrixTrim?
 
@@ -106,7 +106,13 @@ Con el valor predeterminado `--strength 2`, MatrixTrim conserva:
 4. al menos una celda por cada matrix job family;
 5. el menor compute estimado posible dentro de esas restricciones, usando median runtime como coste.
 
-Con `--strength 3` también conserva las combinaciones 3-wise observadas. MatrixTrim no inventa combinaciones que no existían en la matrix observada. El optimizador actual usa greedy weighted set cover.
+Con `--strength 3` también conserva las combinaciones 3-wise observadas. MatrixTrim no inventa combinaciones que no existían en la matrix observada.
+
+## Exact optimizer
+
+El valor predeterminado `--optimizer auto` obtiene primero una solución greedy determinista y después ejecuta un branch-and-bound dentro del propio proceso para demostrar el conjunto de cells de menor coste ponderado por runtime que satisface las restricciones de coverage actuales. Si supera el presupuesto predeterminado de **250.000 nodes**, `auto` vuelve explícitamente a greedy. `--optimizer exact` falla en lugar de devolver una solución sin prueba, mientras que `--optimizer greedy` omite la búsqueda exacta.
+
+“Exact” significa óptimo para el **weighted set-cover model actual**; no demuestra que un environment eliminado nunca pueda detectar un fallo futuro. Consulta [Exact optimizer](../optimizer.md).
 
 ## Backtest con fallos más recientes
 
@@ -148,6 +154,7 @@ steps:
       workflow: ci.yml
       limit: "100"
       strength: "2"
+      optimizer: auto
       holdout: "25"
 ```
 
@@ -171,6 +178,7 @@ steps:
       workflow: ci.yml
       limit: "100"
       strength: "2"
+      optimizer: auto
       holdout: "25"
       create-pr: "true"
 ```
@@ -217,9 +225,9 @@ Referencias de precios: [GitHub Actions billing](https://docs.github.com/en/bill
 Para evitar validar MatrixTrim solo con ejemplos favorables, fijamos **20 ejecuciones completadas con resultado concluyente en cada uno de 12 repositorios OSS públicos** y las evaluamos con `--strength 2` y un holdout temporal del 25%.
 
 - **10 de 12 repositorios quedaron completamente resueltos**: recuperación de axes observados, renderizado de nombres de workflow y correspondencia de nombres de jobs en matrix families activas alcanzaron el 100%; los otros 2 son partial y no cuentan como reducciones validadas.
-- Reducciones no nulas validadas: **pandas 34 → 32 celdas (-7.2%)**, **Flask 12 → 10 (-13.6%)** y **Diesel 28 → 25 (-7.2%)**.
-- La reducción de compute no coincide necesariamente con la reducción monetaria por las tarifas distintas de cada runner y el redondeo de cada job al minuto completo. En el rate-card de standard runners: pandas **$25.148 → $24.671/run (-1.9%)**, Flask **$0.132 → $0.120/run (-9.1%)** y Diesel **$11.624 → $11.462/run (-1.4%)**. Los tres repositorios son públicos, así que el cargo GitHub estimado para standard runners sigue siendo **$0**.
-- pandas y Vite mantuvieron **100% de holdout recall y 100% de unseen-failure recall** en las ventanas de backtest disponibles. Diesel mantuvo **100% de holdout recall**; como no hubo fingerprints nuevos en el holdout, unseen-failure recall es **n/a**.
+- Reducciones no nulas validadas: **pandas 34 → 32 celdas (-7.2%)**, **Flask 12 → 10 (-13.6%)** y **Diesel 28 → 25 (-8.3%)**.
+- La reducción de compute no coincide necesariamente con la reducción monetaria por las tarifas distintas de cada runner y el redondeo de cada job al minuto completo. En el rate-card de standard runners: pandas **$25.148 → $24.671/run (-1.9%)**, Flask **$0.132 → $0.120/run (-9.1%)** y Diesel **$11.624 → $11.438/run (-1.6%)**. Los tres repositorios son públicos, así que el cargo GitHub estimado para standard runners sigue siendo **$0**.
+- El exact optimizer demostró optimality en **12/12 repositorios del benchmark**, con **0 fallbacks a greedy** y un máximo de **102 nodes** explorados. Coincidió con greedy en 11 repositorios; en Diesel mejoró el objetivo de runtime de greedy en **1.15%**, elevando la reducción de compute de aproximadamente **7.6% a 8.3%**. pandas y Vite mantuvieron **100% de holdout recall y 100% de unseen-failure recall** en las ventanas de backtest disponibles. Diesel mantuvo **100% de holdout recall**; como no hubo fingerprints nuevos en el holdout, unseen-failure recall es **n/a**.
 - La extracción por events también aparece en logs reales del snapshot fijo: **pandas 59 failed jobs → 151 events → 5 root-cause fingerprints distintos**, **Vite 8 → 25 → 23**, mientras que la normalización de valores volátiles de Rust y summaries derivados hace que **Diesel converja 40 → 40 → 1**.
 - **7 de los 10 repositorios completamente resueltos se dejaron sin cambios deliberadamente** porque las restricciones de seguridad no justificaban una reducción.
 - aiohttp y Tokio siguen siendo partial. En la recommendation actual los cells unresolved se conservan individualmente como restricción de seguridad, por lo que este snapshot queda en **aiohttp 29 → 29 / Tokio 51 → 51**; ninguno cuenta como reducción validada.
@@ -276,7 +284,7 @@ El núcleo es determinista y no depende de un LLM.
 - [x] Modelo de coste monetario según runner
 - [x] Multi-event failure fingerprinting
 - [x] Generación opt-in de draft recommendation PR
-- [ ] Optimizador más potente / exacto
+- [x] Optimizador más potente / exacto
 
 ## Principios de diseño
 

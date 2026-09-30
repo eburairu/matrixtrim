@@ -3,7 +3,10 @@ import { readFile, stat, readdir } from "node:fs/promises";
 import { resolve, extname } from "node:path";
 import { inspectWorkflow } from "./matrix.js";
 import { analyzeRepository } from "./analyze.js";
-import { recommendMatrix } from "./recommend.js";
+import {
+  recommendMatrix,
+  type OptimizerMode,
+} from "./recommend.js";
 import { backtestRecommendation } from "./backtest.js";
 import { GitHubClient } from "./github.js";
 import {
@@ -76,6 +79,20 @@ function requireGitHubToken(command: string): string {
     );
   }
   return token;
+}
+
+function optimizerArgs(
+  args: string[],
+): { optimizer: OptimizerMode; exactMaxNodes: number } {
+  const raw = flagValue(args, "--optimizer") ?? "auto";
+  if (!["auto", "exact", "greedy"].includes(raw)) {
+    throw new Error("--optimizer must be auto, exact, or greedy");
+  }
+  return {
+    optimizer: raw as OptimizerMode,
+    exactMaxNodes:
+      parseOptionalInt(args, "--exact-max-nodes", 1, 10_000_000) ?? 250_000,
+  };
 }
 
 async function repositoryConstraints(
@@ -208,7 +225,7 @@ async function recommendCommand(args: string[], json: boolean): Promise<void> {
   const repository = args[1];
   if (!repository) {
     throw new Error(
-      "usage: matrixtrim recommend owner/repo [--workflow ci.yml] [--limit 100] [--run ID] [--strength 2] [--config .matrixtrim.yml]",
+      "usage: matrixtrim recommend owner/repo [--workflow ci.yml] [--limit 100] [--run ID] [--strength 2] [--config .matrixtrim.yml] [--optimizer auto|exact|greedy] [--exact-max-nodes 250000]",
     );
   }
 
@@ -216,6 +233,7 @@ async function recommendCommand(args: string[], json: boolean): Promise<void> {
   const limit = parseOptionalInt(args, "--limit", 1, 500) ?? 100;
   const runId = parseOptionalInt(args, "--run", 1, Number.MAX_SAFE_INTEGER);
   const strength = parseOptionalInt(args, "--strength", 1, 4) ?? 2;
+  const optimizer = optimizerArgs(args);
   const token = requireGitHubToken("recommend");
   const config = await repositoryConstraints(repository, token, args);
 
@@ -228,6 +246,7 @@ async function recommendCommand(args: string[], json: boolean): Promise<void> {
   const recommendation = recommendMatrix(analysis, {
     maxStrength: strength,
     constraints: config.constraints,
+    ...optimizer,
   });
 
   if (json) {
@@ -238,6 +257,14 @@ async function recommendCommand(args: string[], json: boolean): Promise<void> {
   console.log(`Repository: ${repository}`);
   console.log("Mode:       history + combinatorial coverage (experimental)");
   console.log(`Strength:   ${recommendation.coverageStrength}`);
+  console.log(
+    `Optimizer:  ${recommendation.algorithm} (mode=${recommendation.optimizerMode}, optimal=${recommendation.optimizerOptimal ?? "n/a"}, nodes=${recommendation.optimizerSearchNodes})`,
+  );
+  if (recommendation.optimizerImprovementPercent > 0) {
+    console.log(
+      `Optimizer improvement vs greedy objective: ${recommendation.optimizerImprovementPercent.toFixed(1)}%`,
+    );
+  }
   console.log(
     `Hard constraints: ${recommendation.coveredConstraintRequirements}/${recommendation.constraintRequirements} (config=${config.path})`,
   );
@@ -344,7 +371,7 @@ async function backtestCommand(args: string[], json: boolean): Promise<void> {
   const repository = args[1];
   if (!repository) {
     throw new Error(
-      "usage: matrixtrim backtest owner/repo [--workflow ci.yml] [--limit 100] [--holdout 25] [--strength 2] [--config .matrixtrim.yml]",
+      "usage: matrixtrim backtest owner/repo [--workflow ci.yml] [--limit 100] [--holdout 25] [--strength 2] [--config .matrixtrim.yml] [--optimizer auto|exact|greedy] [--exact-max-nodes 250000]",
     );
   }
 
@@ -352,6 +379,7 @@ async function backtestCommand(args: string[], json: boolean): Promise<void> {
   const limit = parseOptionalInt(args, "--limit", 2, 500) ?? 100;
   const holdout = parseOptionalInt(args, "--holdout", 5, 50) ?? 25;
   const strength = parseOptionalInt(args, "--strength", 1, 4) ?? 2;
+  const optimizer = optimizerArgs(args);
   const token = requireGitHubToken("backtest");
   const config = await repositoryConstraints(repository, token, args);
 
@@ -365,6 +393,7 @@ async function backtestCommand(args: string[], json: boolean): Promise<void> {
     holdout,
     strength,
     config.constraints,
+    optimizer,
   );
 
   if (json) {
@@ -375,6 +404,9 @@ async function backtestCommand(args: string[], json: boolean): Promise<void> {
   console.log(`Repository: ${repository}`);
   console.log("Mode:       time-holdout backtest");
   console.log(`Strength:   ${result.coverageStrength}`);
+  console.log(
+    `Optimizer:  ${result.optimizerAlgorithm} (optimal=${result.optimizerOptimal ?? "n/a"}, nodes=${result.optimizerSearchNodes})`,
+  );
   console.log(
     `Hard constraints: ${(config.constraints?.keep.length ?? 0) + (config.constraints?.require.length ?? 0)} (config=${config.path})`,
   );

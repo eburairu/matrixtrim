@@ -1,7 +1,10 @@
 import { appendFile, readFile } from "node:fs/promises";
 import { basename } from "node:path";
 import { analyzeRepository } from "./analyze.js";
-import { recommendMatrix } from "./recommend.js";
+import {
+  recommendMatrix,
+  type OptimizerMode,
+} from "./recommend.js";
 import { backtestRecommendation } from "./backtest.js";
 import { formatActionReport } from "./action-report.js";
 import { GitHubClient } from "./github.js";
@@ -78,6 +81,17 @@ async function main(): Promise<void> {
   const limit = intInput("limit", 100, 2, 500);
   const holdout = intInput("holdout", 25, 5, 50);
   const strength = intInput("strength", 2, 1, 4);
+  const optimizerRaw = input("optimizer") || "auto";
+  if (!["auto", "exact", "greedy"].includes(optimizerRaw)) {
+    throw new Error("optimizer must be auto, exact, or greedy");
+  }
+  const optimizer = optimizerRaw as OptimizerMode;
+  const exactMaxNodes = intInput(
+    "exact-max-nodes",
+    250_000,
+    1,
+    10_000_000,
+  );
   const configPath = input("config") || ".matrixtrim.yml";
   const comment = boolInput("comment", true);
   const createPr = boolInput("create-pr", false);
@@ -89,7 +103,7 @@ async function main(): Promise<void> {
   );
 
   console.log(
-    `MatrixTrim: repository=${repository}, workflow=${workflow ?? "all"}, limit=${limit}, strength=${strength}, constraints=${(config?.constraints.keep.length ?? 0) + (config?.constraints.require.length ?? 0)}`,
+    `MatrixTrim: repository=${repository}, workflow=${workflow ?? "all"}, limit=${limit}, strength=${strength}, optimizer=${optimizer}, exactMaxNodes=${exactMaxNodes}, constraints=${(config?.constraints.keep.length ?? 0) + (config?.constraints.require.length ?? 0)}`,
   );
 
   const analysis = await analyzeRepository(repository, {
@@ -100,6 +114,8 @@ async function main(): Promise<void> {
   const recommendation = recommendMatrix(analysis, {
     maxStrength: strength,
     constraints: config?.constraints,
+    optimizer,
+    exactMaxNodes,
   });
 
   let backtest = null;
@@ -110,6 +126,10 @@ async function main(): Promise<void> {
       holdout,
       strength,
       config?.constraints,
+      {
+        optimizer,
+        exactMaxNodes,
+      },
     );
   } catch (error) {
     backtestError = (error as Error).message;
@@ -133,6 +153,25 @@ async function main(): Promise<void> {
 
   await writeOutput("current-cells", recommendation.currentCells);
   await writeOutput("selected-cells", recommendation.selectedCells.length);
+  await writeOutput("optimizer-algorithm", recommendation.algorithm);
+  await writeOutput(
+    "optimizer-optimal",
+    recommendation.optimizerOptimal === null
+      ? ""
+      : String(recommendation.optimizerOptimal),
+  );
+  await writeOutput(
+    "optimizer-search-nodes",
+    recommendation.optimizerSearchNodes,
+  );
+  await writeOutput(
+    "optimizer-improvement-percent",
+    recommendation.optimizerImprovementPercent.toFixed(1),
+  );
+  await writeOutput(
+    "optimizer-fallback-reason",
+    recommendation.optimizerFallbackReason ?? "",
+  );
   await writeOutput(
     "compute-reduction-percent",
     recommendation.estimatedComputeReductionPercent?.toFixed(1) ?? "",

@@ -3,7 +3,10 @@ import {
   type AnalysisReport,
   type FailureObservation,
 } from "./analyze.js";
-import { recommendMatrix } from "./recommend.js";
+import {
+  recommendMatrix,
+  type RecommendationOptions,
+} from "./recommend.js";
 import { observedCombinatorialCoverage } from "./coverage.js";
 import type { MatrixTrimConstraints } from "./config.js";
 
@@ -21,6 +24,9 @@ export type BacktestReport = {
   trainingRuns: number;
   holdoutRuns: number;
   selectedCells: string[];
+  optimizerAlgorithm: "exact-branch-and-bound" | "greedy-weighted-set-cover";
+  optimizerOptimal: boolean | null;
+  optimizerSearchNodes: number;
   trainingFingerprints: number;
   holdoutFingerprints: number;
   coveredHoldoutFingerprints: number;
@@ -72,7 +78,7 @@ function subsetReport(
   return {
     ...source,
     runsAnalyzed: runIds.size,
-    failedJobs: observations.length,
+    failedJobs: new Set(observations.map((item) => item.jobId)).size,
     fingerprints: clusters.length,
     cells,
     clusters,
@@ -86,6 +92,10 @@ export function backtestRecommendation(
   holdoutPercent = 25,
   coverageStrength = 2,
   constraints?: MatrixTrimConstraints,
+  optimizerOptions: Pick<
+    RecommendationOptions,
+    "optimizer" | "exactMaxNodes"
+  > = {},
 ): BacktestReport {
   if (holdoutPercent <= 0 || holdoutPercent >= 100) {
     throw new Error("holdoutPercent must be between 0 and 100");
@@ -129,6 +139,7 @@ export function backtestRecommendation(
   const recommendation = recommendMatrix(trainingReport, {
     maxStrength: coverageStrength,
     constraints,
+    ...optimizerOptions,
   });
   const selected = new Set(recommendation.selectedCells.map((cell) => cell.cell));
   const trainingFingerprints = new Set(training.map((item) => item.fingerprint));
@@ -174,6 +185,9 @@ export function backtestRecommendation(
     "Runtime costs and combinatorial constraints are computed from the training window only.",
     `Observed combinatorial coverage is preserved up to strength ${coverageStrength}.`,
   ];
+  if (recommendation.optimizerFallbackReason) {
+    warnings.push(recommendation.optimizerFallbackReason);
+  }
   if (recommendation.constraintRequirements) {
     warnings.push(
       `Applied ${recommendation.constraintRequirements} explicit hard constraint(s) to the training recommendation.`,
@@ -187,6 +201,9 @@ export function backtestRecommendation(
     trainingRuns: trainingRunIds.size,
     holdoutRuns: holdoutRunIds.size,
     selectedCells: [...selected],
+    optimizerAlgorithm: recommendation.algorithm,
+    optimizerOptimal: recommendation.optimizerOptimal,
+    optimizerSearchNodes: recommendation.optimizerSearchNodes,
     trainingFingerprints: trainingFingerprints.size,
     holdoutFingerprints: holdoutClusters.length,
     coveredHoldoutFingerprints: covered,

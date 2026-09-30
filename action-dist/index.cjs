@@ -8570,6 +8570,224 @@ function observedCombinatorialCoverage(cells, maxStrength = 2) {
   };
 }
 
+// src/optimizer.ts
+var EPSILON = 1e-9;
+function compareIds(a, b) {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+function solutionBetter(candidate, current) {
+  if (candidate.cost < current.cost - EPSILON) return true;
+  if (candidate.cost > current.cost + EPSILON) return false;
+  if (candidate.selected.length < current.selected.length) return true;
+  if (candidate.selected.length > current.selected.length) return false;
+  const a = [...candidate.selected].sort(compareIds);
+  const b = [...current.selected].sort(compareIds);
+  for (let index = 0; index < a.length; index++) {
+    const delta = compareIds(a[index], b[index]);
+    if (delta !== 0) return delta < 0;
+  }
+  return false;
+}
+function validate(candidates, requirements) {
+  const covered = /* @__PURE__ */ new Set();
+  for (const candidate of candidates) {
+    if (!Number.isFinite(candidate.cost) || candidate.cost <= 0) {
+      throw new Error(
+        `set-cover candidate ${candidate.id} has invalid cost ${candidate.cost}`
+      );
+    }
+    for (const token of candidate.covers) covered.add(token);
+  }
+  const missing = [...requirements].filter((token) => !covered.has(token));
+  if (missing.length) {
+    throw new Error(
+      `set-cover universe contains ${missing.length} uncovered requirement(s)`
+    );
+  }
+}
+function pruneRedundant(selected, requirements) {
+  const result = [...selected];
+  let changed = true;
+  while (changed) {
+    changed = false;
+    const removable = [...result].sort((a, b) => {
+      const costDelta = b.cost - a.cost;
+      if (Math.abs(costDelta) > EPSILON) return costDelta;
+      return compareIds(a.id, b.id);
+    });
+    for (const candidate of removable) {
+      const covered = /* @__PURE__ */ new Set();
+      for (const item of result) {
+        if (item.id === candidate.id) continue;
+        for (const token of item.covers) covered.add(token);
+      }
+      if ([...requirements].every((token) => covered.has(token))) {
+        const index = result.findIndex((item) => item.id === candidate.id);
+        if (index >= 0) result.splice(index, 1);
+        changed = true;
+        break;
+      }
+    }
+  }
+  return result;
+}
+function greedyWeightedSetCover(candidates, requirements) {
+  validate(candidates, requirements);
+  const uncovered = new Set(requirements);
+  const remaining = new Map(
+    candidates.slice().sort((a, b) => compareIds(a.id, b.id)).map((candidate) => [candidate.id, candidate])
+  );
+  const selected = [];
+  while (uncovered.size) {
+    let best;
+    let bestNew = [];
+    let bestScore = -1;
+    for (const candidate of remaining.values()) {
+      const newlyCovered = [...candidate.covers].filter(
+        (token) => uncovered.has(token)
+      );
+      if (!newlyCovered.length) continue;
+      const score = newlyCovered.length / candidate.cost;
+      if (score > bestScore + EPSILON || Math.abs(score - bestScore) <= EPSILON && newlyCovered.length > bestNew.length || Math.abs(score - bestScore) <= EPSILON && newlyCovered.length === bestNew.length && best && compareIds(candidate.id, best.id) < 0) {
+        best = candidate;
+        bestNew = newlyCovered;
+        bestScore = score;
+      }
+    }
+    if (!best) {
+      throw new Error("unable to satisfy set-cover requirements");
+    }
+    selected.push(best);
+    remaining.delete(best.id);
+    for (const token of bestNew) uncovered.delete(token);
+  }
+  const pruned = pruneRedundant(selected, requirements);
+  return {
+    selected: pruned.map((candidate) => candidate.id).sort(compareIds),
+    cost: pruned.reduce((sum, candidate) => sum + candidate.cost, 0)
+  };
+}
+function exactWeightedSetCover(candidates, requirements, options = {}) {
+  validate(candidates, requirements);
+  const maxNodes = options.maxNodes ?? 25e4;
+  if (!Number.isInteger(maxNodes) || maxNodes < 1) {
+    throw new Error("maxNodes must be a positive integer");
+  }
+  const sortedCandidates = candidates.slice().sort((a, b) => compareIds(a.id, b.id));
+  const candidateById = new Map(
+    sortedCandidates.map((candidate, index) => [candidate.id, index])
+  );
+  const requirementCandidates = /* @__PURE__ */ new Map();
+  for (const requirement of requirements) {
+    requirementCandidates.set(
+      requirement,
+      sortedCandidates.map(
+        (candidate, index) => candidate.covers.has(requirement) ? index : -1
+      ).filter((index) => index >= 0)
+    );
+  }
+  const initial = options.initial ?? greedyWeightedSetCover(sortedCandidates, requirements);
+  let best = {
+    selected: [...initial.selected].sort(compareIds),
+    cost: initial.cost
+  };
+  let searchNodes = 0;
+  let aborted = false;
+  function recurse(uncovered, selectedIndices, selectedSet, cost) {
+    if (aborted) return;
+    searchNodes++;
+    if (searchNodes > maxNodes) {
+      aborted = true;
+      return;
+    }
+    if (cost > best.cost + EPSILON) return;
+    if (!uncovered.size) {
+      const candidate = {
+        selected: selectedIndices.map((index) => sortedCandidates[index].id).sort(compareIds),
+        cost
+      };
+      if (solutionBetter(candidate, best)) best = candidate;
+      return;
+    }
+    let maxRatio = 0;
+    for (let index = 0; index < sortedCandidates.length; index++) {
+      if (selectedSet.has(index)) continue;
+      const candidate = sortedCandidates[index];
+      let gain = 0;
+      for (const token of candidate.covers) {
+        if (uncovered.has(token)) gain++;
+      }
+      if (!gain) continue;
+      maxRatio = Math.max(maxRatio, gain / candidate.cost);
+    }
+    if (!maxRatio) return;
+    const optimisticCost = cost + uncovered.size / maxRatio;
+    if (optimisticCost > best.cost + EPSILON) return;
+    let pivot;
+    let pivotCandidates = [];
+    for (const requirement of [...uncovered].sort(compareIds)) {
+      const eligible = (requirementCandidates.get(requirement) ?? []).filter((index) => !selectedSet.has(index));
+      if (!eligible.length) return;
+      if (pivot === void 0 || eligible.length < pivotCandidates.length) {
+        pivot = requirement;
+        pivotCandidates = eligible;
+        if (eligible.length === 1) break;
+      }
+    }
+    if (pivot === void 0) return;
+    pivotCandidates.sort((a, b) => {
+      const left = sortedCandidates[a];
+      const right = sortedCandidates[b];
+      let leftGain = 0;
+      let rightGain = 0;
+      for (const token of left.covers) {
+        if (uncovered.has(token)) leftGain++;
+      }
+      for (const token of right.covers) {
+        if (uncovered.has(token)) rightGain++;
+      }
+      const leftScore = leftGain / left.cost;
+      const rightScore = rightGain / right.cost;
+      if (Math.abs(leftScore - rightScore) > EPSILON) {
+        return rightScore - leftScore;
+      }
+      if (leftGain !== rightGain) return rightGain - leftGain;
+      if (Math.abs(left.cost - right.cost) > EPSILON) {
+        return left.cost - right.cost;
+      }
+      return compareIds(left.id, right.id);
+    });
+    for (const index of pivotCandidates) {
+      if (aborted) break;
+      const candidate = sortedCandidates[index];
+      const nextCost = cost + candidate.cost;
+      if (nextCost > best.cost + EPSILON) continue;
+      const nextUncovered = new Set(uncovered);
+      for (const token of candidate.covers) nextUncovered.delete(token);
+      const nextSelectedSet = new Set(selectedSet);
+      nextSelectedSet.add(index);
+      recurse(
+        nextUncovered,
+        [...selectedIndices, index],
+        nextSelectedSet,
+        nextCost
+      );
+    }
+  }
+  recurse(new Set(requirements), [], /* @__PURE__ */ new Set(), 0);
+  for (const id of best.selected) {
+    if (!candidateById.has(id)) {
+      throw new Error(`initial set-cover solution references unknown candidate: ${id}`);
+    }
+  }
+  return {
+    ...best,
+    optimal: !aborted,
+    searchNodes,
+    aborted
+  };
+}
+
 // src/pricing.ts
 var STANDARD_LABEL_PRICES = [
   {
@@ -8825,9 +9043,6 @@ function median3(values) {
 function costFor(cell, fallback) {
   return Math.max(cell.medianRuntimeSeconds ?? fallback, 0.1);
 }
-function stableCompare(a, b) {
-  return a < b ? -1 : a > b ? 1 : 0;
-}
 function matchesRequireConstraint(cell, selector) {
   if (selector.baseJob && cell.baseJob !== selector.baseJob) return false;
   if (!cell.axes) return false;
@@ -8842,6 +9057,14 @@ function recommendMatrix(report, options = {}) {
   const maxStrength = options.maxStrength ?? 2;
   if (!Number.isInteger(maxStrength) || maxStrength < 1 || maxStrength > 4) {
     throw new Error("maxStrength must be an integer from 1 to 4");
+  }
+  const optimizerMode = options.optimizer ?? "auto";
+  if (!["auto", "exact", "greedy"].includes(optimizerMode)) {
+    throw new Error("optimizer must be auto, exact, or greedy");
+  }
+  const exactMaxNodes = options.exactMaxNodes ?? 25e4;
+  if (!Number.isInteger(exactMaxNodes) || exactMaxNodes < 1) {
+    throw new Error("exactMaxNodes must be a positive integer");
   }
   const knownRuntimes = report.cells.map((cell) => cell.medianRuntimeSeconds).filter((value) => value !== null);
   const fallbackCost = median3(knownRuntimes) ?? 1;
@@ -8927,59 +9150,43 @@ function recommendMatrix(report, options = {}) {
     }
     coverageByCell.set(cell.cell, coverage);
   }
-  const uncovered = new Set(universe);
-  const selected = [];
-  const remaining = new Map(report.cells.map((cell) => [cell.cell, cell]));
-  while (uncovered.size) {
-    let best;
-    let bestNew = [];
-    let bestScore = -1;
-    for (const cell of remaining.values()) {
-      const newlyCovered = [...coverageByCell.get(cell.cell) ?? []].filter((item) => uncovered.has(item));
-      if (!newlyCovered.length) continue;
-      const score = newlyCovered.length / costFor(cell, fallbackCost);
-      if (score > bestScore || score === bestScore && newlyCovered.length > bestNew.length || score === bestScore && newlyCovered.length === bestNew.length && best && stableCompare(cell.cell, best.cell) < 0) {
-        best = cell;
-        bestNew = newlyCovered;
-        bestScore = score;
-      }
-    }
-    if (!best) break;
-    selected.push(best);
-    remaining.delete(best.cell);
-    for (const item of bestNew) uncovered.delete(item);
-  }
-  if (uncovered.size) {
-    throw new Error(
-      `unable to satisfy ${uncovered.size} hard/coverage requirement(s)`
-    );
-  }
-  let pruned = true;
-  while (pruned) {
-    pruned = false;
-    const candidates = [...selected].sort((a, b) => {
-      const costDelta = costFor(b, fallbackCost) - costFor(a, fallbackCost);
-      if (costDelta !== 0) return costDelta;
-      return stableCompare(a.cell, b.cell);
+  const solverCandidates = report.cells.map((cell) => ({
+    id: cell.cell,
+    cost: costFor(cell, fallbackCost),
+    covers: coverageByCell.get(cell.cell) ?? /* @__PURE__ */ new Set()
+  }));
+  const greedySolution = greedyWeightedSetCover(solverCandidates, universe);
+  let selectedSolution = greedySolution;
+  let algorithm = "greedy-weighted-set-cover";
+  let optimizerOptimal = optimizerMode === "greedy" ? null : false;
+  let optimizerSearchNodes = 0;
+  let optimizerFallbackReason;
+  if (optimizerMode !== "greedy") {
+    const exact = exactWeightedSetCover(solverCandidates, universe, {
+      maxNodes: exactMaxNodes,
+      initial: greedySolution
     });
-    for (const candidate of candidates) {
-      const without = selected.filter((cell) => cell.cell !== candidate.cell);
-      const covered = /* @__PURE__ */ new Set();
-      for (const cell of without) {
-        for (const item of coverageByCell.get(cell.cell) ?? []) {
-          covered.add(item);
-        }
-      }
-      if ([...universe].every((item) => covered.has(item))) {
-        const index = selected.findIndex(
-          (cell) => cell.cell === candidate.cell
-        );
-        if (index >= 0) selected.splice(index, 1);
-        pruned = true;
-        break;
-      }
+    optimizerSearchNodes = exact.searchNodes;
+    if (exact.optimal) {
+      selectedSolution = exact;
+      algorithm = "exact-branch-and-bound";
+      optimizerOptimal = true;
+    } else if (optimizerMode === "exact") {
+      throw new Error(
+        `exact optimizer exceeded node budget (${exactMaxNodes}) before proving optimality`
+      );
+    } else {
+      optimizerFallbackReason = `Exact optimizer exceeded node budget (${exactMaxNodes}); using deterministic greedy fallback.`;
     }
   }
+  const selected = selectedSolution.selected.map((cell) => {
+    const match = cellsByName.get(cell);
+    if (!match) {
+      throw new Error(`optimizer selected unknown matrix cell: ${cell}`);
+    }
+    return match;
+  });
+  const optimizerImprovementPercent = greedySolution.cost > 0 ? (1 - selectedSolution.cost / greedySolution.cost) * 100 : 0;
   const selectedNames = new Set(selected.map((cell) => cell.cell));
   const coveredFailures = /* @__PURE__ */ new Set();
   const coveredCombinations = /* @__PURE__ */ new Set();
@@ -9043,6 +9250,9 @@ function recommendMatrix(report, options = {}) {
     `Combinatorial coverage preserves observed axis combinations up to strength ${maxStrength}; it does not invent combinations absent from the observed matrix.`,
     "Runtime estimates come from matrix jobs observed across completed workflow runs."
   ];
+  if (optimizerFallbackReason) {
+    warnings.push(optimizerFallbackReason);
+  }
   if (constraintTokens.length) {
     warnings.push(
       `Applied ${constraintTokens.length} explicit hard constraint(s): keep=${keepRequirements.length}, require=${requireRequirements.length}.`
@@ -9099,7 +9309,14 @@ function recommendMatrix(report, options = {}) {
   }
   return {
     mode: "history+combinatorial",
-    algorithm: "greedy-weighted-set-cover",
+    algorithm,
+    optimizerMode,
+    optimizerOptimal,
+    optimizerSearchNodes,
+    ...optimizerFallbackReason ? { optimizerFallbackReason } : {},
+    greedyObjectiveCost: greedySolution.cost,
+    selectedObjectiveCost: selectedSolution.cost,
+    optimizerImprovementPercent,
     coverageStrength: maxStrength,
     currentCells: report.cells.length,
     selectedCells: selected.map((cell) => ({
@@ -9174,7 +9391,7 @@ function subsetReport(source, observations, runIds) {
   return {
     ...source,
     runsAnalyzed: runIds.size,
-    failedJobs: observations.length,
+    failedJobs: new Set(observations.map((item) => item.jobId)).size,
     fingerprints: clusters.length,
     cells,
     clusters,
@@ -9182,7 +9399,7 @@ function subsetReport(source, observations, runIds) {
     matrixJobs
   };
 }
-function backtestRecommendation(report, holdoutPercent = 25, coverageStrength = 2, constraints) {
+function backtestRecommendation(report, holdoutPercent = 25, coverageStrength = 2, constraints, optimizerOptions = {}) {
   if (holdoutPercent <= 0 || holdoutPercent >= 100) {
     throw new Error("holdoutPercent must be between 0 and 100");
   }
@@ -9214,7 +9431,8 @@ function backtestRecommendation(report, holdoutPercent = 25, coverageStrength = 
   const holdoutReport = subsetReport(report, holdout, holdoutRunIds);
   const recommendation = recommendMatrix(trainingReport, {
     maxStrength: coverageStrength,
-    constraints
+    constraints,
+    ...optimizerOptions
   });
   const selected = new Set(recommendation.selectedCells.map((cell) => cell.cell));
   const trainingFingerprints = new Set(training.map((item) => item.fingerprint));
@@ -9256,6 +9474,9 @@ function backtestRecommendation(report, holdoutPercent = 25, coverageStrength = 
     "Runtime costs and combinatorial constraints are computed from the training window only.",
     `Observed combinatorial coverage is preserved up to strength ${coverageStrength}.`
   ];
+  if (recommendation.optimizerFallbackReason) {
+    warnings.push(recommendation.optimizerFallbackReason);
+  }
   if (recommendation.constraintRequirements) {
     warnings.push(
       `Applied ${recommendation.constraintRequirements} explicit hard constraint(s) to the training recommendation.`
@@ -9268,6 +9489,9 @@ function backtestRecommendation(report, holdoutPercent = 25, coverageStrength = 
     trainingRuns: trainingRunIds.size,
     holdoutRuns: holdoutRunIds.size,
     selectedCells: [...selected],
+    optimizerAlgorithm: recommendation.algorithm,
+    optimizerOptimal: recommendation.optimizerOptimal,
+    optimizerSearchNodes: recommendation.optimizerSearchNodes,
     trainingFingerprints: trainingFingerprints.size,
     holdoutFingerprints: holdoutClusters.length,
     coveredHoldoutFingerprints: covered,
@@ -9300,6 +9524,7 @@ function formatActionReport(repository, workflow, recommendation, backtest, back
   const projectedCharge30d = recommendation.pricing.currentEstimatedChargeUsdPer30Days === null || recommendation.pricing.selectedEstimatedChargeUsdPer30Days === null || recommendation.pricing.projectedRunsPer30Days === null ? "n/a" : `${dollars(recommendation.pricing.currentEstimatedChargeUsdPer30Days, 2)} \u2192 ${dollars(recommendation.pricing.selectedEstimatedChargeUsdPer30Days, 2)} (${recommendation.pricing.projectedRunsPer30Days.toFixed(1)} runs)`;
   const repositoryVisibility = recommendation.pricing.repositoryVisibility ?? "unknown";
   const backtestRows = backtest ? [
+    `| Holdout optimizer | ${backtest.optimizerAlgorithm} (optimal=${backtest.optimizerOptimal ?? "n/a"}, nodes=${backtest.optimizerSearchNodes}) |`,
     `| Holdout failure recall | ${backtest.coveredHoldoutFingerprints}/${backtest.holdoutFingerprints} (${percent(backtest.holdoutRecall)}) |`,
     `| Unseen-failure recall | ${backtest.unseenHoldoutRecall === null ? "n/a" : `${backtest.coveredUnseenHoldoutFingerprints}/${backtest.unseenHoldoutFingerprints} (${percent(backtest.unseenHoldoutRecall)})`} |`,
     `| Holdout combinatorial coverage | ${backtest.holdoutCombinatorialCoverage === null ? "n/a" : `${backtest.coveredHoldoutCombinatorialRequirements}/${backtest.holdoutCombinatorialRequirements} (${percent(backtest.holdoutCombinatorialCoverage)})`} |`
@@ -9316,6 +9541,8 @@ function formatActionReport(repository, workflow, recommendation, backtest, back
 | --- | ---: |
 | Current matrix cells | ${recommendation.currentCells} |
 | Suggested cells | ${recommendation.selectedCells.length} |
+| Optimizer | ${recommendation.algorithm} (mode=${recommendation.optimizerMode}, optimal=${recommendation.optimizerOptimal ?? "n/a"}, nodes=${recommendation.optimizerSearchNodes}) |
+| Optimizer improvement vs greedy | ${recommendation.optimizerImprovementPercent.toFixed(1)}% |
 | Historical failure recall | ${historical} |
 | Failure events | ${recommendation.failureEvents} |
 | Failed jobs with events | ${recommendation.failedJobsWithEvents} |
@@ -9498,6 +9725,9 @@ function optimizationSafetyReason(analysis, recommendation, backtest) {
   if (recommendation.coveredConstraintRequirements < recommendation.constraintRequirements) {
     return "one or more explicit hard constraints are not satisfied";
   }
+  if (recommendation.optimizerMode === "auto" && recommendation.optimizerOptimal === false) {
+    return "exact optimizer did not prove optimality within the node budget";
+  }
   if (backtest && backtest.holdoutRecall < 1) {
     return "holdout failure recall is below 100%";
   }
@@ -9526,6 +9756,8 @@ ${jobs}
 
 ### Evidence
 
+- Optimizer: ${recommendation.algorithm} (mode=${recommendation.optimizerMode}, optimal=${recommendation.optimizerOptimal ?? "n/a"}, nodes=${recommendation.optimizerSearchNodes})
+- Optimizer improvement vs greedy: ${recommendation.optimizerImprovementPercent.toFixed(1)}%
 - Historical failure recall: ${recommendation.historicalRecall === null ? "n/a" : `${(recommendation.historicalRecall * 100).toFixed(1)}%`}
 - Observed combinatorial coverage: ${recommendation.combinatorialCoverage === null ? "n/a" : `${(recommendation.combinatorialCoverage * 100).toFixed(1)}%`}
 - Explicit hard constraints: ${recommendation.coveredConstraintRequirements}/${recommendation.constraintRequirements}
@@ -9681,6 +9913,17 @@ async function main() {
   const limit = intInput("limit", 100, 2, 500);
   const holdout = intInput("holdout", 25, 5, 50);
   const strength = intInput("strength", 2, 1, 4);
+  const optimizerRaw = input("optimizer") || "auto";
+  if (!["auto", "exact", "greedy"].includes(optimizerRaw)) {
+    throw new Error("optimizer must be auto, exact, or greedy");
+  }
+  const optimizer = optimizerRaw;
+  const exactMaxNodes = intInput(
+    "exact-max-nodes",
+    25e4,
+    1,
+    1e7
+  );
   const configPath = input("config") || ".matrixtrim.yml";
   const comment = boolInput("comment", true);
   const createPr = boolInput("create-pr", false);
@@ -9691,7 +9934,7 @@ async function main() {
     configPath !== ".matrixtrim.yml"
   );
   console.log(
-    `MatrixTrim: repository=${repository}, workflow=${workflow ?? "all"}, limit=${limit}, strength=${strength}, constraints=${(config?.constraints.keep.length ?? 0) + (config?.constraints.require.length ?? 0)}`
+    `MatrixTrim: repository=${repository}, workflow=${workflow ?? "all"}, limit=${limit}, strength=${strength}, optimizer=${optimizer}, exactMaxNodes=${exactMaxNodes}, constraints=${(config?.constraints.keep.length ?? 0) + (config?.constraints.require.length ?? 0)}`
   );
   const analysis = await analyzeRepository(repository, {
     limit,
@@ -9700,7 +9943,9 @@ async function main() {
   });
   const recommendation = recommendMatrix(analysis, {
     maxStrength: strength,
-    constraints: config?.constraints
+    constraints: config?.constraints,
+    optimizer,
+    exactMaxNodes
   });
   let backtest = null;
   let backtestError;
@@ -9709,7 +9954,11 @@ async function main() {
       analysis,
       holdout,
       strength,
-      config?.constraints
+      config?.constraints,
+      {
+        optimizer,
+        exactMaxNodes
+      }
     );
   } catch (error) {
     backtestError = error.message;
@@ -9730,6 +9979,23 @@ async function main() {
   }
   await writeOutput("current-cells", recommendation.currentCells);
   await writeOutput("selected-cells", recommendation.selectedCells.length);
+  await writeOutput("optimizer-algorithm", recommendation.algorithm);
+  await writeOutput(
+    "optimizer-optimal",
+    recommendation.optimizerOptimal === null ? "" : String(recommendation.optimizerOptimal)
+  );
+  await writeOutput(
+    "optimizer-search-nodes",
+    recommendation.optimizerSearchNodes
+  );
+  await writeOutput(
+    "optimizer-improvement-percent",
+    recommendation.optimizerImprovementPercent.toFixed(1)
+  );
+  await writeOutput(
+    "optimizer-fallback-reason",
+    recommendation.optimizerFallbackReason ?? ""
+  );
   await writeOutput(
     "compute-reduction-percent",
     recommendation.estimatedComputeReductionPercent?.toFixed(1) ?? ""

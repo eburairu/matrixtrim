@@ -40,6 +40,9 @@ jobs:
         run: |
           test -n "${{ steps.matrixtrim.outputs.failure-events }}"
           test -n "${{ steps.matrixtrim.outputs.multi-event-jobs }}"
+          test "${{ steps.matrixtrim.outputs.optimizer-algorithm }}" = "exact-branch-and-bound"
+          test "${{ steps.matrixtrim.outputs.optimizer-optimal }}" = "true"
+          test -n "${{ steps.matrixtrim.outputs.optimizer-search-nodes }}"
           test "${{ steps.matrixtrim.outputs.constraint-requirements }}" = "1"
           test "${{ steps.matrixtrim.outputs.constraint-coverage }}" = "1.0000"
       - name: Verify PR-trigger safety guard

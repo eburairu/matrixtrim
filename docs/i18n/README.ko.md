@@ -16,7 +16,7 @@ MatrixTrim은 단순히 job 수를 줄이는 도구가 아닙니다. 핵심 질�
 
 목표는 **과거 failure coverage, 실행 비용, matrix 구조, holdout backtest**를 바탕으로 더 작은 CI matrix 후보를 제안하는 것입니다.
 
-> **현재 상태: v0.12 experimental.** multi-event root-cause fingerprint, 과거 failure evidence, 관측된 1-wise / pairwise / t-wise configuration coverage, 사람이 명시하는 keep / compatibility constraint, runtime cost와 runner-aware 금액 추정, time-based holdout backtest, 렌더링된 matrix job 이름 복원, GitHub Action, 재현 가능한 공개 OSS benchmark, 명시적 opt-in draft 최적화 PR 생성까지 지원합니다.
+> **현재 상태: v0.13 experimental.** multi-event root-cause fingerprint, 과거 failure evidence, 관측된 1-wise / pairwise / t-wise configuration coverage, 사람이 명시하는 keep / compatibility constraint, exact branch-and-bound optimizer, runtime cost와 runner-aware 금액 추정, time-based holdout backtest, 렌더링된 matrix job 이름 복원, GitHub Action, 재현 가능한 공개 OSS benchmark, 명시적 opt-in draft 최적화 PR 생성까지 지원합니다.
 
 ## 왜 MatrixTrim인가?
 
@@ -106,7 +106,13 @@ recommendation은 아직 **experimental**입니다. 핵심은 조합을 자동 �
 4. 각 matrix job family에서 최소 1개 cell
 5. 위 조건을 지키는 범위에서 median runtime 기준 추정 compute 최소화
 
-`--strength 3`을 사용하면 관측된 3-wise 조합까지 유지합니다. 실제 matrix에 없던 조합을 새로 만들어 요구하지 않습니다. 현재 optimizer는 greedy weighted set cover입니다.
+`--strength 3`을 사용하면 관측된 3-wise 조합까지 유지합니다. 실제 matrix에 없던 조합을 새로 만들어 요구하지 않습니다.
+
+## exact optimizer
+
+기본값인 `--optimizer auto`는 deterministic greedy 해를 먼저 구한 뒤, 프로세스 내부 branch-and-bound로 현재 coverage 요구사항을 만족하는 runtime 가중 비용 최소 cell 집합을 증명합니다. 기본 **250,000 nodes**를 넘으면 `auto`는 명시적으로 greedy로 fallback합니다. `--optimizer exact`는 증명되지 않은 결과를 반환하지 않고 실패하며, `--optimizer greedy`는 exact 탐색을 건너뜁니다.
+
+여기서 “exact”는 **현재 weighted set-cover model에 대해 최적**이라는 뜻이지, 제거 후보 environment가 미래의 failure를 절대 잡지 못한다는 증명은 아닙니다. 자세한 내용은 [Exact optimizer](../optimizer.md)를 참고하세요.
 
 ## 최신 failure로 backtest
 
@@ -148,6 +154,7 @@ steps:
       workflow: ci.yml
       limit: "100"
       strength: "2"
+      optimizer: auto
       holdout: "25"
 ```
 
@@ -171,6 +178,7 @@ steps:
       workflow: ci.yml
       limit: "100"
       strength: "2"
+      optimizer: auto
       holdout: "25"
       create-pr: "true"
 ```
@@ -217,9 +225,9 @@ MatrixTrim은 모든 CI minute를 같은 비용으로 보지 않고, 실제 runn
 유리한 사례만 골라 검증하는 것을 피하기 위해 **12개 공개 OSS 저장소에서 결과가 확정된 completed workflow run을 각각 20개씩 고정**하고, `--strength 2`와 25% time holdout으로 평가했습니다.
 
 - **12개 중 10개 저장소를 완전히 해석**했습니다. 관측된 axis 복원, workflow 이름 렌더링, active matrix family의 실제 job 이름 매칭이 모두 100%였으며, 나머지 2개는 partial이라 검증된 축소 결과에 포함하지 않았습니다.
-- 검증된 비제로 축소 사례는 **pandas 34 → 32 cells (-7.2%)**, **Flask 12 → 10 (-13.6%)**, **Diesel 28 → 25 (-7.2%)**입니다.
-- runner 단가와 job별 1분 단위 올림 때문에 compute 감소율과 금액 감소율은 같지 않습니다. standard runner rate-card 기준으로 pandas **$25.148 → $24.671/run (-1.9%)**, Flask **$0.132 → $0.120/run (-9.1%)**, Diesel **$11.624 → $11.462/run (-1.4%)**였습니다. 세 저장소 모두 public이므로 standard runner의 예상 GitHub 실제 청구액은 **$0**입니다.
-- pandas와 Vite는 사용 가능한 backtest 구간에서 **holdout recall 100%, unseen-failure recall 100%**를 유지했습니다. Diesel도 **holdout recall 100%**를 유지했지만 holdout에 새로운 fingerprint가 없어 unseen-failure recall은 **n/a**입니다.
+- 검증된 비제로 축소 사례는 **pandas 34 → 32 cells (-7.2%)**, **Flask 12 → 10 (-13.6%)**, **Diesel 28 → 25 (-8.3%)**입니다.
+- runner 단가와 job별 1분 단위 올림 때문에 compute 감소율과 금액 감소율은 같지 않습니다. standard runner rate-card 기준으로 pandas **$25.148 → $24.671/run (-1.9%)**, Flask **$0.132 → $0.120/run (-9.1%)**, Diesel **$11.624 → $11.438/run (-1.6%)**였습니다. 세 저장소 모두 public이므로 standard runner의 예상 GitHub 실제 청구액은 **$0**입니다.
+- exact optimizer는 benchmark **12/12 저장소에서 optimality를 증명**했고 greedy fallback은 **0건**, 최대 탐색량은 **102 nodes**였습니다. 11개 저장소에서는 greedy와 같은 해였고, Diesel에서는 greedy runtime 목적값을 **1.15% 개선**해 compute 감소율이 약 **7.6% → 8.3%**로 올라갔습니다. pandas와 Vite는 사용 가능한 backtest 구간에서 **holdout recall 100%, unseen-failure recall 100%**를 유지했습니다. Diesel도 **holdout recall 100%**를 유지했지만 holdout에 새로운 fingerprint가 없어 unseen-failure recall은 **n/a**입니다.
 - 고정 snapshot의 실제 로그에서도 event-level 추출이 동작했습니다. **pandas는 failed jobs 59개 → events 151개 → 서로 다른 root-cause fingerprints 5개**, **Vite는 8 → 25 → 23**, Rust의 volatile 값과 파생 summary를 정규화한 **Diesel은 40 → 40 → 1**로 수렴했습니다.
 - 완전히 해석된 10개 저장소 중 **7개는 안전 제약 때문에 의도적으로 축소하지 않았습니다**.
 - aiohttp와 Tokio는 여전히 partial입니다. 현재 recommendation은 unresolved cell을 안전 제약으로 개별 유지하므로 이 snapshot에서 **aiohttp 29 → 29 / Tokio 51 → 51**이며, 둘 다 validated reduction에 포함하지 않습니다.
@@ -276,7 +284,7 @@ timestamp, 절대 경로, UUID, duration, line number처럼 흔들리는 정보�
 - [x] runner-aware monetary cost model
 - [x] multi-event failure fingerprint
 - [x] opt-in draft recommendation PR 생성
-- [ ] 더 강한 / exact optimizer
+- [x] 더 강한 / exact optimizer
 
 ## 설계 원칙
 

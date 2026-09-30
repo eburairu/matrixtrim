@@ -36,6 +36,17 @@ const markdownPath = arg("--markdown", "benchmark/results.md");
 const limit = Number.parseInt(arg("--limit", "20"), 10);
 const strength = Number.parseInt(arg("--strength", "2"), 10);
 const holdout = Number.parseInt(arg("--holdout", "25"), 10);
+const optimizer = arg("--optimizer", "auto");
+const exactMaxNodes = Number.parseInt(
+  arg("--exact-max-nodes", "250000"),
+  10,
+);
+if (!["auto", "exact", "greedy"].includes(optimizer)) {
+  throw new Error("--optimizer must be auto, exact, or greedy");
+}
+if (!Number.isInteger(exactMaxNodes) || exactMaxNodes < 1) {
+  throw new Error("--exact-max-nodes must be a positive integer");
+}
 const refreshSnapshot = hasFlag("--refresh-snapshot");
 const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
 
@@ -99,6 +110,8 @@ for (const target of snapshot.targets) {
     limit,
     strength,
     holdout,
+    optimizerRequested: optimizer,
+    exactMaxNodes,
   };
 
   try {
@@ -161,6 +174,8 @@ for (const target of snapshot.targets) {
 
     const recommendation = recommendMatrix(analysis, {
       maxStrength: strength,
+      optimizer,
+      exactMaxNodes,
     });
 
     row.selectedCells = recommendation.selectedCells.length;
@@ -172,6 +187,16 @@ for (const target of snapshot.targets) {
         : 0;
     row.historicalRecall = recommendation.historicalRecall;
     row.combinatorialCoverage = recommendation.combinatorialCoverage;
+    row.optimizerAlgorithm = recommendation.algorithm;
+    row.optimizerMode = recommendation.optimizerMode;
+    row.optimizerOptimal = recommendation.optimizerOptimal;
+    row.optimizerSearchNodes = recommendation.optimizerSearchNodes;
+    row.optimizerFallbackReason =
+      recommendation.optimizerFallbackReason ?? null;
+    row.greedyObjectiveCost = recommendation.greedyObjectiveCost;
+    row.selectedObjectiveCost = recommendation.selectedObjectiveCost;
+    row.optimizerImprovementPercent =
+      recommendation.optimizerImprovementPercent;
     row.computeReductionPercent =
       recommendation.estimatedComputeReductionPercent;
     row.currentEstimatedSeconds = recommendation.currentEstimatedSeconds;
@@ -207,10 +232,18 @@ for (const target of snapshot.targets) {
         analysis,
         holdout,
         strength,
+        undefined,
+        {
+          optimizer,
+          exactMaxNodes,
+        },
       );
       row.backtest = {
         trainingRuns: backtest.trainingRuns,
         holdoutRuns: backtest.holdoutRuns,
+        optimizerAlgorithm: backtest.optimizerAlgorithm,
+        optimizerOptimal: backtest.optimizerOptimal,
+        optimizerSearchNodes: backtest.optimizerSearchNodes,
         holdoutRecall: backtest.holdoutRecall,
         unseenFailureRecall: backtest.unseenHoldoutRecall,
         unseenHoldoutFingerprints: backtest.unseenHoldoutFingerprints,
@@ -270,6 +303,8 @@ for (const target of snapshot.targets) {
     limit,
     strength,
     holdout,
+    optimizer,
+    exactMaxNodes,
     results,
   }, null, 2) + "\n");
 }
@@ -299,6 +334,17 @@ function usdPair(current, selected) {
     : `${usd(current)} → ${usd(selected)}`;
 }
 
+function optimizerLabel(row) {
+  if (!row.optimizerAlgorithm) return "n/a";
+  if (row.optimizerAlgorithm === "exact-branch-and-bound") {
+    return `exact ✓ (${row.optimizerSearchNodes ?? 0} nodes)`;
+  }
+  if (row.optimizerFallbackReason) {
+    return `greedy fallback (${row.optimizerSearchNodes ?? 0} nodes)`;
+  }
+  return "greedy";
+}
+
 const resolvedCount = results.filter((row) => row.status === "resolved").length;
 const partialCount = results.filter((row) => row.status === "partial").length;
 const unresolvedCount = results.filter((row) => row.status === "unresolved").length;
@@ -314,7 +360,7 @@ const lines = [
   "",
   `Run snapshot captured: ${snapshot.capturedAt}`,
   "",
-  `Settings: ${limit} pinned conclusive completed runs per repository, strength=${strength}, holdout=${holdout}%.`,
+  `Settings: ${limit} pinned conclusive completed runs per repository, strength=${strength}, holdout=${holdout}%, optimizer=${optimizer}, exactMaxNodes=${exactMaxNodes}.`,
   "",
   "Results are based on pinned workflow run IDs in benchmark/snapshot.json. Re-running without --refresh-snapshot uses the same run set.",
   "",
@@ -328,11 +374,11 @@ const lines = [
   "",
   ...validatedReductions.map(
     (row) =>
-      `- **${row.repository}**: ${row.matrixCells} → ${row.selectedCells} cells, ${pctRaw(row.computeReductionPercent)} estimated compute reduction; standard-runner rate-card ${usdPair(row.currentRateCardUsdPerRun, row.selectedRateCardUsdPerRun)} per run; estimated GitHub charge ${usdPair(row.currentEstimatedChargeUsdPerRun, row.selectedEstimatedChargeUsdPerRun)} per run.`,
+      `- **${row.repository}**: ${row.matrixCells} → ${row.selectedCells} cells, ${pctRaw(row.computeReductionPercent)} estimated compute reduction; optimizer=${optimizerLabel(row)}, greedy-objective improvement=${pctRaw(row.optimizerImprovementPercent)}; standard-runner rate-card ${usdPair(row.currentRateCardUsdPerRun, row.selectedRateCardUsdPerRun)} per run; estimated GitHub charge ${usdPair(row.currentEstimatedChargeUsdPerRun, row.selectedEstimatedChargeUsdPerRun)} per run.`,
   ),
   "",
-  "| Repository | Status | Cells | Selected | Axis resolved | Workflow render | Job match | Failed jobs | Failure events | Multi-event jobs | Fingerprints | Historical recall | Holdout recall | Unseen recall | Compute reduction | Pricing coverage | Rate-card/run | Est. charge/run |",
-  "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+  "| Repository | Status | Cells | Selected | Axis resolved | Workflow render | Job match | Failed jobs | Failure events | Multi-event jobs | Fingerprints | Optimizer | Greedy Δ | Historical recall | Holdout recall | Unseen recall | Compute reduction | Pricing coverage | Rate-card/run | Est. charge/run |",
+  "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
 ];
 
 for (const row of results) {
@@ -349,15 +395,21 @@ for (const row of results) {
     ? "n/a"
     : `${(row.workflowMatchCoverage * 100).toFixed(0)}%`;
   lines.push(
-    `| ${row.repository} | ${row.status} | ${row.matrixCells ?? "n/a"} | ${selected} | ${axis} | ${workflowRender} | ${workflowMatch} | ${row.failedJobs ?? "n/a"} | ${row.failureEvents ?? "n/a"} | ${row.multiEventJobs ?? "n/a"} | ${row.fingerprints ?? "n/a"} | ${pct(row.historicalRecall)} | ${pct(row.backtest?.holdoutRecall)} | ${pct(row.backtest?.unseenFailureRecall)} | ${pctRaw(row.computeReductionPercent)} | ${pct(row.pricingCoverage)} | ${usdPair(row.currentRateCardUsdPerRun, row.selectedRateCardUsdPerRun)} | ${usdPair(row.currentEstimatedChargeUsdPerRun, row.selectedEstimatedChargeUsdPerRun)} |`,
+    `| ${row.repository} | ${row.status} | ${row.matrixCells ?? "n/a"} | ${selected} | ${axis} | ${workflowRender} | ${workflowMatch} | ${row.failedJobs ?? "n/a"} | ${row.failureEvents ?? "n/a"} | ${row.multiEventJobs ?? "n/a"} | ${row.fingerprints ?? "n/a"} | ${optimizerLabel(row)} | ${pctRaw(row.optimizerImprovementPercent)} | ${pct(row.historicalRecall)} | ${pct(row.backtest?.holdoutRecall)} | ${pct(row.backtest?.unseenFailureRecall)} | ${pctRaw(row.computeReductionPercent)} | ${pct(row.pricingCoverage)} | ${usdPair(row.currentRateCardUsdPerRun, row.selectedRateCardUsdPerRun)} | ${usdPair(row.currentEstimatedChargeUsdPerRun, row.selectedEstimatedChargeUsdPerRun)} |`,
   );
 }
 
 lines.push("", "## Notes", "");
 for (const row of results) {
-  if (row.reason || row.backtestReason) {
+  if (row.reason || row.backtestReason || row.optimizerFallbackReason) {
     lines.push(
-      `- **${row.repository}**: ${[row.reason, row.backtestReason ? `backtest: ${row.backtestReason}` : null].filter(Boolean).join(" ")}`,
+      `- **${row.repository}**: ${[
+        row.reason,
+        row.optimizerFallbackReason
+          ? `optimizer: ${row.optimizerFallbackReason}`
+          : null,
+        row.backtestReason ? `backtest: ${row.backtestReason}` : null,
+      ].filter(Boolean).join(" ")}`,
     );
   }
 }

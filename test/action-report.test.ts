@@ -7,7 +7,13 @@ describe("GitHub Action report", () => {
   it("renders recommendation and backtest metrics", () => {
     const recommendation: RecommendationReport = {
       mode: "history+combinatorial",
-      algorithm: "greedy-weighted-set-cover",
+      algorithm: "exact-branch-and-bound",
+      optimizerMode: "auto",
+      optimizerOptimal: true,
+      optimizerSearchNodes: 42,
+      greedyObjectiveCost: 50,
+      selectedObjectiveCost: 40,
+      optimizerImprovementPercent: 20,
       coverageStrength: 2,
       currentCells: 8,
       selectedCells: [
@@ -77,6 +83,9 @@ describe("GitHub Action report", () => {
       trainingRuns: 6,
       holdoutRuns: 2,
       selectedCells: ["test (ubuntu, 20)"],
+      optimizerAlgorithm: "exact-branch-and-bound",
+      optimizerOptimal: true,
+      optimizerSearchNodes: 21,
       trainingFingerprints: 2,
       holdoutFingerprints: 2,
       coveredHoldoutFingerprints: 2,
@@ -101,6 +110,13 @@ describe("GitHub Action report", () => {
     expect(report).toContain("<!-- matrixtrim-report -->");
     expect(report).toContain("| Current matrix cells | 8 |");
     expect(report).toContain("| Suggested cells | 1 |");
+    expect(report).toContain(
+      "| Optimizer | exact-branch-and-bound (mode=auto, optimal=true, nodes=42) |",
+    );
+    expect(report).toContain("| Optimizer improvement vs greedy | 20.0% |");
+    expect(report).toContain(
+      "| Holdout optimizer | exact-branch-and-bound (optimal=true, nodes=21) |",
+    );
     expect(report).toContain("| Failure events | 3 |");
     expect(report).toContain("| Failed jobs with events | 2 |");
     expect(report).toContain("| Multi-event jobs | 1 |");

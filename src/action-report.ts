@@ -69,6 +69,7 @@ export function formatActionReport(
 
   const backtestRows = backtest
     ? [
+        `| Holdout optimizer | ${backtest.optimizerAlgorithm} (optimal=${backtest.optimizerOptimal ?? "n/a"}, nodes=${backtest.optimizerSearchNodes}) |`,
         `| Holdout failure recall | ${backtest.coveredHoldoutFingerprints}/${backtest.holdoutFingerprints} (${percent(backtest.holdoutRecall)}) |`,
         `| Unseen-failure recall | ${backtest.unseenHoldoutRecall === null ? "n/a" : `${backtest.coveredUnseenHoldoutFingerprints}/${backtest.unseenHoldoutFingerprints} (${percent(backtest.unseenHoldoutRecall)})`} |`,
         `| Holdout combinatorial coverage | ${backtest.holdoutCombinatorialCoverage === null ? "n/a" : `${backtest.coveredHoldoutCombinatorialRequirements}/${backtest.holdoutCombinatorialRequirements} (${percent(backtest.holdoutCombinatorialCoverage)})`} |`,
@@ -90,6 +91,8 @@ export function formatActionReport(
 | --- | ---: |
 | Current matrix cells | ${recommendation.currentCells} |
 | Suggested cells | ${recommendation.selectedCells.length} |
+| Optimizer | ${recommendation.algorithm} (mode=${recommendation.optimizerMode}, optimal=${recommendation.optimizerOptimal ?? "n/a"}, nodes=${recommendation.optimizerSearchNodes}) |
+| Optimizer improvement vs greedy | ${recommendation.optimizerImprovementPercent.toFixed(1)}% |
 | Historical failure recall | ${historical} |
 | Failure events | ${recommendation.failureEvents} |
 | Failed jobs with events | ${recommendation.failedJobsWithEvents} |

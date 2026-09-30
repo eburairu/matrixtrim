@@ -16,7 +16,7 @@ MatrixTrim 關心的不是單純把 job 數量砍到最低，而是：
 
 目標是結合 **歷史 failure coverage、執行成本、matrix 結構與 holdout backtest**，提出更小、也更有依據的 CI matrix 候選方案。
 
-> **目前狀態：v0.12 experimental。** MatrixTrim 已能結合 multi-event root-cause fingerprint、歷史 failure evidence、已觀測的 1-wise / pairwise / t-wise 組態 coverage、人為明確指定的 keep / compatibility constraint、runtime cost 與 runner-aware 金額估算、time-based holdout backtest、render 後 matrix job 名稱還原、GitHub Action、可重現的公開 OSS benchmark，以及明確 opt-in 的 draft 最佳化 PR 產生。
+> **目前狀態：v0.13 experimental。** MatrixTrim 已能結合 multi-event root-cause fingerprint、歷史 failure evidence、已觀測的 1-wise / pairwise / t-wise 組態 coverage、人為明確指定的 keep / compatibility constraint、exact branch-and-bound optimizer、runtime cost 與 runner-aware 金額估算、time-based holdout backtest、render 後 matrix job 名稱還原、GitHub Action、可重現的公開 OSS benchmark，以及明確 opt-in 的 draft 最佳化 PR 產生。
 
 ## 為什麼需要 MatrixTrim？
 
@@ -106,7 +106,13 @@ recommendation 仍然是 **experimental**。MatrixTrim 的核心不是自動刪�
 4. 每個 matrix job family 至少一個 cell；
 5. 在上述限制下，盡量降低以 median runtime 估算的 compute。
 
-使用 `--strength 3` 可進一步保留已觀測的 3-wise 組合。MatrixTrim 不會憑空要求原 matrix 中不存在的組合。目前 optimizer 使用 greedy weighted set cover。
+使用 `--strength 3` 可進一步保留已觀測的 3-wise 組合。MatrixTrim 不會憑空要求原 matrix 中不存在的組合。
+
+## exact optimizer
+
+預設的 `--optimizer auto` 會先取得deterministic greedy解，再用process內的branch-and-bound證明目前coverage限制下runtime加權成本最低的cell集合。若搜尋超過預設 **250,000 nodes**，`auto` 會明確fallback到greedy；`--optimizer exact` 則會報錯，不會回傳尚未證明的結果；`--optimizer greedy` 會略過exact搜尋。
+
+這裡的「exact」只表示**對目前weighted set-cover model最優**，並不代表被移除的environment未來絕對不會抓到新failure。完整說明請見 [Exact optimizer](../optimizer.md)。
 
 ## 用較新的 failure 做 backtest
 
@@ -148,6 +154,7 @@ steps:
       workflow: ci.yml
       limit: "100"
       strength: "2"
+      optimizer: auto
       holdout: "25"
 ```
 
@@ -171,6 +178,7 @@ steps:
       workflow: ci.yml
       limit: "100"
       strength: "2"
+      optimizer: auto
       holdout: "25"
       create-pr: "true"
 ```
@@ -217,9 +225,9 @@ MatrixTrim 不再把所有 CI minute 視為相同成本，而是依實際 runner
 為了避免只挑對 MatrixTrim 有利的案例，我們固定了 **12 個公開 OSS repository各20次有明確結論的 completed workflow run**，以 `--strength 2` 與 25% time holdout 進行評估。
 
 - **12 個 repo 中有 10 個完整解析**：觀測cell的axis還原、workflow名稱render、active matrix family的實際job名稱比對都達到100%；另外2個為 partial，不列入 validated reduction。
-- 已驗證且有非零縮減的案例：**pandas 34 → 32 cells (-7.2%)**、**Flask 12 → 10 (-13.6%)**、**Diesel 28 → 25 (-7.2%)**。
-- 因為 runner 單價與每個 job 的整分鐘向上取整，compute 縮減率不會等於金額縮減率。依 standard runner rate-card：pandas **$25.148 → $24.671/run (-1.9%)**、Flask **$0.132 → $0.120/run (-9.1%)**、Diesel **$11.624 → $11.462/run (-1.4%)**。這三個 repo 都是 public，因此 standard runner 的估算 GitHub 實際費用仍為 **$0**。
-- pandas 與 Vite 在可用的 backtest 視窗中都維持 **100% holdout recall 與 100% unseen-failure recall**。Diesel 也維持 **100% holdout recall**；因為 holdout 中沒有新的 fingerprint，所以 unseen-failure recall 為 **n/a**。
+- 已驗證且有非零縮減的案例：**pandas 34 → 32 cells (-7.2%)**、**Flask 12 → 10 (-13.6%)**、**Diesel 28 → 25 (-8.3%)**。
+- 因為 runner 單價與每個 job 的整分鐘向上取整，compute 縮減率不會等於金額縮減率。依 standard runner rate-card：pandas **$25.148 → $24.671/run (-1.9%)**、Flask **$0.132 → $0.120/run (-9.1%)**、Diesel **$11.624 → $11.438/run (-1.6%)**。這三個 repo 都是 public，因此 standard runner 的估算 GitHub 實際費用仍為 **$0**。
+- exact optimizer 在 benchmark **12/12 個 repo 中證明 optimality**，greedy fallback 為 **0 次**，最大搜尋量為 **102 nodes**。其中11個repo與greedy相同；Diesel的greedy runtime目標值改善了 **1.15%**，compute縮減率從約 **7.6% 提升到 8.3%**。pandas 與 Vite 在可用的 backtest 視窗中都維持 **100% holdout recall 與 100% unseen-failure recall**。Diesel 也維持 **100% holdout recall**；因為 holdout 中沒有新的 fingerprint，所以 unseen-failure recall 為 **n/a**。
 - 固定 snapshot 的真實log也驗證event-level抽取：**pandas 59個 failed jobs → 151 events → 5個不同root-cause fingerprints**，**Vite 8 → 25 → 23**；而在正規化Rust volatile值與派生summary後，**Diesel 40 → 40 → 1**。
 - 在10個完整解析的 repo 中，**有7個因安全限制而明確維持原matrix不變**。
 - aiohttp 與 Tokio 仍是 partial。目前的 recommendation 會把 unresolved cell 當成安全限制逐一保留，因此此 snapshot 為 **aiohttp 29 → 29 / Tokio 51 → 51**，兩者都不列入 validated reduction。
@@ -276,7 +284,7 @@ MatrixTrim 會移除 timestamp、絕對路徑、UUID、duration、line number �
 - [x] runner-aware monetary cost model
 - [x] multi-event failure fingerprint
 - [x] opt-in draft recommendation PR 產生
-- [ ] 更強 / exact optimizer
+- [x] 更強 / exact optimizer
 
 ## 設計原則
 

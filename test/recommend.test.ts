@@ -132,6 +132,52 @@ describe("history-only recommendation", () => {
     expect(recommendation.estimatedComputeReductionPercent).toBeCloseTo(58.82, 1);
   });
 
+  it("uses exact branch-and-bound by default when optimality is proven", () => {
+    const recommendation = recommendMatrix(report(), { maxStrength: 1 });
+
+    expect(recommendation.algorithm).toBe("exact-branch-and-bound");
+    expect(recommendation.optimizerMode).toBe("auto");
+    expect(recommendation.optimizerOptimal).toBe(true);
+    expect(recommendation.optimizerSearchNodes).toBeGreaterThan(0);
+    expect(recommendation.selectedObjectiveCost).toBeLessThanOrEqual(
+      recommendation.greedyObjectiveCost,
+    );
+  });
+
+  it("supports greedy-only mode", () => {
+    const recommendation = recommendMatrix(report(), {
+      maxStrength: 1,
+      optimizer: "greedy",
+    });
+
+    expect(recommendation.algorithm).toBe("greedy-weighted-set-cover");
+    expect(recommendation.optimizerOptimal).toBeNull();
+    expect(recommendation.optimizerSearchNodes).toBe(0);
+  });
+
+  it("falls back in auto mode when exact search exceeds the node budget", () => {
+    const recommendation = recommendMatrix(report(), {
+      maxStrength: 1,
+      optimizer: "auto",
+      exactMaxNodes: 1,
+    });
+
+    expect(recommendation.algorithm).toBe("greedy-weighted-set-cover");
+    expect(recommendation.optimizerOptimal).toBe(false);
+    expect(recommendation.optimizerFallbackReason).toMatch(/node budget/);
+    expect(recommendation.warnings.join("\n")).toMatch(/greedy fallback/);
+  });
+
+  it("fails exact mode rather than silently returning an unproven solution", () => {
+    expect(() =>
+      recommendMatrix(report(), {
+        maxStrength: 1,
+        optimizer: "exact",
+        exactMaxNodes: 1,
+      })
+    ).toThrow(/before proving optimality/);
+  });
+
   it("is stable when input cell order changes", () => {
     const original = recommendMatrix(report(), { maxStrength: 1 });
     const reversedInput = report();

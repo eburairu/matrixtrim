@@ -26,6 +26,14 @@ inputs:
     description: Maximum observed combinatorial coverage strength to preserve. 2 means 1-wise + pairwise.
     required: false
     default: "2"
+  optimizer:
+    description: Optimization mode. auto tries exact branch-and-bound and falls back to greedy when the node budget is exceeded.
+    required: false
+    default: "auto"
+  exact-max-nodes:
+    description: Maximum branch-and-bound search nodes before auto falls back or exact mode fails.
+    required: false
+    default: "250000"
   config:
     description: Repository-relative MatrixTrim config path. Missing default .matrixtrim.yml means no explicit constraints; a missing custom path fails closed.
     required: false
@@ -44,6 +52,16 @@ outputs:
     description: Number of matrix cells observed.
   selected-cells:
     description: Number of cells in the recommendation.
+  optimizer-algorithm:
+    description: Optimizer that produced the recommendation.
+  optimizer-optimal:
+    description: "true when exact optimality was proven, false when exact search was attempted but not proven, blank for greedy-only mode."
+  optimizer-search-nodes:
+    description: Number of exact branch-and-bound nodes explored.
+  optimizer-improvement-percent:
+    description: Objective-cost improvement over the deterministic greedy baseline.
+  optimizer-fallback-reason:
+    description: Reason auto mode fell back to greedy, when applicable.
   compute-reduction-percent:
     description: Estimated compute reduction percentage.
   pricing-coverage:

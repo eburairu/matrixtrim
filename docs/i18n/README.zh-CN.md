@@ -16,7 +16,7 @@ MatrixTrim 关注的不是“任务越少越好”，而是一个更实际的问
 
 目标是结合 **历史失败覆盖、运行成本、matrix 结构和 holdout 回测**，给出更小、更有依据的 CI matrix 候选方案。
 
-> **当前状态：v0.12 experimental。** MatrixTrim 已可结合 multi-event root-cause fingerprint、历史 failure evidence、已观测的 1-wise / pairwise / t-wise 配置覆盖、人工显式 keep / compatibility constraint、runtime cost 与 runner-aware 金额估算、time-based holdout backtest、渲染后 matrix job 名恢复、GitHub Action、可复现的公开 OSS benchmark，以及显式 opt-in 的 draft 优化 PR 生成。
+> **当前状态：v0.13 experimental。** MatrixTrim 已可结合 multi-event root-cause fingerprint、历史 failure evidence、已观测的 1-wise / pairwise / t-wise 配置覆盖、人工显式 keep / compatibility constraint、exact branch-and-bound optimizer、runtime cost 与 runner-aware 金额估算、time-based holdout backtest、渲染后 matrix job 名恢复、GitHub Action、可复现的公开 OSS benchmark，以及显式 opt-in 的 draft 优化 PR 生成。
 
 ## 为什么需要 MatrixTrim？
 
@@ -106,7 +106,13 @@ recommendation 仍然是 **experimental**。MatrixTrim 的核心价值不是自�
 4. 每个 matrix job family 至少一个 cell；
 5. 在这些约束下尽量降低基于 median runtime 的估算 compute。
 
-使用 `--strength 3` 可以进一步保留已观测的 3-wise 组合。MatrixTrim 不会凭空制造原 matrix 中不存在的组合。当前优化器是 greedy weighted set cover。
+使用 `--strength 3` 可以进一步保留已观测的 3-wise 组合。MatrixTrim 不会凭空制造原 matrix 中不存在的组合。
+
+## exact optimizer
+
+默认的 `--optimizer auto` 会先得到确定性的greedy解，再用进程内branch-and-bound证明当前coverage约束下runtime加权成本最低的cell集合。如果搜索超过默认 **250,000 nodes**，`auto` 会明确回退到greedy；`--optimizer exact` 则直接报错而不会返回未经证明的结果；`--optimizer greedy` 会跳过exact搜索。
+
+这里的“exact”只表示**对当前weighted set-cover模型最优**，并不证明被移除的environment未来绝不可能发现新failure。完整说明见 [Exact optimizer](../optimizer.md)。
 
 ## 用更新的 failure 做回测
 
@@ -148,6 +154,7 @@ steps:
       workflow: ci.yml
       limit: "100"
       strength: "2"
+      optimizer: auto
       holdout: "25"
 ```
 
@@ -171,6 +178,7 @@ steps:
       workflow: ci.yml
       limit: "100"
       strength: "2"
+      optimizer: auto
       holdout: "25"
       create-pr: "true"
 ```
@@ -217,9 +225,9 @@ MatrixTrim 不再把所有 CI minute 当成相同成本，而是根据实际 run
 为了避免只挑对 MatrixTrim 有利的例子，我们固定了 **12 个公开 OSS 仓库中各 20 次有明确结论的 completed workflow run**，使用 `--strength 2` 和 25% time holdout 进行评估。
 
 - **12 个仓库中有 10 个完全解析**：已观测 axis 恢复、workflow 名渲染、active matrix family 的实际 job 名匹配均达到 100%；另外 2 个为 partial，不计入已验证的缩减结果。
-- 已验证且出现非零缩减的案例：**pandas 34 → 32 cells (-7.2%)**、**Flask 12 → 10 (-13.6%)**、**Diesel 28 → 25 (-7.2%)**。
-- 由于 runner 单价和每个 job 的整分钟向上取整，compute 缩减率并不等于金额缩减率。按 standard runner rate-card 计算：pandas **$25.148 → $24.671/run (-1.9%)**、Flask **$0.132 → $0.120/run (-9.1%)**、Diesel **$11.624 → $11.462/run (-1.4%)**。这三个仓库都是 public，因此 standard runner 的预计 GitHub 实际费用仍为 **$0**。
-- pandas 和 Vite 在可用的 backtest 窗口中都保持了 **100% holdout recall 和 100% unseen-failure recall**。Diesel 也保持 **100% holdout recall**；由于 holdout 中没有新的 fingerprint，unseen-failure recall 为 **n/a**。
+- 已验证且出现非零缩减的案例：**pandas 34 → 32 cells (-7.2%)**、**Flask 12 → 10 (-13.6%)**、**Diesel 28 → 25 (-8.3%)**。
+- 由于 runner 单价和每个 job 的整分钟向上取整，compute 缩减率并不等于金额缩减率。按 standard runner rate-card 计算：pandas **$25.148 → $24.671/run (-1.9%)**、Flask **$0.132 → $0.120/run (-9.1%)**、Diesel **$11.624 → $11.438/run (-1.6%)**。这三个仓库都是 public，因此 standard runner 的预计 GitHub 实际费用仍为 **$0**。
+- exact optimizer 在 benchmark **12/12 个仓库中证明了 optimality**，greedy fallback 为 **0 次**，最大搜索量为 **102 nodes**。其中 11 个仓库与 greedy 相同；Diesel 的 greedy runtime 目标值改善了 **1.15%**，compute 缩减率从约 **7.6% 提升到 8.3%**。pandas 和 Vite 在可用的 backtest 窗口中都保持了 **100% holdout recall 和 100% unseen-failure recall**。Diesel 也保持 **100% holdout recall**；由于 holdout 中没有新的 fingerprint，unseen-failure recall 为 **n/a**。
 - 固定 snapshot 的真实日志也验证了 event-level 提取：**pandas 59 个 failed jobs → 151 events → 5 个不同 root-cause fingerprints**，**Vite 8 → 25 → 23**；而对 Rust volatile 值和派生 summary 进行归一化后，**Diesel 40 → 40 → 1**。
 - 在 10 个完全解析的仓库中，**有 7 个被安全约束明确判断为“不应缩减”**。
 - aiohttp 和 Tokio 仍属于 partial。当前 recommendation 会把 unresolved cell 作为安全约束逐个保留，因此在这个 snapshot 中为 **aiohttp 29 → 29 / Tokio 51 → 51**，两者都不计入 validated reduction。
@@ -276,7 +284,7 @@ MatrixTrim 会去除 timestamp、绝对路径、UUID、duration、line number �
 - [x] runner-aware monetary cost model
 - [x] multi-event failure fingerprint
 - [x] opt-in draft recommendation PR 生成
-- [ ] 更强 / exact optimizer
+- [x] 更强 / exact optimizer
 
 ## 设计原则
 

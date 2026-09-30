@@ -3,6 +3,11 @@ import type { MatrixTrimConstraints, RequireConstraint } from "./config.js";
 import { EMPTY_CONSTRAINTS } from "./config.js";
 import { observedCombinatorialCoverage } from "./coverage.js";
 import {
+  exactWeightedSetCover,
+  greedyWeightedSetCover,
+  type SetCoverCandidate,
+} from "./optimizer.js";
+import {
   estimatePricing,
   standardRunnerListPriceUsd,
   type PricingEstimate,
@@ -18,14 +23,25 @@ export type RecommendedCell = {
   coveredCombinations: number;
 };
 
+export type OptimizerMode = "auto" | "exact" | "greedy";
+
 export type RecommendationOptions = {
   maxStrength?: number;
   constraints?: MatrixTrimConstraints;
+  optimizer?: OptimizerMode;
+  exactMaxNodes?: number;
 };
 
 export type RecommendationReport = {
   mode: "history+combinatorial";
-  algorithm: "greedy-weighted-set-cover";
+  algorithm: "exact-branch-and-bound" | "greedy-weighted-set-cover";
+  optimizerMode: OptimizerMode;
+  optimizerOptimal: boolean | null;
+  optimizerSearchNodes: number;
+  optimizerFallbackReason?: string;
+  greedyObjectiveCost: number;
+  selectedObjectiveCost: number;
+  optimizerImprovementPercent: number;
   coverageStrength: number;
   currentCells: number;
   selectedCells: RecommendedCell[];
@@ -70,10 +86,6 @@ function costFor(cell: CellSummary, fallback: number): number {
   return Math.max(cell.medianRuntimeSeconds ?? fallback, 0.1);
 }
 
-function stableCompare(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
-}
-
 function matchesRequireConstraint(
   cell: CellSummary,
   selector: RequireConstraint,
@@ -96,6 +108,15 @@ export function recommendMatrix(
   const maxStrength = options.maxStrength ?? 2;
   if (!Number.isInteger(maxStrength) || maxStrength < 1 || maxStrength > 4) {
     throw new Error("maxStrength must be an integer from 1 to 4");
+  }
+
+  const optimizerMode = options.optimizer ?? "auto";
+  if (!["auto", "exact", "greedy"].includes(optimizerMode)) {
+    throw new Error("optimizer must be auto, exact, or greedy");
+  }
+  const exactMaxNodes = options.exactMaxNodes ?? 250_000;
+  if (!Number.isInteger(exactMaxNodes) || exactMaxNodes < 1) {
+    throw new Error("exactMaxNodes must be a positive integer");
   }
 
   const knownRuntimes = report.cells
@@ -196,77 +217,52 @@ export function recommendMatrix(
     coverageByCell.set(cell.cell, coverage);
   }
 
-  const uncovered = new Set(universe);
-  const selected: CellSummary[] = [];
-  const remaining = new Map(report.cells.map((cell) => [cell.cell, cell]));
+  const solverCandidates: SetCoverCandidate[] = report.cells.map((cell) => ({
+    id: cell.cell,
+    cost: costFor(cell, fallbackCost),
+    covers: coverageByCell.get(cell.cell) ?? new Set<string>(),
+  }));
+  const greedySolution = greedyWeightedSetCover(solverCandidates, universe);
 
-  while (uncovered.size) {
-    let best: CellSummary | undefined;
-    let bestNew: string[] = [];
-    let bestScore = -1;
+  let selectedSolution = greedySolution;
+  let algorithm: RecommendationReport["algorithm"] =
+    "greedy-weighted-set-cover";
+  let optimizerOptimal: boolean | null =
+    optimizerMode === "greedy" ? null : false;
+  let optimizerSearchNodes = 0;
+  let optimizerFallbackReason: string | undefined;
 
-    for (const cell of remaining.values()) {
-      const newlyCovered = [...(coverageByCell.get(cell.cell) ?? [])]
-        .filter((item) => uncovered.has(item));
-      if (!newlyCovered.length) continue;
-
-      const score = newlyCovered.length / costFor(cell, fallbackCost);
-      if (
-        score > bestScore ||
-        (score === bestScore && newlyCovered.length > bestNew.length) ||
-        (score === bestScore &&
-          newlyCovered.length === bestNew.length &&
-          best &&
-          stableCompare(cell.cell, best.cell) < 0)
-      ) {
-        best = cell;
-        bestNew = newlyCovered;
-        bestScore = score;
-      }
-    }
-
-    if (!best) break;
-    selected.push(best);
-    remaining.delete(best.cell);
-    for (const item of bestNew) uncovered.delete(item);
-  }
-
-  if (uncovered.size) {
-    throw new Error(
-      `unable to satisfy ${uncovered.size} hard/coverage requirement(s)`,
-    );
-  }
-
-  // Greedy selection can leave cells redundant after later choices.
-  // Remove the most expensive redundant cells first so the result does not
-  // depend on Map insertion order, Node/ICU locale behavior, or greedy order.
-  let pruned = true;
-  while (pruned) {
-    pruned = false;
-    const candidates = [...selected].sort((a, b) => {
-      const costDelta = costFor(b, fallbackCost) - costFor(a, fallbackCost);
-      if (costDelta !== 0) return costDelta;
-      return stableCompare(a.cell, b.cell);
+  if (optimizerMode !== "greedy") {
+    const exact = exactWeightedSetCover(solverCandidates, universe, {
+      maxNodes: exactMaxNodes,
+      initial: greedySolution,
     });
+    optimizerSearchNodes = exact.searchNodes;
 
-    for (const candidate of candidates) {
-      const without = selected.filter((cell) => cell.cell !== candidate.cell);
-      const covered = new Set<string>();
-      for (const cell of without) {
-        for (const item of coverageByCell.get(cell.cell) ?? []) {
-          covered.add(item);
-        }
-      }
-      if ([...universe].every((item) => covered.has(item))) {
-        const index = selected.findIndex(
-          (cell) => cell.cell === candidate.cell,
-        );
-        if (index >= 0) selected.splice(index, 1);
-        pruned = true;
-        break;
-      }
+    if (exact.optimal) {
+      selectedSolution = exact;
+      algorithm = "exact-branch-and-bound";
+      optimizerOptimal = true;
+    } else if (optimizerMode === "exact") {
+      throw new Error(
+        `exact optimizer exceeded node budget (${exactMaxNodes}) before proving optimality`,
+      );
+    } else {
+      optimizerFallbackReason =
+        `Exact optimizer exceeded node budget (${exactMaxNodes}); using deterministic greedy fallback.`;
     }
   }
+
+  const selected = selectedSolution.selected.map((cell) => {
+    const match = cellsByName.get(cell);
+    if (!match) {
+      throw new Error(`optimizer selected unknown matrix cell: ${cell}`);
+    }
+    return match;
+  });
+  const optimizerImprovementPercent = greedySolution.cost > 0
+    ? (1 - selectedSolution.cost / greedySolution.cost) * 100
+    : 0;
 
   const selectedNames = new Set(selected.map((cell) => cell.cell));
   const coveredFailures = new Set<string>();
@@ -352,6 +348,10 @@ export function recommendMatrix(
     "Runtime estimates come from matrix jobs observed across completed workflow runs.",
   ];
 
+  if (optimizerFallbackReason) {
+    warnings.push(optimizerFallbackReason);
+  }
+
   if (constraintTokens.length) {
     warnings.push(
       `Applied ${constraintTokens.length} explicit hard constraint(s): keep=${keepRequirements.length}, require=${requireRequirements.length}.`,
@@ -422,7 +422,14 @@ export function recommendMatrix(
 
   return {
     mode: "history+combinatorial",
-    algorithm: "greedy-weighted-set-cover",
+    algorithm,
+    optimizerMode,
+    optimizerOptimal,
+    optimizerSearchNodes,
+    ...(optimizerFallbackReason ? { optimizerFallbackReason } : {}),
+    greedyObjectiveCost: greedySolution.cost,
+    selectedObjectiveCost: selectedSolution.cost,
+    optimizerImprovementPercent,
     coverageStrength: maxStrength,
     currentCells: report.cells.length,
     selectedCells: selected.map((cell) => ({

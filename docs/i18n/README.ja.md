@@ -16,7 +16,7 @@ MatrixTrimが見たいのは、単純なjob数ではありません。
 
 過去のfailure、実行コスト、matrix構造、holdout backtestを使って、より小さいCI matrix候補を作ることを目指しています。
 
-> **Status: v0.12 experimental.** multi-event root-cause fingerprint、過去のfailure evidence、観測済み1-wise / pairwise / t-wise構成coverage、人間が明示するkeep / compatibility constraint、runtime costとrunner-awareな金額推定、time-based holdout backtest、render済みmatrix job名の復元、GitHub Action、再現可能な公開OSS benchmark、明示opt-inのdraft最適化PR生成まで利用できます。
+> **Status: v0.13 experimental.** multi-event root-cause fingerprint、過去のfailure evidence、観測済み1-wise / pairwise / t-wise構成coverage、人間が明示するkeep / compatibility constraint、exact branch-and-bound optimizer、runtime costとrunner-awareな金額推定、time-based holdout backtest、render済みmatrix job名の復元、GitHub Action、再現可能な公開OSS benchmark、明示opt-inのdraft最適化PR生成まで利用できます。
 
 ## なぜ必要か
 
@@ -106,7 +106,13 @@ recommendationはまだ **experimental** です。中心は「自動で削除す
 4. matrix job familyごと最低1cell
 5. 上記を満たす範囲で、median runtimeベースの推定computeを削減
 
-`--strength 3` にすると、観測済みの3-wise組み合わせまで維持します。実際のmatrixに存在しなかった組み合わせを勝手に要求することはありません。optimizerは現在 greedy weighted set coverです。
+`--strength 3` にすると、観測済みの3-wise組み合わせまで維持します。実際のmatrixに存在しなかった組み合わせを勝手に要求することはありません。
+
+## exact optimizer
+
+デフォルトの `--optimizer auto` はdeterministicなgreedy解を上限として使い、その後in-processのbranch-and-boundで、現在のcoverage要件を満たすruntime重み付き最小集合を証明します。既定の **250,000 node** を超えた場合、`auto` は明示的にgreedyへfallbackします。`--optimizer exact` は未証明解を返さずerrorにし、`--optimizer greedy` はexact探索を行いません。
+
+ここでの「exact」は**現在のweighted set-cover modelに対して最適**という意味で、削除候補のenvironmentが将来のfailureを絶対に検出しないことを証明するものではありません。詳細は [Exact optimizer](../optimizer.md) を参照してください。
 
 ## 新しいfailureでbacktestする
 
@@ -148,6 +154,7 @@ steps:
       workflow: ci.yml
       limit: "100"
       strength: "2"
+      optimizer: auto
       holdout: "25"
 ```
 
@@ -171,6 +178,7 @@ steps:
       workflow: ci.yml
       limit: "100"
       strength: "2"
+      optimizer: auto
       holdout: "25"
       create-pr: "true"
 ```
@@ -217,9 +225,9 @@ MatrixTrimはCI minuteをすべて同じ価値として扱わず、実際のrunn
 都合の良い実例だけで評価しないため、**公開OSS 12 repositoryについてconclusiveなcompleted workflow runを各20件固定**し、`--strength 2`、time holdout 25%で評価しました。
 
 - **12 repo中10 repoは、観測cellのaxis復元・workflow名render・active matrix familyの実job名照合をすべて100%解決**できました。残り2 repoはpartialで、検証済み削減結果には含めていません。
-- 検証済みで削減が出たのは **pandas 34 → 32 cell (-7.2%)**、**Flask 12 → 10 (-13.6%)**、**Diesel 28 → 25 (-7.2%)** です。
-- runner単価とjob単位の1分丸めがあるため、compute削減率と金額削減率は一致しません。standard runnerのrate-cardでは、pandas **$25.148 → $24.671/run (-1.9%)**、Flask **$0.132 → $0.120/run (-9.1%)**、Diesel **$11.624 → $11.462/run (-1.4%)** でした。3 repoともpublicなのでstandard runnerの推定GitHub請求額は**$0**のままです。
-- pandasとViteは、利用可能なbacktest期間で **holdout recall 100% / unseen-failure recall 100%** を維持しました。Dieselも **holdout recall 100%** ですが、holdoutに未観測fingerprintが無かったためunseen-failure recallは **n/a** です。
+- 検証済みで削減が出たのは **pandas 34 → 32 cell (-7.2%)**、**Flask 12 → 10 (-13.6%)**、**Diesel 28 → 25 (-8.3%)** です。
+- runner単価とjob単位の1分丸めがあるため、compute削減率と金額削減率は一致しません。standard runnerのrate-cardでは、pandas **$25.148 → $24.671/run (-1.9%)**、Flask **$0.132 → $0.120/run (-9.1%)**、Diesel **$11.624 → $11.438/run (-1.6%)** でした。3 repoともpublicなのでstandard runnerの推定GitHub請求額は**$0**のままです。
+- exact optimizerはbenchmark **12/12 repoでoptimalityを証明**し、greedy fallbackは **0件**、最大探索量は **102 nodes** でした。11 repoではgreedyと同値で、Dieselではgreedyのruntime目的値を **1.15%改善**し、compute削減率が約 **7.6% → 8.3%** になりました。pandasとViteは、利用可能なbacktest期間で **holdout recall 100% / unseen-failure recall 100%** を維持しました。Dieselも **holdout recall 100%** ですが、holdoutに未観測fingerprintが無かったためunseen-failure recallは **n/a** です。
 - 固定snapshotの実ログでもevent-level抽出が動いており、**pandasは59 failed jobs → 151 events → 5 distinct root-cause fingerprints**、**Viteは8 → 25 → 23**、一方でRustのvolatile値と派生summaryを正規化した **Dieselは40 → 40 → 1** に収束しました。
 - 完全解決できた10 repoのうち**7 repoは安全制約上「削らない」判定**でした。
 - aiohttpとTokioはpartialのままです。unresolved cellを安全制約として個別保持する現在のrecommendationでは、このsnapshotで **aiohttp 29 → 29 / Tokio 51 → 51** となり、どちらも検証済み削減には数えていません。
@@ -276,7 +284,7 @@ coreはdeterministicで、LLMは必須ではありません。
 - [x] runner単価を含むmonetary cost model
 - [x] 1 job内のmulti-event failure fingerprint
 - [x] opt-in draft recommendation PR生成
-- [ ] exact / stronger optimizer
+- [x] exact / stronger optimizer
 
 ## 設計原則
 

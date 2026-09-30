@@ -72,7 +72,13 @@ function analysis(): AnalysisReport {
 function recommendation(): RecommendationReport {
   return {
     mode: "history+combinatorial",
-    algorithm: "greedy-weighted-set-cover",
+    algorithm: "exact-branch-and-bound",
+    optimizerMode: "auto",
+    optimizerOptimal: true,
+    optimizerSearchNodes: 3,
+    greedyObjectiveCost: 30,
+    selectedObjectiveCost: 30,
+    optimizerImprovementPercent: 0,
     coverageStrength: 1,
     currentCells: 2,
     selectedCells: [
@@ -253,6 +259,30 @@ describe("optimization pull requests", () => {
     expect(result.reason).toMatch(/no longer a draft/);
     expect(github.calls.some((call) => call.startsWith("updateBranch:"))).toBe(false);
     expect(github.calls.some((call) => call.startsWith("updateFile:"))).toBe(false);
+  });
+
+  it("skips auto-mode PR creation when exact optimality was not proven", async () => {
+    const rec = recommendation();
+    rec.algorithm = "greedy-weighted-set-cover";
+    rec.optimizerOptimal = false;
+    rec.optimizerSearchNodes = 250_001;
+    rec.optimizerFallbackReason =
+      "Exact optimizer exceeded node budget; using deterministic greedy fallback.";
+
+    expect(
+      optimizationSafetyReason(analysis(), rec, null),
+    ).toMatch(/did not prove optimality/);
+
+    const github = client(false);
+    const result = await createOrUpdateOptimizationPullRequest(
+      github,
+      analysis(),
+      rec,
+      null,
+    );
+
+    expect(result.status).toBe("skipped");
+    expect(github.calls).toEqual([]);
   });
 
   it("skips mutation when the matrix is not fully resolved", async () => {
