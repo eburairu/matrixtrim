@@ -108,6 +108,42 @@ async function analyzeCommand(args: string[], json: boolean): Promise<void> {
   console.log(`Failure fingerprints:  ${report.fingerprints}`);
   if (report.expiredLogs) console.log(`Expired logs:           ${report.expiredLogs}`);
   if (report.logErrors) console.log(`Log fetch errors:       ${report.logErrors}`);
+  if (report.workflowDefinitionFallbacks) {
+    console.log(
+      `Workflow definition fallbacks: ${report.workflowDefinitionFallbacks}`,
+    );
+  }
+  if (report.workflowDefinitionErrors) {
+    console.log(
+      `Workflow definition errors:    ${report.workflowDefinitionErrors}`,
+    );
+  }
+  if (report.workflowRenderCoverage !== undefined) {
+    const coverage = report.workflowRenderCoverage === null
+      ? "n/a"
+      : `${(report.workflowRenderCoverage * 100).toFixed(1)}%`;
+    console.log(
+      `Workflow static-name render coverage: ${coverage} (${report.workflowRenderedDefinitionCells ?? 0}/${report.workflowStaticDefinitionCells ?? 0})`,
+    );
+  }
+  if (report.workflowMatchCoverage !== undefined) {
+    const matchCoverage = report.workflowMatchCoverage === null
+      ? "n/a"
+      : `${(report.workflowMatchCoverage * 100).toFixed(1)}%`;
+    console.log(
+      `Workflow static-cell match coverage: ${matchCoverage} (${report.workflowMatchedMatrixCells ?? 0}/${report.workflowExpectedMatrixCells ?? 0})`,
+    );
+  }
+  if (report.inactiveStaticMatrixFamilies) {
+    console.log(
+      `Inactive static matrix families: ${report.inactiveStaticMatrixFamilies}`,
+    );
+  }
+  if (report.dynamicMatrixDefinitions) {
+    console.log(
+      `Dynamic matrix definitions:    ${report.dynamicMatrixDefinitions}`,
+    );
+  }
 
   if (!report.cells.length) {
     console.log("\nNo failed job logs were available in the selected runs.");

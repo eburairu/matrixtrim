@@ -7478,8 +7478,9 @@ var GitHubClient = class {
   }
   async fileText(path, ref) {
     const encodedPath = path.split("/").filter(Boolean).map(encodeURIComponent).join("/");
+    const refQuery = ref ? `?ref=${encodeURIComponent(ref)}` : "";
     const data = await this.json(
-      `/repos/${repoPath(this.repo)}/contents/${encodedPath}?ref=${encodeURIComponent(ref)}`
+      `/repos/${repoPath(this.repo)}/contents/${encodedPath}${refQuery}`
     );
     if (data.encoding !== "base64") {
       throw new Error(`unsupported GitHub content encoding: ${data.encoding}`);
@@ -7531,27 +7532,315 @@ var GitHubClient = class {
 
 // src/axes.ts
 var import_yaml = __toESM(require_dist(), 1);
+function stableStringify(value) {
+  if (value === null) return "null";
+  if (typeof value !== "object") return String(value);
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(",")}]`;
+  }
+  const entries = Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item)}`);
+  return `{${entries.join(",")}}`;
+}
+function deepEqual(a, b) {
+  return stableStringify(a) === stableStringify(b);
+}
+function cartesian(entries) {
+  let rows = [{}];
+  for (const [axis, values] of entries) {
+    rows = rows.flatMap(
+      (row) => values.map((value) => ({ ...row, [axis]: value }))
+    );
+  }
+  return rows;
+}
+function matchesRule(row, rule) {
+  return Object.entries(rule).every(
+    ([key, value]) => key in row && deepEqual(row[key], value)
+  );
+}
+function expandStaticMatrix(matrix) {
+  const axisEntries = [];
+  let dynamic = false;
+  for (const [key, value] of Object.entries(matrix)) {
+    if (key === "include" || key === "exclude") continue;
+    if (!Array.isArray(value)) {
+      dynamic = true;
+      continue;
+    }
+    axisEntries.push([key, value]);
+  }
+  if (dynamic) {
+    return { rows: [], axes: axisEntries.map(([key]) => key), dynamic: true };
+  }
+  const originalAxes = axisEntries.map(([key]) => key);
+  let baseRows = cartesian(axisEntries);
+  const exclude = Array.isArray(matrix.exclude) ? matrix.exclude.filter(
+    (item) => !!item && typeof item === "object" && !Array.isArray(item)
+  ) : [];
+  baseRows = baseRows.filter(
+    (row) => !exclude.some((rule) => matchesRule(row, rule))
+  );
+  const include = Array.isArray(matrix.include) ? matrix.include.filter(
+    (item) => !!item && typeof item === "object" && !Array.isArray(item)
+  ) : [];
+  let rows;
+  if (!originalAxes.length && include.length) {
+    rows = include.map((item) => ({ ...item }));
+  } else {
+    const derived = baseRows.map((original) => ({
+      original,
+      current: { ...original }
+    }));
+    const extras = [];
+    for (const addition of include) {
+      let applied = false;
+      for (const item of derived) {
+        const compatible = originalAxes.every(
+          (axis) => !(axis in addition) || deepEqual(item.original[axis], addition[axis])
+        );
+        if (!compatible) continue;
+        item.current = { ...item.current, ...addition };
+        applied = true;
+      }
+      if (!applied) {
+        extras.push({ ...addition });
+      }
+    }
+    rows = [...derived.map((item) => item.current), ...extras];
+  }
+  const inferredIncludeAxes = originalAxes.length ? [] : [...new Set(
+    rows.flatMap(
+      (row) => Object.entries(row).filter(
+        ([, value]) => value === null || ["string", "number", "boolean"].includes(typeof value)
+      ).map(([key]) => key)
+    )
+  )];
+  return {
+    rows,
+    axes: [...originalAxes, ...inferredIncludeAxes],
+    dynamic: false
+  };
+}
+function getPath(row, path) {
+  const parts = path.split(".");
+  let value = row;
+  for (const part of parts) {
+    if (!value || typeof value !== "object") return void 0;
+    value = value[part];
+  }
+  return value;
+}
+function splitArgs(text) {
+  const result = [];
+  let start = 0;
+  let depth = 0;
+  let quote = null;
+  for (let index = 0; index < text.length; index++) {
+    const char = text[index];
+    if (quote) {
+      if (char === quote && text[index - 1] !== "\\") quote = null;
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      quote = char;
+      continue;
+    }
+    if (char === "(") depth++;
+    if (char === ")") depth--;
+    if (char === "," && depth === 0) {
+      result.push(text.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+  result.push(text.slice(start).trim());
+  return result;
+}
+function hasWrappingParentheses(text) {
+  if (!text.startsWith("(") || !text.endsWith(")")) return false;
+  let depth = 0;
+  let quote = null;
+  for (let index = 0; index < text.length; index++) {
+    const char = text[index];
+    if (quote) {
+      if (char === quote && text[index - 1] !== "\\") quote = null;
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      quote = char;
+      continue;
+    }
+    if (char === "(") depth++;
+    if (char === ")") depth--;
+    if (depth === 0 && index < text.length - 1) return false;
+  }
+  return depth === 0;
+}
+function evalExpression(expression, row) {
+  let expr = expression.trim();
+  while (hasWrappingParentheses(expr)) {
+    expr = expr.slice(1, -1).trim();
+  }
+  const fallback = splitTopLevel(expr, "||");
+  if (fallback.length > 1) {
+    let last = "";
+    for (const part of fallback) {
+      const value = evalExpression(part, row);
+      last = value;
+      if (value) return value;
+    }
+    return last;
+  }
+  const andParts = splitTopLevel(expr, "&&");
+  if (andParts.length > 1) {
+    let last = true;
+    for (const part of andParts) {
+      const value = evalExpression(part, row);
+      last = value;
+      if (!value) return value;
+    }
+    return last;
+  }
+  const notEqual = splitTopLevel(expr, "!=");
+  if (notEqual.length === 2) {
+    return !deepEqual(
+      evalExpression(notEqual[0], row),
+      evalExpression(notEqual[1], row)
+    );
+  }
+  const equal = splitTopLevel(expr, "==");
+  if (equal.length === 2) {
+    return deepEqual(
+      evalExpression(equal[0], row),
+      evalExpression(equal[1], row)
+    );
+  }
+  if (expr.startsWith("!")) {
+    return !evalExpression(expr.slice(1), row);
+  }
+  const formatMatch = expr.match(/^format\((.*)\)$/s);
+  if (formatMatch) {
+    const args = splitArgs(formatMatch[1]);
+    if (!args.length) return void 0;
+    const template = evalExpression(args[0], row);
+    if (typeof template !== "string") return void 0;
+    const values = args.slice(1).map((arg) => evalExpression(arg, row));
+    if (values.some((value) => value === void 0)) return void 0;
+    return template.replace(
+      /\{(\d+)\}/g,
+      (_, index) => String(values[Number(index)] ?? "")
+    );
+  }
+  const matrixMatch = expr.match(/^matrix\.([A-Za-z0-9_.-]+)$/);
+  if (matrixMatch) {
+    return getPath(row, matrixMatch[1]);
+  }
+  if (expr.startsWith("'") && expr.endsWith("'") || expr.startsWith('"') && expr.endsWith('"')) {
+    return expr.slice(1, -1);
+  }
+  if (expr === "true") return true;
+  if (expr === "false") return false;
+  if (expr === "null") return null;
+  if (/^-?\d+(?:\.\d+)?$/.test(expr)) return Number(expr);
+  return void 0;
+}
+function splitTopLevel(text, operator) {
+  const result = [];
+  let start = 0;
+  let depth = 0;
+  let quote = null;
+  for (let index = 0; index <= text.length - operator.length; index++) {
+    const char = text[index];
+    if (quote) {
+      if (char === quote && text[index - 1] !== "\\") quote = null;
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      quote = char;
+      continue;
+    }
+    if (char === "(") depth++;
+    if (char === ")") depth--;
+    if (depth === 0 && text.slice(index, index + operator.length) === operator) {
+      result.push(text.slice(start, index).trim());
+      start = index + operator.length;
+      index += operator.length - 1;
+    }
+  }
+  if (!result.length) return [text.trim()];
+  result.push(text.slice(start).trim());
+  return result;
+}
+function renderName(template, row) {
+  let failed = false;
+  const rendered = template.replace(/\$\{\{([\s\S]*?)\}\}/g, (_, expression) => {
+    const value = evalExpression(String(expression), row);
+    if (value === void 0 || value !== null && typeof value === "object") {
+      failed = true;
+      return "";
+    }
+    return String(value ?? "");
+  });
+  return failed ? null : rendered;
+}
+function axesForRow(row, axisNames) {
+  const result = {};
+  for (const axis of axisNames) {
+    if (!(axis in row)) continue;
+    result[axis] = stableStringify(row[axis]);
+  }
+  return result;
+}
+function defaultExpandedName(label, row, axisNames) {
+  const values = axisNames.filter((axis) => axis in row).map((axis) => stableStringify(row[axis]));
+  return values.length ? `${label} (${values.join(", ")})` : label;
+}
 function workflowMatrixDefinitions(text) {
   const doc = (0, import_yaml.parse)(text);
   const jobs = doc?.jobs ?? {};
   const definitions = [];
   for (const [jobId, spec] of Object.entries(jobs)) {
     const matrix = spec?.strategy?.matrix;
-    if (!matrix || typeof matrix !== "object") continue;
-    const axes = [];
-    let dynamic = false;
-    for (const [key, value] of Object.entries(matrix)) {
-      if (key === "include" || key === "exclude") continue;
-      axes.push(key);
-      if (!Array.isArray(value)) dynamic = true;
-    }
+    if (!matrix || typeof matrix !== "object" || Array.isArray(matrix)) continue;
+    const expanded = expandStaticMatrix(matrix);
     const rawName = typeof spec?.name === "string" ? spec.name : jobId;
+    const cells = [];
+    if (!expanded.dynamic) {
+      for (const row of expanded.rows) {
+        const name = typeof spec?.name === "string" ? spec.name.includes("matrix.") ? renderName(spec.name, row) : defaultExpandedName(spec.name, row, expanded.axes) : defaultExpandedName(jobId, row, expanded.axes);
+        if (!name) continue;
+        cells.push({
+          name,
+          axes: axesForRow(row, expanded.axes)
+        });
+      }
+    }
     const displayName = rawName.includes("${{") ? jobId : rawName;
-    definitions.push({ jobId, displayName, axes, dynamic });
+    definitions.push({
+      jobId,
+      displayName,
+      axes: expanded.axes,
+      dynamic: expanded.dynamic,
+      expectedCells: expanded.dynamic ? 0 : expanded.rows.length,
+      renderedCells: cells.length,
+      cells
+    });
   }
   return definitions;
 }
 function inferAxesFromExpandedJobName(name, definitions) {
+  const exactMatches = definitions.flatMap(
+    (definition2) => definition2.cells.filter(
+      (cell) => cell.name === name || name.startsWith(`${cell.name} / `)
+    ).map((cell) => ({ definition: definition2, cell }))
+  );
+  if (exactMatches.length === 1) {
+    const match2 = exactMatches[0];
+    return {
+      baseJob: match2.definition.jobId,
+      axes: match2.cell.axes,
+      source: "workflow-rendered-name"
+    };
+  }
   const match = name.match(/^(.*?)\s+\((.*)\)$/);
   if (!match) {
     return { baseJob: name, axes: null, source: "unavailable" };
@@ -7569,7 +7858,7 @@ function inferAxesFromExpandedJobName(name, definitions) {
     return { baseJob, axes: null, source: "unavailable" };
   }
   return {
-    baseJob,
+    baseJob: definition.jobId,
     axes: Object.fromEntries(
       definition.axes.map((axis, index) => [axis, values[index] ?? ""])
     ),
@@ -7586,6 +7875,11 @@ function durationSeconds(startedAt, completedAt) {
   if (!startedAt || !completedAt) return null;
   const value = (Date.parse(completedAt) - Date.parse(startedAt)) / 1e3;
   return Number.isFinite(value) && value >= 0 ? value : null;
+}
+function isConclusiveConclusion(conclusion) {
+  return ["success", "failure", "timed_out", "neutral"].includes(
+    conclusion ?? ""
+  );
 }
 function median(values) {
   if (!values.length) return null;
@@ -7645,7 +7939,9 @@ function summarizeCells(matrixJobs, observations) {
     } else {
       entry.otherRuns.add(item.runId);
     }
-    if (item.runtimeSeconds !== null) entry.runtimes.push(item.runtimeSeconds);
+    if (item.runtimeSeconds !== null && isConclusiveConclusion(item.conclusion)) {
+      entry.runtimes.push(item.runtimeSeconds);
+    }
     if (entry.axisSource === "unavailable" && item.axisSource !== "unavailable") {
       entry.axes = item.axes;
       entry.axisSource = item.axisSource;
@@ -7691,45 +7987,146 @@ function summarizeCells(matrixJobs, observations) {
 }
 async function analyzeRepository(repository, options) {
   const client = new GitHubClient(repository, options.token);
-  const runs = options.runId ? [await client.getRun(options.runId)] : await client.listRuns(options.limit, options.workflow);
   const concurrency = options.concurrency ?? 4;
+  const runs = options.runIds?.length ? await mapLimit(options.runIds, concurrency, (runId) => client.getRun(runId)) : options.runId ? [await client.getRun(options.runId)] : await client.listRuns(options.limit, options.workflow);
   let workflowPath;
-  let definitions = [];
   const workflowPaths = [...new Set(runs.map((run) => run.path).filter(Boolean))];
-  if (workflowPaths.length === 1 && runs[0]) {
+  if (workflowPaths.length === 1) {
     workflowPath = workflowPaths[0];
-    try {
-      const workflowText = await client.fileText(workflowPath, runs[0].head_sha);
-      definitions = workflowMatrixDefinitions(workflowText);
-    } catch {
-      definitions = [];
-    }
   }
+  const defaultDefinitionResults = await mapLimit(
+    workflowPaths,
+    concurrency,
+    async (path) => {
+      try {
+        const workflowText = await client.fileText(path);
+        return {
+          path,
+          ok: true,
+          definitions: workflowMatrixDefinitions(workflowText)
+        };
+      } catch {
+        return {
+          path,
+          ok: false,
+          definitions: []
+        };
+      }
+    }
+  );
+  const defaultDefinitionsByPath = new Map(
+    defaultDefinitionResults.map((item) => [item.path, item])
+  );
+  const definitionInputs = [...new Map(
+    runs.filter((run) => run.path && run.head_sha).map((run) => [`${run.path}@${run.head_sha}`, run])
+  ).values()];
+  const definitionResults = await mapLimit(
+    definitionInputs,
+    concurrency,
+    async (run) => {
+      const key = `${run.path}@${run.head_sha}`;
+      try {
+        const workflowText = await client.fileText(run.path, run.head_sha);
+        return {
+          key,
+          definitions: workflowMatrixDefinitions(workflowText),
+          usedFallback: false,
+          error: false
+        };
+      } catch {
+        const fallback = defaultDefinitionsByPath.get(run.path);
+        if (fallback?.ok) {
+          return {
+            key,
+            definitions: fallback.definitions,
+            usedFallback: true,
+            error: false
+          };
+        }
+        return {
+          key,
+          definitions: [],
+          usedFallback: false,
+          error: true
+        };
+      }
+    }
+  );
+  const definitionsByRevision = new Map(
+    definitionResults.map((item) => [item.key, item.definitions])
+  );
+  const workflowDefinitionFallbacks = definitionResults.filter(
+    (item) => item.usedFallback
+  ).length;
+  const workflowDefinitionErrors = definitionResults.filter(
+    (item) => item.error
+  ).length;
+  const revisionDefinitions = definitionResults.flatMap(
+    (item) => item.definitions
+  );
+  const workflowStaticDefinitionCells = revisionDefinitions.reduce(
+    (sum, definition) => sum + definition.expectedCells,
+    0
+  );
+  const workflowRenderedDefinitionCells = revisionDefinitions.reduce(
+    (sum, definition) => sum + definition.renderedCells,
+    0
+  );
+  const workflowRenderCoverage = workflowStaticDefinitionCells ? workflowRenderedDefinitionCells / workflowStaticDefinitionCells : null;
+  const dynamicMatrixDefinitions = revisionDefinitions.filter(
+    (definition) => definition.dynamic
+  ).length;
   const jobsByRun = await mapLimit(runs, concurrency, async (run) => ({
     run,
     jobs: await client.listJobs(run.id)
   }));
   const matrixJobs = [];
   const matrixJobIds = /* @__PURE__ */ new Set();
+  const matrixJobById = /* @__PURE__ */ new Map();
+  let workflowExpectedMatrixCells = 0;
+  let workflowMatchedMatrixCells = 0;
+  let inactiveStaticMatrixFamilies = 0;
   for (const { run, jobs } of jobsByRun) {
+    const definitions = definitionsByRevision.get(`${run.path}@${run.head_sha}`) ?? [];
+    if (isConclusiveConclusion(run.conclusion)) {
+      for (const definition of definitions) {
+        if (definition.dynamic) continue;
+        const matched = definition.cells.filter(
+          (cell) => jobs.some(
+            (job) => job.name === cell.name || job.name.startsWith(`${cell.name} / `)
+          )
+        ).length;
+        if (matched === 0) {
+          inactiveStaticMatrixFamilies++;
+          continue;
+        }
+        workflowExpectedMatrixCells += definition.expectedCells;
+        workflowMatchedMatrixCells += matched;
+      }
+    }
     for (const job of jobs) {
       const parsed = splitJobName(job.name);
-      if (!parsed.matrixLike || !knownMatrixBase(parsed.baseJob, definitions)) {
+      const inferred = inferAxesFromExpandedJobName(job.name, definitions);
+      const renderedMatch = inferred.source !== "unavailable";
+      const defaultNameFallback = parsed.matrixLike && knownMatrixBase(parsed.baseJob, definitions);
+      if (!renderedMatch && !defaultNameFallback) {
         continue;
       }
-      const inferred = inferAxesFromExpandedJobName(job.name, definitions);
-      matrixJobIds.add(job.id);
-      matrixJobs.push({
+      const observation = {
         runId: run.id,
         runNumber: run.run_number,
+        runConclusion: run.conclusion,
         jobId: job.id,
-        cell: parsed.cell,
-        baseJob: parsed.baseJob,
+        cell: job.name,
+        baseJob: renderedMatch ? inferred.baseJob : parsed.baseJob,
         axes: inferred.axes,
         axisSource: inferred.source,
         conclusion: job.conclusion,
         runtimeSeconds: durationSeconds(job.started_at, job.completed_at)
-      });
+      };
+      matrixJobIds.add(job.id);
+      matrixJobs.push(observation);
+      matrixJobById.set(job.id, observation);
     }
   }
   const allFailedJobs = jobsByRun.flatMap(
@@ -7743,13 +8140,16 @@ async function analyzeRepository(repository, options) {
     try {
       const log = await client.jobLog(job.id);
       const fingerprint = fingerprintFailure(log);
-      const { baseJob, cell } = splitJobName(job.name);
+      const matrixJob = matrixJobById.get(job.id);
+      if (!matrixJob) {
+        throw new Error(`matrix job metadata missing for job ${job.id}`);
+      }
       return {
         runId: run.id,
         runNumber: run.run_number,
         jobId: job.id,
-        cell,
-        baseJob,
+        cell: matrixJob.cell,
+        baseJob: matrixJob.baseJob,
         fingerprint: fingerprint.id,
         signature: fingerprint.signature,
         evidence: fingerprint.evidence
@@ -7788,6 +8188,16 @@ async function analyzeRepository(repository, options) {
     fingerprints: byFingerprint.size,
     logErrors,
     expiredLogs,
+    workflowDefinitionFallbacks,
+    workflowDefinitionErrors,
+    workflowStaticDefinitionCells,
+    workflowRenderedDefinitionCells,
+    workflowRenderCoverage,
+    workflowExpectedMatrixCells,
+    workflowMatchedMatrixCells,
+    workflowMatchCoverage: workflowExpectedMatrixCells ? workflowMatchedMatrixCells / workflowExpectedMatrixCells : null,
+    inactiveStaticMatrixFamilies,
+    dynamicMatrixDefinitions,
     cells,
     clusters,
     observations,
@@ -7893,10 +8303,15 @@ function recommendMatrix(report, options = {}) {
     (cluster) => `failure:${cluster.fingerprint}`
   );
   const combinatorialTokens = combinatorial.tokens.map((token) => token.id);
+  const unresolvedSafetyTokens = combinatorial.unresolvedCells.map(
+    (cell) => `unresolved:${cell}`
+  );
+  const unresolvedSafetyCells = new Set(combinatorial.unresolvedCells);
   const universe = /* @__PURE__ */ new Set([
     ...anchors,
     ...failureTokens,
-    ...combinatorialTokens
+    ...combinatorialTokens,
+    ...unresolvedSafetyTokens
   ]);
   const coverageByCell = /* @__PURE__ */ new Map();
   for (const cell of report.cells) {
@@ -7998,6 +8413,31 @@ function recommendMatrix(report, options = {}) {
       `Some failed logs were unavailable (expired=${report.expiredLogs}, errors=${report.logErrors}); failure coverage only includes analyzed logs.`
     );
   }
+  if (report.workflowDefinitionFallbacks) {
+    warnings.push(
+      `Historical workflow YAML could not be read for ${report.workflowDefinitionFallbacks} revision(s); those runs used the default-branch workflow definition as a fallback.`
+    );
+  }
+  if (report.workflowDefinitionErrors) {
+    warnings.push(
+      `Workflow definitions were unavailable for ${report.workflowDefinitionErrors} revision(s); matrix jobs from those revisions may be missing from the analysis.`
+    );
+  }
+  if (report.workflowRenderCoverage !== void 0 && report.workflowRenderCoverage !== null && report.workflowRenderCoverage < 1) {
+    warnings.push(
+      `Only ${(report.workflowRenderCoverage * 100).toFixed(1)}% of static workflow matrix cells had renderable job names; recommendation coverage may be incomplete.`
+    );
+  }
+  if (report.workflowMatchCoverage !== void 0 && report.workflowMatchCoverage !== null && report.workflowMatchCoverage < 1) {
+    warnings.push(
+      `Only ${(report.workflowMatchCoverage * 100).toFixed(1)}% of expected static matrix cells matched actual GitHub job names; recommendation coverage may be incomplete.`
+    );
+  }
+  if (report.dynamicMatrixDefinitions) {
+    warnings.push(
+      `${report.dynamicMatrixDefinitions} dynamic matrix definition(s) could not be statically expanded; recommendation coverage may be incomplete.`
+    );
+  }
   return {
     mode: "history+combinatorial",
     algorithm: "greedy-weighted-set-cover",
@@ -8067,8 +8507,9 @@ function backtestRecommendation(report, holdoutPercent = 25, coverageStrength = 
   if (holdoutPercent <= 0 || holdoutPercent >= 100) {
     throw new Error("holdoutPercent must be between 0 and 100");
   }
+  const conclusive = (value) => value === void 0 || ["success", "failure", "timed_out", "neutral"].includes(value ?? "");
   const runs = [...new Map(
-    report.matrixJobs.map((item) => [
+    report.matrixJobs.filter((item) => conclusive(item.runConclusion)).map((item) => [
       item.runId,
       { runId: item.runId, runNumber: item.runNumber }
     ])
@@ -8086,7 +8527,9 @@ function backtestRecommendation(report, holdoutPercent = 25, coverageStrength = 
   const training = report.observations.filter((item) => trainingRunIds.has(item.runId));
   const holdout = report.observations.filter((item) => holdoutRunIds.has(item.runId));
   if (!training.length || !holdout.length) {
-    throw new Error("backtest split produced an empty training or holdout set");
+    throw new Error(
+      "backtest needs at least one analyzable failure in both the training and holdout windows"
+    );
   }
   const trainingReport = subsetReport(report, training, trainingRunIds);
   const holdoutReport = subsetReport(report, holdout, holdoutRunIds);

@@ -16,7 +16,7 @@ MatrixTrim no intenta simplemente ejecutar menos jobs. La pregunta útil es otra
 
 El objetivo es proponer una CI matrix más pequeña basándose en **cobertura histórica de fallos, coste de ejecución, estructura de la matrix y backtesting con holdout temporal**.
 
-> **Estado actual: v0.7 experimental.** MatrixTrim combina evidencia histórica de fallos, cobertura observada 1-wise / pairwise / t-wise, coste de runtime, backtesting temporal y una GitHub Action que publica el análisis directamente en los Pull Requests.
+> **Estado actual: v0.8 experimental.** MatrixTrim combina evidencia histórica de fallos, cobertura observada 1-wise / pairwise / t-wise, coste de runtime, backtesting temporal, reconstrucción de nombres de jobs de matrix ya renderizados, GitHub Action y un benchmark reproducible sobre OSS público.
 
 ## ¿Por qué MatrixTrim?
 
@@ -63,7 +63,7 @@ GH_TOKEN="$(gh auth token)" \
   --limit 100
 ```
 
-Desde v0.5, MatrixTrim obtiene metadata de jobs de **todas las ejecuciones completadas, incluidas las exitosas**. Solo descarga logs detallados de los matrix jobs que fallaron.
+MatrixTrim obtiene metadata de jobs de **todas las ejecuciones completadas, incluidas las exitosas**. Solo descarga logs detallados de los matrix jobs que fallaron.
 
 Ejemplo:
 
@@ -85,7 +85,7 @@ os=ubuntu-latest
 node=22
 ```
 
-Las matrices dinámicas o los nombres de job demasiado personalizados se dejan como unresolved en vez de inventar una interpretación.
+En matrices estáticas, MatrixTrim puede reconstruir nombres renderizados a partir de expresiones directas `matrix.*`, `format(...)`, fallbacks como `matrix.name || matrix.python` y matrices definidas solo con `include`. Las matrices dinámicas y las expresiones de GitHub aún no soportadas quedan como unresolved en vez de inventar una interpretación.
 
 ## Recomendar una matrix más pequeña
 
@@ -149,6 +149,18 @@ La Action siempre genera un **Step Summary**. En Pull Requests también crea o a
 
 El informe muestra celdas actuales y sugeridas, historical failure recall, combinatorial coverage, reducción estimada de compute, holdout recall, unseen-failure recall y la lista de celdas recomendadas.
 
+## Benchmark con OSS público
+
+Para evitar validar MatrixTrim solo con ejemplos favorables, fijamos **20 ejecuciones completadas con resultado concluyente en cada uno de 12 repositorios OSS públicos** y las evaluamos con `--strength 2` y un holdout temporal del 25%.
+
+- **10 de 12 repositorios quedaron completamente resueltos**: recuperación de axes observados, renderizado de nombres de workflow y correspondencia de nombres de jobs en matrix families activas alcanzaron el 100%; los otros 2 son partial y no cuentan como reducciones validadas.
+- Reducciones no nulas validadas: **pandas 34 → 32 celdas (-7.2%)**, **Flask 12 → 10 (-13.6%)** y **Diesel 28 → 25 (-7.6%)**.
+- pandas y Diesel mantuvieron **100% de holdout recall y 100% de unseen-failure recall** en las ventanas de backtest disponibles.
+- **7 de los 10 repositorios completamente resueltos se dejaron sin cambios deliberadamente** porque las restricciones de seguridad no justificaban una reducción.
+- aiohttp muestra aparentemente 29 → 14, pero solo el 41% de las celdas observadas tiene axes resueltos, con 75% de cobertura de renderizado y 42% de correspondencia de nombres en families activas; por eso sigue siendo un resultado diagnóstico, no validado.
+
+Los run IDs exactos están fijados en [benchmark/snapshot.json](benchmark/snapshot.json) y los resultados completos en [benchmark/results.md](benchmark/results.md). Estas cifras describen ese snapshot fijo; no son una promesa sobre el comportamiento futuro del CI.
+
 ## Caso real: pytest
 
 MatrixTrim se validó con una ejecución fallida real de `pytest-dev/pytest`:
@@ -191,10 +203,11 @@ El núcleo es determinista y no depende de un LLM.
 - [x] Recomendación basada en empirical failure coverage
 - [x] Restricciones de seguridad 1-wise / pairwise / t-wise observadas
 - [x] Backtest temporal
-- [ ] Soporte completo de `include` / `exclude`
+- [x] Expansión estática de `include` / `exclude` y reconstrucción del nombre renderizado del job
+- [ ] Matrices dinámicas / soporte más amplio de expresiones de GitHub
 - [ ] Restricciones explícitas keep / compatibility
 - [x] GitHub Action + comentarios en PR
-- [ ] Benchmark en repos OSS con matrices grandes
+- [x] Benchmark reproducible en repos OSS con matrices grandes
 - [ ] Modelo de coste monetario según runner
 - [ ] Multi-event failure fingerprinting
 - [ ] Generación automática de recommendation PR

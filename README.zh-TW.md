@@ -16,7 +16,7 @@ MatrixTrim 關心的不是單純把 job 數量砍到最低，而是：
 
 目標是結合 **歷史 failure coverage、執行成本、matrix 結構與 holdout backtest**，提出更小、也更有依據的 CI matrix 候選方案。
 
-> **目前狀態：v0.7 experimental。** recommendation 會同時考量歷史 failure evidence、已觀測的 1-wise / pairwise / t-wise 組態 coverage、runtime cost 與 time-based holdout backtest，並可透過 GitHub Action 直接把結果回報到 Pull Request。
+> **目前狀態：v0.8 experimental。** MatrixTrim 已能結合歷史 failure evidence、已觀測的 1-wise / pairwise / t-wise 組態 coverage、runtime cost、time-based holdout backtest、render 後 matrix job 名稱還原、GitHub Action，以及可重現的公開 OSS benchmark。
 
 ## 為什麼需要 MatrixTrim？
 
@@ -63,7 +63,7 @@ GH_TOKEN="$(gh auth token)" \
   --limit 100
 ```
 
-從 v0.5 開始，MatrixTrim 會從**所有 completed run（包含成功 run）**取得 job metadata；只有失敗的 matrix job 才會進一步讀取 log 並建立 fingerprint。
+MatrixTrim 會從**所有 completed run（包含成功 run）**取得 job metadata；只有失敗的 matrix job 才會進一步讀取 log 並建立 fingerprint。
 
 例如：
 
@@ -85,7 +85,7 @@ os=ubuntu-latest
 node=22
 ```
 
-dynamic matrix 或複雜的 custom job name 則不硬猜，會保留為 unresolved。
+對 static matrix，MatrixTrim 可從直接的 `matrix.*` 表達式、`format(...)`、像 `matrix.name || matrix.python` 的 fallback 表達式，以及 include-only matrix 還原 render 後的 job 名稱。dynamic matrix 與尚未支援的 GitHub 表達式則維持 unresolved，不會硬猜。
 
 ## 建議更小的 matrix
 
@@ -149,6 +149,18 @@ Action 一定會產生 **Step Summary**。在 Pull Request 上，若 token 權�
 
 報告包含目前/建議 cell 數、historical failure recall、combinatorial coverage、估算 compute 降幅、holdout recall、unseen-failure recall，以及建議保留的 cell。
 
+## 公開 OSS benchmark
+
+為了避免只挑對 MatrixTrim 有利的案例，我們固定了 **12 個公開 OSS repository各20次有明確結論的 completed workflow run**，以 `--strength 2` 與 25% time holdout 進行評估。
+
+- **12 個 repo 中有 10 個完整解析**：觀測cell的axis還原、workflow名稱render、active matrix family的實際job名稱比對都達到100%；另外2個為 partial，不列入 validated reduction。
+- 已驗證且有非零縮減的案例：**pandas 34 → 32 cells (-7.2%)**、**Flask 12 → 10 (-13.6%)**、**Diesel 28 → 25 (-7.6%)**。
+- pandas 與 Diesel 在可用的 backtest 視窗中都維持 **100% holdout recall 與 100% unseen-failure recall**。
+- 在10個完整解析的 repo 中，**有7個因安全限制而明確維持原matrix不變**。
+- aiohttp 表面上可由29 → 14，但axis還原率只有41%、workflow名稱render coverage為75%、active family job名稱match率為42%，因此僅作為diagnostic，不視為validated結果。
+
+所有run ID固定在 [benchmark/snapshot.json](benchmark/snapshot.json)，完整結果見 [benchmark/results.md](benchmark/results.md)。這些數字描述的是固定snapshot，不是對未來CI行為的保證。
+
 ## 真實案例：pytest
 
 我們用一個真實的 `pytest-dev/pytest` GitHub Actions failure 做驗證：
@@ -191,10 +203,11 @@ MatrixTrim 會移除 timestamp、絕對路徑、UUID、duration、line number �
 - [x] empirical failure-coverage recommendation
 - [x] 已觀測的 1-wise / pairwise / t-wise safety constraint
 - [x] time-based holdout backtest
-- [ ] 完整處理 `include` / `exclude`
+- [x] static `include` / `exclude` 展開與render後job名稱還原
+- [ ] dynamic matrix / 更廣泛的GitHub表達式支援
 - [ ] 明確的 keep / compatibility constraint
 - [x] GitHub Action + PR comment
-- [ ] matrix-heavy OSS benchmark
+- [x] matrix-heavy OSS可重現benchmark
 - [ ] runner-aware monetary cost model
 - [ ] multi-event failure fingerprint
 - [ ] 自動產生 recommendation PR

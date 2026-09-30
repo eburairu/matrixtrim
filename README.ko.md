@@ -16,7 +16,7 @@ MatrixTrim은 단순히 job 수를 줄이는 도구가 아닙니다. 핵심 질�
 
 목표는 **과거 failure coverage, 실행 비용, matrix 구조, holdout backtest**를 바탕으로 더 작은 CI matrix 후보를 제안하는 것입니다.
 
-> **현재 상태: v0.7 experimental.** 과거 failure evidence, 관측된 1-wise / pairwise / t-wise configuration coverage, runtime cost, time-based holdout backtest에 더해 Pull Request에 결과를 직접 남기는 GitHub Action까지 사용할 수 있습니다.
+> **현재 상태: v0.8 experimental.** 과거 failure evidence, 관측된 1-wise / pairwise / t-wise configuration coverage, runtime cost, time-based holdout backtest, 렌더링된 matrix job 이름 복원, GitHub Action, 재현 가능한 공개 OSS benchmark까지 지원합니다.
 
 ## 왜 MatrixTrim인가?
 
@@ -63,7 +63,7 @@ GH_TOKEN="$(gh auth token)" \
   --limit 100
 ```
 
-v0.5부터는 **성공한 run을 포함한 모든 completed run에서 job metadata를 수집**합니다. 실제 log 분석은 실패한 matrix job에만 수행합니다.
+MatrixTrim은 **성공한 run을 포함한 모든 completed run에서 job metadata를 수집**합니다. 실제 log 분석은 실패한 matrix job에만 수행합니다.
 
 예:
 
@@ -85,7 +85,7 @@ os=ubuntu-latest
 node=22
 ```
 
-dynamic matrix나 복잡한 custom job name은 억지로 추측하지 않고 unresolved로 남깁니다.
+static matrix에서는 직접적인 `matrix.*` 표현식, `format(...)`, `matrix.name || matrix.python` 같은 fallback 표현식, include-only matrix를 이용해 렌더링된 job 이름을 복원할 수 있습니다. dynamic matrix와 아직 지원하지 않는 GitHub 표현식은 억지로 추측하지 않고 unresolved로 남깁니다.
 
 ## 더 작은 matrix 추천
 
@@ -149,6 +149,18 @@ Action은 항상 **Step Summary**를 생성합니다. Pull Request에서는 권�
 
 리포트에는 현재/추천 cell 수, historical failure recall, combinatorial coverage, 예상 compute 절감률, holdout recall, unseen-failure recall, 추천 cell 목록이 포함됩니다.
 
+## 공개 OSS benchmark
+
+유리한 사례만 골라 검증하는 것을 피하기 위해 **12개 공개 OSS 저장소에서 결과가 확정된 completed workflow run을 각각 20개씩 고정**하고, `--strength 2`와 25% time holdout으로 평가했습니다.
+
+- **12개 중 10개 저장소를 완전히 해석**했습니다. 관측된 axis 복원, workflow 이름 렌더링, active matrix family의 실제 job 이름 매칭이 모두 100%였으며, 나머지 2개는 partial이라 검증된 축소 결과에 포함하지 않았습니다.
+- 검증된 비제로 축소 사례는 **pandas 34 → 32 cells (-7.2%)**, **Flask 12 → 10 (-13.6%)**, **Diesel 28 → 25 (-7.6%)**입니다.
+- pandas와 Diesel은 사용 가능한 backtest 구간에서 **holdout recall 100%, unseen-failure recall 100%**를 유지했습니다.
+- 완전히 해석된 10개 저장소 중 **7개는 안전 제약 때문에 의도적으로 축소하지 않았습니다**.
+- aiohttp는 겉보기에는29 → 14까지 줄어들지만 axis 복원율41%, workflow 이름 render coverage75%, active family job 이름 match율42%이므로 validated가 아닌 diagnostic 결과로 분류합니다.
+
+정확한 run ID는 [benchmark/snapshot.json](benchmark/snapshot.json)에 고정되어 있고, 전체 결과는 [benchmark/results.md](benchmark/results.md)에서 확인할 수 있습니다. 이 수치는 고정snapshot에 대한 관측 결과이며 미래 CI 동작을 보장하지 않습니다.
+
 ## 실제 사례: pytest
 
 실제 `pytest-dev/pytest` GitHub Actions failure run으로 검증했습니다.
@@ -191,10 +203,11 @@ timestamp, 절대 경로, UUID, duration, line number처럼 흔들리는 정보�
 - [x] empirical failure-coverage recommendation
 - [x] 관측된 1-wise / pairwise / t-wise safety constraint
 - [x] time-based holdout backtest
-- [ ] `include` / `exclude` 완전 지원
+- [x] static `include` / `exclude` 전개 및 렌더링된job 이름 복원
+- [ ] dynamic matrix / 더 넓은GitHub 표현식 지원
 - [ ] 명시적 keep / compatibility constraint
 - [x] GitHub Action + PR comment
-- [ ] matrix-heavy OSS benchmark
+- [x] matrix-heavy OSS 재현 가능benchmark
 - [ ] runner-aware monetary cost model
 - [ ] multi-event failure fingerprint
 - [ ] recommendation PR 자동 생성

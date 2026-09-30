@@ -110,14 +110,15 @@ export class GitHubClient {
     return result;
   }
 
-  async fileText(path: string, ref: string): Promise<string> {
+  async fileText(path: string, ref?: string): Promise<string> {
     const encodedPath = path
       .split("/")
       .filter(Boolean)
       .map(encodeURIComponent)
       .join("/");
+    const refQuery = ref ? `?ref=${encodeURIComponent(ref)}` : "";
     const data = await this.json<{ content: string; encoding: string }>(
-      `/repos/${repoPath(this.repo)}/contents/${encodedPath}?ref=${encodeURIComponent(ref)}`,
+      `/repos/${repoPath(this.repo)}/contents/${encodedPath}${refQuery}`,
     );
     if (data.encoding !== "base64") {
       throw new Error(`unsupported GitHub content encoding: ${data.encoding}`);

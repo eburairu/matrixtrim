@@ -20,11 +20,12 @@ export type FailureObservation = {
 export type MatrixJobObservation = {
   runId: number;
   runNumber: number;
+  runConclusion?: string | null;
   jobId: number;
   cell: string;
   baseJob: string;
   axes: Record<string, string> | null;
-  axisSource: "workflow-job-name" | "unavailable";
+  axisSource: "workflow-rendered-name" | "workflow-job-name" | "unavailable";
   conclusion: string | null;
   runtimeSeconds: number | null;
 };
@@ -33,7 +34,7 @@ export type CellSummary = {
   cell: string;
   baseJob: string;
   axes: Record<string, string> | null;
-  axisSource: "workflow-job-name" | "unavailable";
+  axisSource: "workflow-rendered-name" | "workflow-job-name" | "unavailable";
   runsObserved: number;
   successRuns: number;
   failureRuns: number;
@@ -61,6 +62,16 @@ export type AnalysisReport = {
   fingerprints: number;
   logErrors: number;
   expiredLogs: number;
+  workflowDefinitionFallbacks?: number;
+  workflowDefinitionErrors?: number;
+  workflowStaticDefinitionCells?: number;
+  workflowRenderedDefinitionCells?: number;
+  workflowRenderCoverage?: number | null;
+  workflowExpectedMatrixCells?: number;
+  workflowMatchedMatrixCells?: number;
+  workflowMatchCoverage?: number | null;
+  inactiveStaticMatrixFamilies?: number;
+  dynamicMatrixDefinitions?: number;
   cells: CellSummary[];
   clusters: FailureCluster[];
   observations: FailureObservation[];
@@ -83,6 +94,12 @@ function durationSeconds(
   if (!startedAt || !completedAt) return null;
   const value = (Date.parse(completedAt) - Date.parse(startedAt)) / 1000;
   return Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+function isConclusiveConclusion(conclusion: string | null): boolean {
+  return ["success", "failure", "timed_out", "neutral"].includes(
+    conclusion ?? "",
+  );
 }
 
 function median(values: number[]): number | null {
@@ -149,7 +166,7 @@ export function summarizeCells(
     {
       baseJob: string;
       axes: Record<string, string> | null;
-      axisSource: "workflow-job-name" | "unavailable";
+      axisSource: "workflow-rendered-name" | "workflow-job-name" | "unavailable";
       runs: Set<number>;
       successRuns: Set<number>;
       failureRuns: Set<number>;
@@ -178,7 +195,12 @@ export function summarizeCells(
     } else {
       entry.otherRuns.add(item.runId);
     }
-    if (item.runtimeSeconds !== null) entry.runtimes.push(item.runtimeSeconds);
+    if (
+      item.runtimeSeconds !== null &&
+      isConclusiveConclusion(item.conclusion)
+    ) {
+      entry.runtimes.push(item.runtimeSeconds);
+    }
 
     if (entry.axisSource === "unavailable" && item.axisSource !== "unavailable") {
       entry.axes = item.axes;
@@ -236,27 +258,117 @@ export async function analyzeRepository(
     workflow?: string;
     token?: string;
     runId?: number;
+    runIds?: number[];
     concurrency?: number;
   },
 ): Promise<AnalysisReport> {
   const client = new GitHubClient(repository, options.token);
-  const runs: WorkflowRun[] = options.runId
-    ? [await client.getRun(options.runId)]
-    : await client.listRuns(options.limit, options.workflow);
   const concurrency = options.concurrency ?? 4;
+  const runs: WorkflowRun[] = options.runIds?.length
+    ? await mapLimit(options.runIds, concurrency, (runId) => client.getRun(runId))
+    : options.runId
+      ? [await client.getRun(options.runId)]
+      : await client.listRuns(options.limit, options.workflow);
 
   let workflowPath: string | undefined;
-  let definitions: MatrixDefinition[] = [];
   const workflowPaths = [...new Set(runs.map((run) => run.path).filter(Boolean))];
-  if (workflowPaths.length === 1 && runs[0]) {
+  if (workflowPaths.length === 1) {
     workflowPath = workflowPaths[0];
-    try {
-      const workflowText = await client.fileText(workflowPath, runs[0].head_sha);
-      definitions = workflowMatrixDefinitions(workflowText);
-    } catch {
-      definitions = [];
-    }
   }
+
+  // Resolve the workflow definition at each run's own head SHA. Matrix shape
+  // and job naming frequently change over time; applying today's workflow to
+  // old job names can silently misclassify historical cells. Some PR/fork SHAs
+  // cannot be read through the base repository contents API, so keep an
+  // explicit default-branch fallback and report when it was required.
+  const defaultDefinitionResults = await mapLimit(
+    workflowPaths,
+    concurrency,
+    async (path) => {
+      try {
+        const workflowText = await client.fileText(path);
+        return {
+          path,
+          ok: true,
+          definitions: workflowMatrixDefinitions(workflowText),
+        };
+      } catch {
+        return {
+          path,
+          ok: false,
+          definitions: [] as MatrixDefinition[],
+        };
+      }
+    },
+  );
+  const defaultDefinitionsByPath = new Map(
+    defaultDefinitionResults.map((item) => [item.path, item]),
+  );
+
+  const definitionInputs = [...new Map(
+    runs
+      .filter((run) => run.path && run.head_sha)
+      .map((run) => [`${run.path}@${run.head_sha}`, run]),
+  ).values()];
+
+  const definitionResults = await mapLimit(
+    definitionInputs,
+    concurrency,
+    async (run) => {
+      const key = `${run.path}@${run.head_sha}`;
+      try {
+        const workflowText = await client.fileText(run.path, run.head_sha);
+        return {
+          key,
+          definitions: workflowMatrixDefinitions(workflowText),
+          usedFallback: false,
+          error: false,
+        };
+      } catch {
+        const fallback = defaultDefinitionsByPath.get(run.path);
+        if (fallback?.ok) {
+          return {
+            key,
+            definitions: fallback.definitions,
+            usedFallback: true,
+            error: false,
+          };
+        }
+        return {
+          key,
+          definitions: [] as MatrixDefinition[],
+          usedFallback: false,
+          error: true,
+        };
+      }
+    },
+  );
+  const definitionsByRevision = new Map(
+    definitionResults.map((item) => [item.key, item.definitions]),
+  );
+  const workflowDefinitionFallbacks = definitionResults.filter(
+    (item) => item.usedFallback,
+  ).length;
+  const workflowDefinitionErrors = definitionResults.filter(
+    (item) => item.error,
+  ).length;
+  const revisionDefinitions = definitionResults.flatMap(
+    (item) => item.definitions,
+  );
+  const workflowStaticDefinitionCells = revisionDefinitions.reduce(
+    (sum, definition) => sum + definition.expectedCells,
+    0,
+  );
+  const workflowRenderedDefinitionCells = revisionDefinitions.reduce(
+    (sum, definition) => sum + definition.renderedCells,
+    0,
+  );
+  const workflowRenderCoverage = workflowStaticDefinitionCells
+    ? workflowRenderedDefinitionCells / workflowStaticDefinitionCells
+    : null;
+  const dynamicMatrixDefinitions = revisionDefinitions.filter(
+    (definition) => definition.dynamic,
+  ).length;
 
   // Job metadata is intentionally fetched for every completed run, including
   // successful runs. Failure logs are downloaded only for failed matrix jobs.
@@ -267,26 +379,64 @@ export async function analyzeRepository(
 
   const matrixJobs: MatrixJobObservation[] = [];
   const matrixJobIds = new Set<number>();
+  const matrixJobById = new Map<number, MatrixJobObservation>();
+  let workflowExpectedMatrixCells = 0;
+  let workflowMatchedMatrixCells = 0;
+  let inactiveStaticMatrixFamilies = 0;
 
   for (const { run, jobs } of jobsByRun) {
+    const definitions =
+      definitionsByRevision.get(`${run.path}@${run.head_sha}`) ?? [];
+
+    if (isConclusiveConclusion(run.conclusion)) {
+      for (const definition of definitions) {
+        if (definition.dynamic) continue;
+
+        const matched = definition.cells.filter((cell) =>
+          jobs.some(
+            (job) =>
+              job.name === cell.name ||
+              job.name.startsWith(`${cell.name} / `),
+          ),
+        ).length;
+
+        if (matched === 0) {
+          inactiveStaticMatrixFamilies++;
+          continue;
+        }
+
+        workflowExpectedMatrixCells += definition.expectedCells;
+        workflowMatchedMatrixCells += matched;
+      }
+    }
+
     for (const job of jobs) {
       const parsed = splitJobName(job.name);
-      if (!parsed.matrixLike || !knownMatrixBase(parsed.baseJob, definitions)) {
+      const inferred = inferAxesFromExpandedJobName(job.name, definitions);
+      const renderedMatch = inferred.source !== "unavailable";
+      const defaultNameFallback =
+        parsed.matrixLike && knownMatrixBase(parsed.baseJob, definitions);
+
+      if (!renderedMatch && !defaultNameFallback) {
         continue;
       }
-      const inferred = inferAxesFromExpandedJobName(job.name, definitions);
-      matrixJobIds.add(job.id);
-      matrixJobs.push({
+
+      const observation: MatrixJobObservation = {
         runId: run.id,
         runNumber: run.run_number,
+        runConclusion: run.conclusion,
         jobId: job.id,
-        cell: parsed.cell,
-        baseJob: parsed.baseJob,
+        cell: job.name,
+        baseJob: renderedMatch ? inferred.baseJob : parsed.baseJob,
         axes: inferred.axes,
         axisSource: inferred.source,
         conclusion: job.conclusion,
         runtimeSeconds: durationSeconds(job.started_at, job.completed_at),
-      });
+      };
+
+      matrixJobIds.add(job.id);
+      matrixJobs.push(observation);
+      matrixJobById.set(job.id, observation);
     }
   }
 
@@ -306,13 +456,16 @@ export async function analyzeRepository(
       try {
         const log = await client.jobLog(job.id);
         const fingerprint = fingerprintFailure(log);
-        const { baseJob, cell } = splitJobName(job.name);
+        const matrixJob = matrixJobById.get(job.id);
+        if (!matrixJob) {
+          throw new Error(`matrix job metadata missing for job ${job.id}`);
+        }
         return {
           runId: run.id,
           runNumber: run.run_number,
           jobId: job.id,
-          cell,
-          baseJob,
+          cell: matrixJob.cell,
+          baseJob: matrixJob.baseJob,
           fingerprint: fingerprint.id,
           signature: fingerprint.signature,
           evidence: fingerprint.evidence,
@@ -360,6 +513,18 @@ export async function analyzeRepository(
     fingerprints: byFingerprint.size,
     logErrors,
     expiredLogs,
+    workflowDefinitionFallbacks,
+    workflowDefinitionErrors,
+    workflowStaticDefinitionCells,
+    workflowRenderedDefinitionCells,
+    workflowRenderCoverage,
+    workflowExpectedMatrixCells,
+    workflowMatchedMatrixCells,
+    workflowMatchCoverage: workflowExpectedMatrixCells
+      ? workflowMatchedMatrixCells / workflowExpectedMatrixCells
+      : null,
+    inactiveStaticMatrixFamilies,
+    dynamicMatrixDefinitions,
     cells,
     clusters,
     observations,

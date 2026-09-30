@@ -16,7 +16,7 @@ MatrixTrimが見たいのは、単純なjob数ではありません。
 
 過去のfailure、実行コスト、matrix構造、holdout backtestを使って、より小さいCI matrix候補を作ることを目指しています。
 
-> **Status: v0.7 experimental.** 過去のfailure evidence、観測済み1-wise / pairwise / t-wise構成coverage、runtime cost、time-based holdout backtestに加えて、結果をPull Requestへ直接返すGitHub Actionまで利用できるようになりました。
+> **Status: v0.8 experimental.** 過去のfailure evidence、観測済み1-wise / pairwise / t-wise構成coverage、runtime cost、time-based holdout backtest、render済みmatrix job名の復元、GitHub Action、再現可能な公開OSS benchmarkまで利用できます。
 
 ## なぜ必要か
 
@@ -63,7 +63,7 @@ GH_TOKEN="$(gh auth token)" \
   --limit 100
 ```
 
-v0.5では、**failure runだけでなく、すべてのcompleted runからjob metadataを取得**します。failureになったmatrix jobだけlogまで深掘りします。
+MatrixTrimは、**failure runだけでなく、すべてのcompleted runからjob metadataを取得**します。failureになったmatrix jobだけlogまで深掘りします。
 
 例えばMatrixTrim自身の直近5 runでは:
 
@@ -85,7 +85,7 @@ os=ubuntu-latest
 node=22
 ```
 
-dynamic matrixやcustom job nameは、無理に推測せず unresolved として扱います。
+static matrixでは、直接の `matrix.*` 参照、`format(...)`、`matrix.name || matrix.python` のようなfallback式、include-only matrixからrender済みjob名を復元できます。dynamic matrixや未対応のGitHub式は、無理に推測せず unresolved として扱います。
 
 ## matrix縮約候補を出す
 
@@ -149,6 +149,18 @@ Actionは必ず **Step Summary** を生成します。Pull Request上では、�
 
 レポートには、現在cell数と推奨cell数、historical failure recall、combinatorial coverage、推定compute削減率、holdout recall、unseen-failure recall、推奨cell一覧を表示します。
 
+## 公開OSS benchmark
+
+都合の良い実例だけで評価しないため、**公開OSS 12 repositoryについてconclusiveなcompleted workflow runを各20件固定**し、`--strength 2`、time holdout 25%で評価しました。
+
+- **12 repo中10 repoは、観測cellのaxis復元・workflow名render・active matrix familyの実job名照合をすべて100%解決**できました。残り2 repoはpartialで、検証済み削減結果には含めていません。
+- 検証済みで削減が出たのは **pandas 34 → 32 cell (-7.2%)**、**Flask 12 → 10 (-13.6%)**、**Diesel 28 → 25 (-7.6%)** です。
+- pandasとDieselは、利用可能なbacktest期間で **holdout recall 100% / unseen-failure recall 100%** を維持しました。
+- 完全解決できた10 repoのうち**7 repoは安全制約上「削らない」判定**でした。
+- aiohttpは見かけ上29 → 14まで減りますが、axis解決率41%、workflow名render率75%、active familyのjob名match率42%のため、validatedではなくdiagnostic扱いです。
+
+対象run IDは [benchmark/snapshot.json](benchmark/snapshot.json) に固定し、全結果は [benchmark/results.md](benchmark/results.md) に保存しています。この数値は固定snapshotに対する観測結果であり、将来のCI挙動を保証するものではありません。
+
 ## 実例: pytest
 
 実際の `pytest-dev/pytest` のfailure runで検証しました。
@@ -191,10 +203,11 @@ coreはdeterministicで、LLMは必須ではありません。
 - [x] empirical failure coverage recommendation
 - [x] 観測済み1-wise / pairwise / t-wise safety constraint
 - [x] time-based holdout backtest
-- [ ] `include` / `exclude` の完全展開
+- [x] static `include` / `exclude` 展開＋render済みjob名復元
+- [ ] dynamic matrix / GitHub式の対応拡大
 - [ ] 明示的なkeep / compatibility constraint
 - [x] GitHub Action化＋PRコメント
-- [ ] matrix-heavy OSSでのbenchmark
+- [x] matrix-heavy OSSでの再現可能benchmark
 - [ ] runner単価を含むmonetary cost model
 - [ ] 1 job内のmulti-event failure fingerprint
 - [ ] recommendation PR自動生成

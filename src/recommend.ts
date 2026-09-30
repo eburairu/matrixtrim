@@ -80,10 +80,15 @@ export function recommendMatrix(
     (cluster) => `failure:${cluster.fingerprint}`,
   );
   const combinatorialTokens = combinatorial.tokens.map((token) => token.id);
+  const unresolvedSafetyTokens = combinatorial.unresolvedCells.map(
+    (cell) => `unresolved:${cell}`,
+  );
+  const unresolvedSafetyCells = new Set(combinatorial.unresolvedCells);
   const universe = new Set<string>([
     ...anchors,
     ...failureTokens,
     ...combinatorialTokens,
+    ...unresolvedSafetyTokens,
   ]);
 
   const coverageByCell = new Map<string, Set<string>>();
@@ -95,6 +100,9 @@ export function recommendMatrix(
     }
     for (const token of combinatorial.byCell.get(cell.cell) ?? []) {
       coverage.add(token);
+    }
+    if (unresolvedSafetyCells.has(cell.cell)) {
+      coverage.add(`unresolved:${cell.cell}`);
     }
 
     coverageByCell.set(cell.cell, coverage);
@@ -210,13 +218,47 @@ export function recommendMatrix(
 
   if (combinatorial.unresolvedCells.length) {
     warnings.push(
-      `Axis values could not be resolved for ${combinatorial.unresolvedCells.length} cell(s); combinatorial constraints do not cover those cells unless needed for failure or job-family coverage.`,
+      `Axis values could not be resolved for ${combinatorial.unresolvedCells.length} cell(s); those cells are retained individually as a safety constraint.`,
     );
   }
 
   if (report.expiredLogs || report.logErrors) {
     warnings.push(
       `Some failed logs were unavailable (expired=${report.expiredLogs}, errors=${report.logErrors}); failure coverage only includes analyzed logs.`,
+    );
+  }
+
+  if (report.workflowDefinitionFallbacks) {
+    warnings.push(
+      `Historical workflow YAML could not be read for ${report.workflowDefinitionFallbacks} revision(s); those runs used the default-branch workflow definition as a fallback.`,
+    );
+  }
+  if (report.workflowDefinitionErrors) {
+    warnings.push(
+      `Workflow definitions were unavailable for ${report.workflowDefinitionErrors} revision(s); matrix jobs from those revisions may be missing from the analysis.`,
+    );
+  }
+  if (
+    report.workflowRenderCoverage !== undefined &&
+    report.workflowRenderCoverage !== null &&
+    report.workflowRenderCoverage < 1
+  ) {
+    warnings.push(
+      `Only ${(report.workflowRenderCoverage * 100).toFixed(1)}% of static workflow matrix cells had renderable job names; recommendation coverage may be incomplete.`,
+    );
+  }
+  if (
+    report.workflowMatchCoverage !== undefined &&
+    report.workflowMatchCoverage !== null &&
+    report.workflowMatchCoverage < 1
+  ) {
+    warnings.push(
+      `Only ${(report.workflowMatchCoverage * 100).toFixed(1)}% of expected static matrix cells matched actual GitHub job names; recommendation coverage may be incomplete.`,
+    );
+  }
+  if (report.dynamicMatrixDefinitions) {
+    warnings.push(
+      `${report.dynamicMatrixDefinitions} dynamic matrix definition(s) could not be statically expanded; recommendation coverage may be incomplete.`,
     );
   }
 

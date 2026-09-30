@@ -89,11 +89,17 @@ export function backtestRecommendation(
     throw new Error("holdoutPercent must be between 0 and 100");
   }
 
+  const conclusive = (value: string | null | undefined) =>
+    value === undefined ||
+    ["success", "failure", "timed_out", "neutral"].includes(value ?? "");
+
   const runs = [...new Map(
-    report.matrixJobs.map((item) => [
-      item.runId,
-      { runId: item.runId, runNumber: item.runNumber },
-    ]),
+    report.matrixJobs
+      .filter((item) => conclusive(item.runConclusion))
+      .map((item) => [
+        item.runId,
+        { runId: item.runId, runNumber: item.runNumber },
+      ]),
   ).values()].sort((a, b) => a.runNumber - b.runNumber || a.runId - b.runId);
 
   if (runs.length < 2) {
@@ -111,7 +117,9 @@ export function backtestRecommendation(
   const training = report.observations.filter((item) => trainingRunIds.has(item.runId));
   const holdout = report.observations.filter((item) => holdoutRunIds.has(item.runId));
   if (!training.length || !holdout.length) {
-    throw new Error("backtest split produced an empty training or holdout set");
+    throw new Error(
+      "backtest needs at least one analyzable failure in both the training and holdout windows",
+    );
   }
 
   const trainingReport = subsetReport(report, training, trainingRunIds);

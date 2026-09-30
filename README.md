@@ -16,7 +16,7 @@ MatrixTrim analyzes GitHub Actions matrix jobs and asks a practical question:
 
 The goal is to recommend a smaller CI matrix using **historical failure coverage, runtime cost, matrix structure, and holdout backtesting**.
 
-> **Status: v0.7 experimental.** MatrixTrim combines empirical failure evidence with observed 1-wise / pairwise / t-wise configuration coverage, runtime cost, time-based holdout backtesting, and a GitHub Action that reports results directly on pull requests.
+> **Status: v0.8 experimental.** MatrixTrim combines empirical failure evidence, observed 1-wise / pairwise / t-wise configuration coverage, runtime cost, time-based holdout backtesting, rendered matrix-name reconstruction, a GitHub Action, and a reproducible public-OSS benchmark.
 
 ## Why MatrixTrim?
 
@@ -85,7 +85,7 @@ os=ubuntu-latest
 node=22
 ```
 
-Dynamic matrices and custom job names are left unresolved rather than guessed.
+For static matrices, MatrixTrim can reconstruct common rendered job names using direct `matrix.*` expressions, `format(...)`, fallback expressions such as `matrix.name || matrix.python`, and include-only matrices. Dynamic matrices and unsupported GitHub expressions remain unresolved rather than guessed.
 
 ## Recommend a smaller matrix
 
@@ -149,6 +149,18 @@ The Action always writes a **Step Summary**. On pull requests it also creates or
 
 The report includes current vs suggested cells, historical failure recall, combinatorial coverage, estimated compute reduction, holdout recall, unseen-failure recall, and the recommended cell set.
 
+## Public OSS benchmark
+
+To avoid validating MatrixTrim only on hand-picked examples, we pinned **20 conclusive completed workflow runs each from 12 public OSS repositories** and evaluated them with `--strength 2` and a 25% time holdout.
+
+- **10/12 repositories were fully resolved** with 100% observed axis recovery, workflow-name rendering, and active-family job-name matching; 2 were partial and are not treated as validated reduction results.
+- Validated non-zero reductions: **pandas 34 → 32 cells (-7.2%)**, **Flask 12 → 10 (-13.6%)**, **Diesel 28 → 25 (-7.6%)**.
+- pandas and Diesel both kept **100% holdout recall and 100% unseen-failure recall** in the available backtest windows.
+- **7 of the 10 fully resolved repositories were intentionally left unchanged** because the safety constraints did not justify a reduction.
+- aiohttp showed an apparent 29 → 14 reduction, but only 41% of observed cells had resolved axes (75% workflow-name render coverage, 42% active-family job-name match), so that result is diagnostic rather than validated.
+
+The exact run IDs are pinned in [benchmark/snapshot.json](benchmark/snapshot.json), and the complete results are in [benchmark/results.md](benchmark/results.md). These measurements describe that fixed snapshot; they are not universal promises about future CI behavior.
+
 ## Real-world example: pytest
 
 MatrixTrim was validated against a real failed `pytest-dev/pytest` Actions run:
@@ -191,10 +203,11 @@ The core is deterministic. No LLM is required.
 - [x] Empirical failure-coverage recommendation
 - [x] Observed 1-wise / pairwise / t-wise safety constraints
 - [x] Time-based holdout backtesting
-- [ ] Full `include` / `exclude` expansion
+- [x] Static `include` / `exclude` expansion and rendered job-name recovery
+- [ ] Dynamic matrices / broader GitHub expression support
 - [ ] Explicit keep / compatibility constraints
 - [x] GitHub Action + PR comments
-- [ ] Benchmark across matrix-heavy OSS repositories
+- [x] Reproducible benchmark across matrix-heavy OSS repositories
 - [ ] Runner-aware monetary cost model
 - [ ] Multi-event failure fingerprints
 - [ ] Recommendation PR generation

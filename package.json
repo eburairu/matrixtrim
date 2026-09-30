@@ -1,6 +1,6 @@
 {
   "name": "matrixtrim",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Evidence-based GitHub Actions matrix diagnostics and optimization.",
   "type": "module",
   "bin": {
@@ -11,7 +11,8 @@
     "dev": "tsx src/cli.ts",
     "test": "vitest run",
     "check": "npm run build && npm test",
-    "build:action": "esbuild src/action.ts --bundle --platform=node --target=node24 --outfile=action-dist/index.cjs"
+    "build:action": "esbuild src/action.ts --bundle --platform=node --target=node24 --outfile=action-dist/index.cjs",
+    "benchmark": "npm run build && node scripts/benchmark.mjs"
   },
   "engines": {
     "node": ">=20"

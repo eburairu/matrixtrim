@@ -1,0 +1,14 @@
+[
+  {"repository":"pytest-dev/pytest","workflow":"test.yml","category":"Python test framework"},
+  {"repository":"numpy/numpy","workflow":"linux.yml","category":"Python / native"},
+  {"repository":"pandas-dev/pandas","workflow":"unit-tests.yml","category":"Python data"},
+  {"repository":"pydantic/pydantic","workflow":"ci.yml","category":"Python / Rust extension"},
+  {"repository":"encode/httpx","workflow":"test-suite.yml","category":"Python HTTP"},
+  {"repository":"pallets/flask","workflow":"tests.yaml","category":"Python web"},
+  {"repository":"aio-libs/aiohttp","workflow":"ci-cd.yml","category":"Python async / native"},
+  {"repository":"tokio-rs/tokio","workflow":"ci.yml","category":"Rust async"},
+  {"repository":"serde-rs/serde","workflow":"ci.yml","category":"Rust serialization"},
+  {"repository":"diesel-rs/diesel","workflow":"ci.yml","category":"Rust database"},
+  {"repository":"pnpm/pnpm","workflow":"ci.yml","category":"Node package manager"},
+  {"repository":"vitejs/vite","workflow":"ci.yml","category":"Node build tool"}
+]
