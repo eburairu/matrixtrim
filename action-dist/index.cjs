@@ -7240,7 +7240,7 @@ var require_public_api = __commonJS({
         return docs;
       return Object.assign([], { empty: true }, composer$1.streamInfo());
     }
-    function parseDocument(source, options = {}) {
+    function parseDocument2(source, options = {}) {
       const { lineCounter: lineCounter2, prettyErrors } = parseOptions(options);
       const parser$1 = new parser.Parser(lineCounter2?.addNewLine);
       const composer$1 = new composer.Composer(options);
@@ -7266,7 +7266,7 @@ var require_public_api = __commonJS({
       } else if (options === void 0 && reviver && typeof reviver === "object") {
         options = reviver;
       }
-      const doc = parseDocument(src, options);
+      const doc = parseDocument2(src, options);
       if (!doc)
         return null;
       doc.warnings.forEach((warning2) => log.warn(doc.options.logLevel, warning2));
@@ -7302,7 +7302,7 @@ var require_public_api = __commonJS({
     }
     exports2.parse = parse2;
     exports2.parseAllDocuments = parseAllDocuments;
-    exports2.parseDocument = parseDocument;
+    exports2.parseDocument = parseDocument2;
     exports2.stringify = stringify;
   }
 });
@@ -7361,7 +7361,7 @@ var require_dist = __commonJS({
 
 // src/action.ts
 var import_promises = require("node:fs/promises");
-var import_node_path = require("node:path");
+var import_node_path2 = require("node:path");
 
 // src/fingerprint.ts
 var import_node_crypto = require("node:crypto");
@@ -7415,6 +7415,9 @@ function repoPath(repo) {
     throw new Error("repository must be in owner/repo form");
   }
   return parts.map(encodeURIComponent).join("/");
+}
+function refPath(ref) {
+  return ref.split("/").filter(Boolean).map(encodeURIComponent).join("/");
 }
 var GitHubClient = class {
   constructor(repo, token) {
@@ -7481,7 +7484,7 @@ var GitHubClient = class {
     }
     return result;
   }
-  async fileText(path, ref) {
+  async file(path, ref) {
     const encodedPath = path.split("/").filter(Boolean).map(encodeURIComponent).join("/");
     const refQuery = ref ? `?ref=${encodeURIComponent(ref)}` : "";
     const data = await this.json(
@@ -7490,7 +7493,97 @@ var GitHubClient = class {
     if (data.encoding !== "base64") {
       throw new Error(`unsupported GitHub content encoding: ${data.encoding}`);
     }
-    return Buffer.from(data.content.replace(/\n/g, ""), "base64").toString("utf8");
+    return {
+      text: Buffer.from(data.content.replace(/\n/g, ""), "base64").toString("utf8"),
+      sha: data.sha
+    };
+  }
+  async fileText(path, ref) {
+    return (await this.file(path, ref)).text;
+  }
+  async refSha(branch) {
+    try {
+      const data = await this.json(
+        `/repos/${repoPath(this.repo)}/git/ref/heads/${refPath(branch)}`
+      );
+      return data.object.sha;
+    } catch (error) {
+      if (error instanceof GitHubHttpError && error.status === 404) {
+        return null;
+      }
+      throw error;
+    }
+  }
+  async createBranch(branch, sha) {
+    await this.json(
+      `/repos/${repoPath(this.repo)}/git/refs`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ref: `refs/heads/${branch}`,
+          sha
+        })
+      }
+    );
+  }
+  async updateBranch(branch, sha) {
+    await this.json(
+      `/repos/${repoPath(this.repo)}/git/refs/heads/${refPath(branch)}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sha, force: true })
+      }
+    );
+  }
+  async updateFile(path, branch, sha, text, message) {
+    const encodedPath = path.split("/").filter(Boolean).map(encodeURIComponent).join("/");
+    await this.json(
+      `/repos/${repoPath(this.repo)}/contents/${encodedPath}`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message,
+          content: Buffer.from(text, "utf8").toString("base64"),
+          sha,
+          branch
+        })
+      }
+    );
+  }
+  async listOpenPullRequests(branch, base) {
+    const owner = this.repo.split("/")[0];
+    return await this.json(
+      `/repos/${repoPath(this.repo)}/pulls?state=open&head=${encodeURIComponent(`${owner}:${branch}`)}&base=${encodeURIComponent(base)}&per_page=20`
+    );
+  }
+  async createPullRequest(title, head, base, body) {
+    return await this.json(
+      `/repos/${repoPath(this.repo)}/pulls`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          head,
+          base,
+          body,
+          draft: true
+        })
+      }
+    );
+  }
+  async updatePullRequest(number, title, body) {
+    return await this.json(
+      `/repos/${repoPath(this.repo)}/pulls/${number}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, body })
+      }
+    );
   }
   async listIssueComments(issueNumber) {
     const result = [];
@@ -7815,7 +7908,8 @@ function workflowMatrixDefinitions(text) {
         if (!name) continue;
         cells.push({
           name,
-          axes: axesForRow(row, expanded.axes)
+          axes: axesForRow(row, expanded.axes),
+          matrix: { ...row }
         });
       }
     }
@@ -8991,6 +9085,273 @@ _Generated by MatrixTrim._
 `;
 }
 
+// src/optimization-pr.ts
+var import_node_path = require("node:path");
+
+// src/rewrite.ts
+var import_yaml2 = __toESM(require_dist(), 1);
+function assertMutationSafe(workflowText, observedCells, selectedCells) {
+  const definitions = workflowMatrixDefinitions(workflowText);
+  if (!definitions.length) {
+    throw new Error("workflow contains no static matrix definitions");
+  }
+  const dynamic = definitions.filter((definition) => definition.dynamic);
+  if (dynamic.length) {
+    throw new Error(
+      `cannot rewrite dynamic matrix job(s): ${dynamic.map((item) => item.jobId).join(", ")}`
+    );
+  }
+  const currentNames = new Set(
+    definitions.flatMap(
+      (definition) => definition.cells.map((cell) => cell.name)
+    )
+  );
+  const unseenCurrent = [...currentNames].filter(
+    (name) => !observedCells.has(name)
+  );
+  if (unseenCurrent.length) {
+    throw new Error(
+      `cannot rewrite because ${unseenCurrent.length} current matrix cell(s) were not observed in the analyzed history`
+    );
+  }
+  const selectedOutsideCurrent = [...selectedCells].filter(
+    (name) => !currentNames.has(name)
+  );
+  if (selectedOutsideCurrent.length) {
+    throw new Error(
+      `cannot rewrite because recommendation contains ${selectedOutsideCurrent.length} historical cell(s) not present in the current workflow`
+    );
+  }
+  return definitions;
+}
+function rewriteWorkflowToSelectedCells(workflowText, observedCellNames, selectedCellNames) {
+  const observedCells = new Set(observedCellNames);
+  const selectedCells = new Set(selectedCellNames);
+  const definitions = assertMutationSafe(
+    workflowText,
+    observedCells,
+    selectedCells
+  );
+  const document = (0, import_yaml2.parseDocument)(workflowText, {
+    keepSourceTokens: true
+  });
+  if (document.errors.length) {
+    throw new Error(
+      `workflow YAML could not be parsed safely: ${document.errors[0].message}`
+    );
+  }
+  const jobs = [];
+  for (const definition of definitions) {
+    const selected = definition.cells.filter(
+      (cell) => selectedCells.has(cell.name)
+    );
+    if (!selected.length) {
+      throw new Error(
+        `cannot remove every matrix cell from job ${definition.jobId}`
+      );
+    }
+    if (selected.length === definition.cells.length) continue;
+    const include = selected.map((cell) => cell.matrix);
+    document.setIn(
+      ["jobs", definition.jobId, "strategy", "matrix"],
+      { include }
+    );
+    jobs.push({
+      jobId: definition.jobId,
+      beforeCells: definition.cells.length,
+      afterCells: selected.length
+    });
+  }
+  if (!jobs.length) {
+    return { changed: false, workflow: workflowText, jobs: [] };
+  }
+  const rewritten = document.toString({
+    lineWidth: 0
+  });
+  const rewrittenDefinitions = workflowMatrixDefinitions(rewritten);
+  for (const job of jobs) {
+    const before = definitions.find((item) => item.jobId === job.jobId);
+    const after = rewrittenDefinitions.find((item) => item.jobId === job.jobId);
+    if (!after || after.dynamic) {
+      throw new Error(
+        `rewritten matrix for job ${job.jobId} could not be verified`
+      );
+    }
+    const expected = before.cells.filter((cell) => selectedCells.has(cell.name)).map((cell) => cell.name).sort();
+    const actual = after.cells.map((cell) => cell.name).sort();
+    if (expected.length !== actual.length || expected.some((name, index) => name !== actual[index])) {
+      throw new Error(
+        `rewritten matrix for job ${job.jobId} did not round-trip to the selected cells`
+      );
+    }
+  }
+  return {
+    changed: true,
+    workflow: rewritten,
+    jobs
+  };
+}
+
+// src/optimization-pr.ts
+function slug(value) {
+  return value.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48) || "workflow";
+}
+function optimizationBranch(workflowPath) {
+  return `matrixtrim/optimize-${slug((0, import_node_path.basename)(workflowPath))}`;
+}
+function optimizationSafetyReason(analysis, recommendation, backtest) {
+  if (!analysis.workflowPath) {
+    return "workflow path could not be resolved";
+  }
+  if (recommendation.selectedCells.length >= recommendation.currentCells) {
+    return "recommendation does not reduce the observed matrix";
+  }
+  if (analysis.dynamicMatrixDefinitions) {
+    return "dynamic matrix definitions are present";
+  }
+  if (analysis.workflowDefinitionErrors) {
+    return "one or more historical workflow definitions were unavailable";
+  }
+  if (analysis.workflowRenderCoverage !== null && analysis.workflowRenderCoverage !== void 0 && analysis.workflowRenderCoverage < 1) {
+    return "not every static matrix cell has a renderable job name";
+  }
+  if (analysis.workflowMatchCoverage !== null && analysis.workflowMatchCoverage !== void 0 && analysis.workflowMatchCoverage < 1) {
+    return "not every expected static matrix cell matched an observed GitHub job";
+  }
+  if (recommendation.unresolvedAxisCells.length) {
+    return "one or more observed matrix cells have unresolved axes";
+  }
+  if (recommendation.historicalRecall !== null && recommendation.historicalRecall < 1) {
+    return "historical failure recall is below 100%";
+  }
+  if (recommendation.combinatorialCoverage !== null && recommendation.combinatorialCoverage < 1) {
+    return "combinatorial coverage is below 100%";
+  }
+  if (backtest && backtest.holdoutRecall < 1) {
+    return "holdout failure recall is below 100%";
+  }
+  if (backtest?.unseenHoldoutRecall !== null && backtest?.unseenHoldoutRecall !== void 0 && backtest.unseenHoldoutRecall < 1) {
+    return "unseen-failure recall is below 100%";
+  }
+  if (backtest?.holdoutCombinatorialCoverage !== null && backtest?.holdoutCombinatorialCoverage !== void 0 && backtest.holdoutCombinatorialCoverage < 1) {
+    return "holdout combinatorial coverage is below 100%";
+  }
+  return null;
+}
+function optimizationPullRequestBody(rewrite, recommendation, backtest, backtestError) {
+  const jobs = rewrite.jobs.map(
+    (job) => `- \`${job.jobId}\`: ${job.beforeCells} \u2192 ${job.afterCells} cells`
+  ).join("\n");
+  const holdout = backtest ? `${(backtest.holdoutRecall * 100).toFixed(1)}%` : `not available${backtestError ? ` (${backtestError})` : ""}`;
+  const unseen = backtest?.unseenHoldoutRecall === null || backtest?.unseenHoldoutRecall === void 0 ? "n/a" : `${(backtest.unseenHoldoutRecall * 100).toFixed(1)}%`;
+  return `<!-- matrixtrim-optimization-pr -->
+## MatrixTrim optimization proposal
+
+This **draft PR** converts the selected static matrix cells to explicit \`matrix.include\` rows. It is intentionally not auto-merged.
+
+### Changes
+
+${jobs}
+
+### Evidence
+
+- Historical failure recall: ${recommendation.historicalRecall === null ? "n/a" : `${(recommendation.historicalRecall * 100).toFixed(1)}%`}
+- Observed combinatorial coverage: ${recommendation.combinatorialCoverage === null ? "n/a" : `${(recommendation.combinatorialCoverage * 100).toFixed(1)}%`}
+- Holdout failure recall: ${holdout}
+- Unseen-failure recall: ${unseen}
+- Estimated compute reduction: ${recommendation.estimatedComputeReductionPercent === null ? "n/a" : `${recommendation.estimatedComputeReductionPercent.toFixed(1)}%`}
+- Standard-runner rate-card reduction: ${recommendation.estimatedListPriceReductionPercent === null ? "n/a" : `${recommendation.estimatedListPriceReductionPercent.toFixed(1)}%`}
+
+### Safety
+
+MatrixTrim only creates this PR when the current workflow is a fully resolved static matrix, every current cell was observed in the analyzed history, historical and combinatorial coverage are preserved, and any available holdout checks pass at 100%.
+
+Review and run the repository's normal CI before merging.
+`;
+}
+async function createOrUpdateOptimizationPullRequest(client, analysis, recommendation, backtest, backtestError) {
+  const reason = optimizationSafetyReason(
+    analysis,
+    recommendation,
+    backtest
+  );
+  if (reason) {
+    return { status: "skipped", reason };
+  }
+  const repository = await client.repositoryInfo();
+  const base = repository.default_branch;
+  if (!base) {
+    return { status: "skipped", reason: "repository default branch is unavailable" };
+  }
+  const workflowPath = analysis.workflowPath;
+  const baseFile = await client.file(workflowPath, base);
+  const rewrite = rewriteWorkflowToSelectedCells(
+    baseFile.text,
+    analysis.cells.map((cell) => cell.cell),
+    recommendation.selectedCells.map((cell) => cell.cell)
+  );
+  if (!rewrite.changed) {
+    return {
+      status: "skipped",
+      reason: "current workflow already matches the recommendation",
+      rewrite
+    };
+  }
+  const baseSha = await client.refSha(base);
+  if (!baseSha) {
+    return { status: "skipped", reason: "default branch ref is unavailable" };
+  }
+  const branch = optimizationBranch(workflowPath);
+  const existing = await client.listOpenPullRequests(branch, base);
+  if (existing[0] && existing[0].draft === false) {
+    return {
+      status: "skipped",
+      branch,
+      number: existing[0].number,
+      url: existing[0].html_url,
+      reason: "existing MatrixTrim pull request is no longer a draft; automatic updates are disabled",
+      rewrite
+    };
+  }
+  const branchSha = await client.refSha(branch);
+  if (branchSha) {
+    await client.updateBranch(branch, baseSha);
+  } else {
+    await client.createBranch(branch, baseSha);
+  }
+  const branchFile = await client.file(workflowPath, branch);
+  await client.updateFile(
+    workflowPath,
+    branch,
+    branchFile.sha,
+    rewrite.workflow,
+    "Optimize CI matrix with MatrixTrim"
+  );
+  const title = "MatrixTrim: propose CI matrix reduction";
+  const body = optimizationPullRequestBody(
+    rewrite,
+    recommendation,
+    backtest,
+    backtestError
+  );
+  let pull;
+  let status;
+  if (existing[0]) {
+    pull = await client.updatePullRequest(existing[0].number, title, body);
+    status = "updated";
+  } else {
+    pull = await client.createPullRequest(title, branch, base, body);
+    status = "created";
+  }
+  return {
+    status,
+    branch,
+    number: pull.number,
+    url: pull.html_url,
+    rewrite
+  };
+}
+
 // src/action.ts
 function input(name) {
   return process.env[`INPUT_${name.toUpperCase().replace(/-/g, "_")}`]?.trim() ?? "";
@@ -9018,7 +9379,7 @@ function inferWorkflowFile(repository) {
   const pathWithRef = ref.startsWith(prefix) ? ref.slice(prefix.length) : ref;
   const at = pathWithRef.indexOf("@");
   const path = at >= 0 ? pathWithRef.slice(0, at) : pathWithRef;
-  return path ? (0, import_node_path.basename)(path) : void 0;
+  return path ? (0, import_node_path2.basename)(path) : void 0;
 }
 async function eventPullRequestNumber() {
   const path = process.env.GITHUB_EVENT_PATH;
@@ -9049,6 +9410,7 @@ async function main() {
   const holdout = intInput("holdout", 25, 5, 50);
   const strength = intInput("strength", 2, 1, 4);
   const comment = boolInput("comment", true);
+  const createPr = boolInput("create-pr", false);
   console.log(
     `MatrixTrim: repository=${repository}, workflow=${workflow ?? "all"}, limit=${limit}, strength=${strength}`
   );
@@ -9151,6 +9513,61 @@ async function main() {
     "unseen-failure-recall",
     backtest?.unseenHoldoutRecall?.toFixed(4) ?? ""
   );
+  let optimizationStatus = createPr ? "skipped" : "disabled";
+  let optimizationNumber = "";
+  let optimizationUrl = "";
+  let optimizationReason = "";
+  if (createPr) {
+    const eventName = process.env.GITHUB_EVENT_NAME ?? "";
+    if (eventName === "pull_request" || eventName === "pull_request_target") {
+      optimizationReason = "optimization PR creation is disabled for pull-request-triggered runs";
+      warning(optimizationReason);
+    } else {
+      try {
+        const client = new GitHubClient(repository, token);
+        const result = await createOrUpdateOptimizationPullRequest(
+          client,
+          analysis,
+          recommendation,
+          backtest,
+          backtestError
+        );
+        optimizationStatus = result.status;
+        optimizationNumber = result.number?.toString() ?? "";
+        optimizationUrl = result.url ?? "";
+        optimizationReason = result.reason ?? "";
+        if (result.status === "created" || result.status === "updated") {
+          console.log(
+            `MatrixTrim optimization PR ${result.status}: ${result.url}`
+          );
+        } else if (result.reason) {
+          warning(`optimization PR skipped: ${result.reason}`);
+        }
+      } catch (error) {
+        optimizationStatus = "skipped";
+        optimizationReason = `optimization PR failed: ${error.message}`;
+        warning(optimizationReason);
+      }
+    }
+  }
+  await writeOutput("optimization-pr-status", optimizationStatus);
+  await writeOutput("optimization-pr-number", optimizationNumber);
+  await writeOutput("optimization-pr-url", optimizationUrl);
+  await writeOutput("optimization-pr-reason", optimizationReason);
+  if (summaryPath && createPr) {
+    const summary = optimizationUrl ? `
+### Optimization PR
+
+- Status: **${optimizationStatus}**
+- PR: ${optimizationUrl}
+` : `
+### Optimization PR
+
+- Status: **${optimizationStatus}**
+- Reason: ${optimizationReason || "not created"}
+`;
+    await (0, import_promises.appendFile)(summaryPath, summary, "utf8");
+  }
   if (comment) {
     const pullRequest = await eventPullRequestNumber();
     if (pullRequest) {

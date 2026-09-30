@@ -16,7 +16,7 @@ MatrixTrim analyzes GitHub Actions matrix jobs and asks a practical question:
 
 The goal is to recommend a smaller CI matrix using **historical failure coverage, runtime cost, matrix structure, and holdout backtesting**.
 
-> **Status: v0.9 experimental.** MatrixTrim combines empirical failure evidence, observed 1-wise / pairwise / t-wise configuration coverage, runtime and runner-aware monetary cost, time-based holdout backtesting, rendered matrix-name reconstruction, a GitHub Action, and a reproducible public-OSS benchmark.
+> **Status: v0.10 experimental.** MatrixTrim combines empirical failure evidence, observed 1-wise / pairwise / t-wise configuration coverage, runtime and runner-aware monetary cost, time-based holdout backtesting, rendered matrix-name reconstruction, a GitHub Action, reproducible public-OSS benchmarking, and opt-in draft optimization PR generation.
 
 ## Why MatrixTrim?
 
@@ -149,6 +149,28 @@ The Action always writes a **Step Summary**. On pull requests it also creates or
 
 The report includes current vs suggested cells, historical failure recall, combinatorial coverage, estimated compute reduction, runner-aware rate-card / charge estimates, holdout recall, unseen-failure recall, and the recommended cell set.
 
+### Draft optimization PR (opt-in)
+
+PR generation is **disabled by default**. To let MatrixTrim propose the workflow change itself:
+
+```yaml
+permissions:
+  actions: read
+  contents: write
+  pull-requests: write
+
+steps:
+  - uses: eburairu/matrixtrim@main
+    with:
+      workflow: ci.yml
+      limit: "100"
+      strength: "2"
+      holdout: "25"
+      create-pr: "true"
+```
+
+MatrixTrim only creates a **draft PR**. It never auto-merges. The rewrite converts the selected static cells to explicit `matrix.include` rows and round-trip verifies the resulting workflow before writing it. PR creation is refused when dynamic matrices, unresolved axes, incomplete workflow/job-name mapping, sub-100% preserved coverage, or failing available holdout checks are present. Pull-request-triggered runs are also blocked from creating optimization PRs.
+
 ## Runner-aware cost model
 
 MatrixTrim now estimates monetary impact from the runner labels and observed job durations instead of treating every CI minute as equal.
@@ -224,7 +246,7 @@ The core is deterministic. No LLM is required.
 - [x] Reproducible benchmark across matrix-heavy OSS repositories
 - [x] Runner-aware monetary cost model
 - [ ] Multi-event failure fingerprints
-- [ ] Recommendation PR generation
+- [x] Opt-in draft recommendation PR generation
 - [ ] Stronger / exact optimizer
 
 ## Principles

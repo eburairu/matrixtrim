@@ -26,6 +26,20 @@ export type IssueComment = {
 export type RepositoryInfo = {
   private: boolean;
   visibility?: "public" | "private" | "internal" | string;
+  default_branch?: string;
+};
+
+export type PullRequestInfo = {
+  number: number;
+  html_url: string;
+  state: string;
+  draft?: boolean;
+};
+
+export type GitContent = {
+  content: string;
+  encoding: string;
+  sha: string;
 };
 
 export class GitHubHttpError extends Error {
@@ -44,6 +58,10 @@ function repoPath(repo: string): string {
     throw new Error("repository must be in owner/repo form");
   }
   return parts.map(encodeURIComponent).join("/");
+}
+
+function refPath(ref: string): string {
+  return ref.split("/").filter(Boolean).map(encodeURIComponent).join("/");
 }
 
 export class GitHubClient {
@@ -122,20 +140,140 @@ export class GitHubClient {
     return result;
   }
 
-  async fileText(path: string, ref?: string): Promise<string> {
+  async file(path: string, ref?: string): Promise<{ text: string; sha: string }> {
     const encodedPath = path
       .split("/")
       .filter(Boolean)
       .map(encodeURIComponent)
       .join("/");
     const refQuery = ref ? `?ref=${encodeURIComponent(ref)}` : "";
-    const data = await this.json<{ content: string; encoding: string }>(
+    const data = await this.json<GitContent>(
       `/repos/${repoPath(this.repo)}/contents/${encodedPath}${refQuery}`,
     );
     if (data.encoding !== "base64") {
       throw new Error(`unsupported GitHub content encoding: ${data.encoding}`);
     }
-    return Buffer.from(data.content.replace(/\n/g, ""), "base64").toString("utf8");
+    return {
+      text: Buffer.from(data.content.replace(/\n/g, ""), "base64").toString("utf8"),
+      sha: data.sha,
+    };
+  }
+
+  async fileText(path: string, ref?: string): Promise<string> {
+    return (await this.file(path, ref)).text;
+  }
+
+  async refSha(branch: string): Promise<string | null> {
+    try {
+      const data = await this.json<{ object: { sha: string } }>(
+        `/repos/${repoPath(this.repo)}/git/ref/heads/${refPath(branch)}`,
+      );
+      return data.object.sha;
+    } catch (error) {
+      if (error instanceof GitHubHttpError && error.status === 404) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  async createBranch(branch: string, sha: string): Promise<void> {
+    await this.json(
+      `/repos/${repoPath(this.repo)}/git/refs`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ref: `refs/heads/${branch}`,
+          sha,
+        }),
+      },
+    );
+  }
+
+  async updateBranch(branch: string, sha: string): Promise<void> {
+    await this.json(
+      `/repos/${repoPath(this.repo)}/git/refs/heads/${refPath(branch)}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sha, force: true }),
+      },
+    );
+  }
+
+  async updateFile(
+    path: string,
+    branch: string,
+    sha: string,
+    text: string,
+    message: string,
+  ): Promise<void> {
+    const encodedPath = path
+      .split("/")
+      .filter(Boolean)
+      .map(encodeURIComponent)
+      .join("/");
+    await this.json(
+      `/repos/${repoPath(this.repo)}/contents/${encodedPath}`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message,
+          content: Buffer.from(text, "utf8").toString("base64"),
+          sha,
+          branch,
+        }),
+      },
+    );
+  }
+
+  async listOpenPullRequests(
+    branch: string,
+    base: string,
+  ): Promise<PullRequestInfo[]> {
+    const owner = this.repo.split("/")[0]!;
+    return await this.json<PullRequestInfo[]>(
+      `/repos/${repoPath(this.repo)}/pulls?state=open&head=${encodeURIComponent(`${owner}:${branch}`)}&base=${encodeURIComponent(base)}&per_page=20`,
+    );
+  }
+
+  async createPullRequest(
+    title: string,
+    head: string,
+    base: string,
+    body: string,
+  ): Promise<PullRequestInfo> {
+    return await this.json<PullRequestInfo>(
+      `/repos/${repoPath(this.repo)}/pulls`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          head,
+          base,
+          body,
+          draft: true,
+        }),
+      },
+    );
+  }
+
+  async updatePullRequest(
+    number: number,
+    title: string,
+    body: string,
+  ): Promise<PullRequestInfo> {
+    return await this.json<PullRequestInfo>(
+      `/repos/${repoPath(this.repo)}/pulls/${number}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, body }),
+      },
+    );
   }
 
   async listIssueComments(issueNumber: number): Promise<IssueComment[]> {

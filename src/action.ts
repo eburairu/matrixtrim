@@ -5,6 +5,7 @@ import { recommendMatrix } from "./recommend.js";
 import { backtestRecommendation } from "./backtest.js";
 import { formatActionReport } from "./action-report.js";
 import { GitHubClient } from "./github.js";
+import { createOrUpdateOptimizationPullRequest } from "./optimization-pr.js";
 
 function input(name: string): string {
   return process.env[`INPUT_${name.toUpperCase().replace(/-/g, "_")}`]?.trim() ?? "";
@@ -77,6 +78,7 @@ async function main(): Promise<void> {
   const holdout = intInput("holdout", 25, 5, 50);
   const strength = intInput("strength", 2, 1, 4);
   const comment = boolInput("comment", true);
+  const createPr = boolInput("create-pr", false);
 
   console.log(
     `MatrixTrim: repository=${repository}, workflow=${workflow ?? "all"}, limit=${limit}, strength=${strength}`,
@@ -185,6 +187,59 @@ async function main(): Promise<void> {
     "unseen-failure-recall",
     backtest?.unseenHoldoutRecall?.toFixed(4) ?? "",
   );
+
+  let optimizationStatus = createPr ? "skipped" : "disabled";
+  let optimizationNumber = "";
+  let optimizationUrl = "";
+  let optimizationReason = "";
+
+  if (createPr) {
+    const eventName = process.env.GITHUB_EVENT_NAME ?? "";
+    if (eventName === "pull_request" || eventName === "pull_request_target") {
+      optimizationReason =
+        "optimization PR creation is disabled for pull-request-triggered runs";
+      warning(optimizationReason);
+    } else {
+      try {
+        const client = new GitHubClient(repository, token);
+        const result = await createOrUpdateOptimizationPullRequest(
+          client,
+          analysis,
+          recommendation,
+          backtest,
+          backtestError,
+        );
+        optimizationStatus = result.status;
+        optimizationNumber = result.number?.toString() ?? "";
+        optimizationUrl = result.url ?? "";
+        optimizationReason = result.reason ?? "";
+
+        if (result.status === "created" || result.status === "updated") {
+          console.log(
+            `MatrixTrim optimization PR ${result.status}: ${result.url}`,
+          );
+        } else if (result.reason) {
+          warning(`optimization PR skipped: ${result.reason}`);
+        }
+      } catch (error) {
+        optimizationStatus = "skipped";
+        optimizationReason = `optimization PR failed: ${(error as Error).message}`;
+        warning(optimizationReason);
+      }
+    }
+  }
+
+  await writeOutput("optimization-pr-status", optimizationStatus);
+  await writeOutput("optimization-pr-number", optimizationNumber);
+  await writeOutput("optimization-pr-url", optimizationUrl);
+  await writeOutput("optimization-pr-reason", optimizationReason);
+
+  if (summaryPath && createPr) {
+    const summary = optimizationUrl
+      ? `\n### Optimization PR\n\n- Status: **${optimizationStatus}**\n- PR: ${optimizationUrl}\n`
+      : `\n### Optimization PR\n\n- Status: **${optimizationStatus}**\n- Reason: ${optimizationReason || "not created"}\n`;
+    await appendFile(summaryPath, summary, "utf8");
+  }
 
   if (comment) {
     const pullRequest = await eventPullRequestNumber();

@@ -8,7 +8,7 @@ branding:
 
 inputs:
   token:
-    description: GitHub token used to read Actions history and optionally comment on pull requests.
+    description: GitHub token used to read Actions history and, when enabled, comment on or create/update draft optimization pull requests.
     required: false
     default: ${{ github.token }}
   workflow:
@@ -30,6 +30,10 @@ inputs:
     description: Create or update a MatrixTrim pull-request comment when possible.
     required: false
     default: "true"
+  create-pr:
+    description: Create or update a draft optimization pull request. Disabled by default and only attempted for fully resolved static matrices.
+    required: false
+    default: "false"
 
 outputs:
   current-cells:
@@ -70,6 +74,14 @@ outputs:
     description: Holdout failure recall as a 0-1 ratio.
   unseen-failure-recall:
     description: Holdout recall for fingerprints unseen in training as a 0-1 ratio.
+  optimization-pr-status:
+    description: created, updated, skipped, or disabled.
+  optimization-pr-number:
+    description: Draft optimization pull-request number when available.
+  optimization-pr-url:
+    description: Draft optimization pull-request URL when available.
+  optimization-pr-reason:
+    description: Reason PR creation was skipped when applicable.
 
 runs:
   using: node24

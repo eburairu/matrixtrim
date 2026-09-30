@@ -16,7 +16,7 @@ MatrixTrim no intenta simplemente ejecutar menos jobs. La pregunta útil es otra
 
 El objetivo es proponer una CI matrix más pequeña basándose en **cobertura histórica de fallos, coste de ejecución, estructura de la matrix y backtesting con holdout temporal**.
 
-> **Estado actual: v0.9 experimental.** MatrixTrim combina evidencia histórica de fallos, cobertura observada 1-wise / pairwise / t-wise, coste de runtime y estimación monetaria según runner, backtesting temporal, reconstrucción de nombres de jobs de matrix ya renderizados, GitHub Action y un benchmark reproducible sobre OSS público.
+> **Estado actual: v0.10 experimental.** MatrixTrim combina evidencia histórica de fallos, cobertura observada 1-wise / pairwise / t-wise, coste de runtime y estimación monetaria según runner, backtesting temporal, reconstrucción de nombres de jobs de matrix ya renderizados, GitHub Action, benchmark reproducible sobre OSS público y generación opt-in de draft PRs de optimización.
 
 ## ¿Por qué MatrixTrim?
 
@@ -149,6 +149,28 @@ La Action siempre genera un **Step Summary**. En Pull Requests también crea o a
 
 El informe muestra celdas actuales y sugeridas, historical failure recall, combinatorial coverage, reducción estimada de compute, rate-card / cargo estimado según runner, holdout recall, unseen-failure recall y la lista de celdas recomendadas.
 
+### Crear un draft PR de optimización (opt-in)
+
+La creación de PR está **desactivada por defecto**. Solo se habilita explícitamente cuando se quiere que MatrixTrim proponga también el cambio del workflow.
+
+```yaml
+permissions:
+  actions: read
+  contents: write
+  pull-requests: write
+
+steps:
+  - uses: eburairu/matrixtrim@main
+    with:
+      workflow: ci.yml
+      limit: "100"
+      strength: "2"
+      holdout: "25"
+      create-pr: "true"
+```
+
+MatrixTrim solo crea un **draft PR** y nunca hace auto-merge. Convierte las celdas static seleccionadas en filas explícitas de `matrix.include` y valida el workflow con un round-trip antes de escribirlo. Si hay matrices dinámicas, axes sin resolver, correspondencia incompleta entre workflow y nombres de jobs, coverage inferior al 100% o algún holdout disponible falla, la creación del PR se rechaza. Las ejecuciones disparadas por `pull_request` o `pull_request_target` también omiten de forma forzada la creación del PR de optimización.
+
 ## Modelo de coste según runner
 
 MatrixTrim ya no trata todos los minutos de CI como si costaran lo mismo: estima el impacto monetario a partir de los labels reales del runner y de la duración observada de cada job.
@@ -224,7 +246,7 @@ El núcleo es determinista y no depende de un LLM.
 - [x] Benchmark reproducible en repos OSS con matrices grandes
 - [x] Modelo de coste monetario según runner
 - [ ] Multi-event failure fingerprinting
-- [ ] Generación automática de recommendation PR
+- [x] Generación opt-in de draft recommendation PR
 - [ ] Optimizador más potente / exacto
 
 ## Principios de diseño

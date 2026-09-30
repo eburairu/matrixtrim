@@ -28,9 +28,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Run MatrixTrim action against its own CI
+        id: matrixtrim
         uses: ./
         with:
           workflow: ci.yml
           limit: "5"
           strength: "2"
           comment: "false"
+          create-pr: ${{ github.event_name == 'pull_request' }}
+      - name: Verify PR-trigger safety guard
+        if: github.event_name == 'pull_request'
+        run: test "${{ steps.matrixtrim.outputs.optimization-pr-status }}" = "skipped"

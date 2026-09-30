@@ -16,7 +16,7 @@ MatrixTrim은 단순히 job 수를 줄이는 도구가 아닙니다. 핵심 질�
 
 목표는 **과거 failure coverage, 실행 비용, matrix 구조, holdout backtest**를 바탕으로 더 작은 CI matrix 후보를 제안하는 것입니다.
 
-> **현재 상태: v0.9 experimental.** 과거 failure evidence, 관측된 1-wise / pairwise / t-wise configuration coverage, runtime cost와 runner-aware 금액 추정, time-based holdout backtest, 렌더링된 matrix job 이름 복원, GitHub Action, 재현 가능한 공개 OSS benchmark까지 지원합니다.
+> **현재 상태: v0.10 experimental.** 과거 failure evidence, 관측된 1-wise / pairwise / t-wise configuration coverage, runtime cost와 runner-aware 금액 추정, time-based holdout backtest, 렌더링된 matrix job 이름 복원, GitHub Action, 재현 가능한 공개 OSS benchmark, 명시적 opt-in draft 최적화 PR 생성까지 지원합니다.
 
 ## 왜 MatrixTrim인가?
 
@@ -149,6 +149,28 @@ Action은 항상 **Step Summary**를 생성합니다. Pull Request에서는 권�
 
 리포트에는 현재/추천 cell 수, historical failure recall, combinatorial coverage, 예상 compute 절감률, runner-aware rate-card / 예상 청구액, holdout recall, unseen-failure recall, 추천 cell 목록이 포함됩니다.
 
+### draft 최적화 PR 생성하기 (opt-in)
+
+PR 생성은 **기본적으로 비활성화**되어 있습니다. MatrixTrim이 workflow 수정안까지 직접 만들게 할 때만 명시적으로 켭니다.
+
+```yaml
+permissions:
+  actions: read
+  contents: write
+  pull-requests: write
+
+steps:
+  - uses: eburairu/matrixtrim@main
+    with:
+      workflow: ci.yml
+      limit: "100"
+      strength: "2"
+      holdout: "25"
+      create-pr: "true"
+```
+
+MatrixTrim은 **draft PR만** 만들며 자동 병합하지 않습니다. 선택된 static cell을 명시적인 `matrix.include` 행으로 변환하고, 쓰기 전에 workflow를 round-trip 검증합니다. dynamic matrix, unresolved axis, 불완전한 workflow/job 이름 매핑, 100% 미만의 coverage, 또는 사용 가능한 holdout 검증 실패가 하나라도 있으면 PR 생성을 거부합니다. `pull_request` / `pull_request_target` 이벤트에서 실행된 경우에도 최적화 PR 생성은 강제로 건너뜁니다.
+
 ## runner-aware cost model
 
 MatrixTrim은 모든 CI minute를 같은 비용으로 보지 않고, 실제 runner label과 관측된 job 실행 시간을 이용해 금액 영향을 추정합니다.
@@ -224,7 +246,7 @@ timestamp, 절대 경로, UUID, duration, line number처럼 흔들리는 정보�
 - [x] matrix-heavy OSS 재현 가능benchmark
 - [x] runner-aware monetary cost model
 - [ ] multi-event failure fingerprint
-- [ ] recommendation PR 자동 생성
+- [x] opt-in draft recommendation PR 생성
 - [ ] 더 강한 / exact optimizer
 
 ## 설계 원칙

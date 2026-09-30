@@ -5,6 +5,7 @@ type MatrixValue = string | number | boolean | null | Record<string, unknown>;
 export type ExpandedMatrixCell = {
   name: string;
   axes: Record<string, string>;
+  matrix: Record<string, unknown>;
 };
 
 export type MatrixDefinition = {
@@ -395,6 +396,7 @@ export function workflowMatrixDefinitions(text: string): MatrixDefinition[] {
         cells.push({
           name,
           axes: axesForRow(row, expanded.axes),
+          matrix: { ...row },
         });
       }
     }

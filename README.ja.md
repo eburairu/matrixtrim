@@ -16,7 +16,7 @@ MatrixTrimが見たいのは、単純なjob数ではありません。
 
 過去のfailure、実行コスト、matrix構造、holdout backtestを使って、より小さいCI matrix候補を作ることを目指しています。
 
-> **Status: v0.9 experimental.** 過去のfailure evidence、観測済み1-wise / pairwise / t-wise構成coverage、runtime costとrunner-awareな金額推定、time-based holdout backtest、render済みmatrix job名の復元、GitHub Action、再現可能な公開OSS benchmarkまで利用できます。
+> **Status: v0.10 experimental.** 過去のfailure evidence、観測済み1-wise / pairwise / t-wise構成coverage、runtime costとrunner-awareな金額推定、time-based holdout backtest、render済みmatrix job名の復元、GitHub Action、再現可能な公開OSS benchmark、明示opt-inのdraft最適化PR生成まで利用できます。
 
 ## なぜ必要か
 
@@ -149,6 +149,28 @@ Actionは必ず **Step Summary** を生成します。Pull Request上では、�
 
 レポートには、現在cell数と推奨cell数、historical failure recall、combinatorial coverage、推定compute削減率、runner-awareなrate-card / 推定請求額、holdout recall、unseen-failure recall、推奨cell一覧を表示します。
 
+### draft最適化PRを作る（opt-in）
+
+PR生成は**デフォルト無効**です。MatrixTrim自身にworkflow変更案まで作らせる場合だけ明示的に有効化します。
+
+```yaml
+permissions:
+  actions: read
+  contents: write
+  pull-requests: write
+
+steps:
+  - uses: eburairu/matrixtrim@main
+    with:
+      workflow: ci.yml
+      limit: "100"
+      strength: "2"
+      holdout: "25"
+      create-pr: "true"
+```
+
+生成するのは**draft PRだけ**で、auto-mergeはしません。選択したstatic cellを明示的な `matrix.include` へ変換し、書き込み前にworkflowをround-trip検証します。dynamic matrix、unresolved axis、不完全なworkflow/job名対応、coverage 100%未満、利用可能なholdout checkの失敗がある場合はPR生成を拒否します。pull_request / pull_request_target起動時も最適化PR生成は強制skipします。
+
 ## runner-aware cost model
 
 MatrixTrimはCI minuteをすべて同じ価値として扱わず、実際のrunner labelと観測したjob実行時間から金額影響を推定します。
@@ -224,7 +246,7 @@ coreはdeterministicで、LLMは必須ではありません。
 - [x] matrix-heavy OSSでの再現可能benchmark
 - [x] runner単価を含むmonetary cost model
 - [ ] 1 job内のmulti-event failure fingerprint
-- [ ] recommendation PR自動生成
+- [x] opt-in draft recommendation PR生成
 - [ ] exact / stronger optimizer
 
 ## 設計原則

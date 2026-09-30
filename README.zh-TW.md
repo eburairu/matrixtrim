@@ -16,7 +16,7 @@ MatrixTrim 關心的不是單純把 job 數量砍到最低，而是：
 
 目標是結合 **歷史 failure coverage、執行成本、matrix 結構與 holdout backtest**，提出更小、也更有依據的 CI matrix 候選方案。
 
-> **目前狀態：v0.9 experimental。** MatrixTrim 已能結合歷史 failure evidence、已觀測的 1-wise / pairwise / t-wise 組態 coverage、runtime cost 與 runner-aware 金額估算、time-based holdout backtest、render 後 matrix job 名稱還原、GitHub Action，以及可重現的公開 OSS benchmark。
+> **目前狀態：v0.10 experimental。** MatrixTrim 已能結合歷史 failure evidence、已觀測的 1-wise / pairwise / t-wise 組態 coverage、runtime cost 與 runner-aware 金額估算、time-based holdout backtest、render 後 matrix job 名稱還原、GitHub Action、可重現的公開 OSS benchmark，以及明確 opt-in 的 draft 最佳化 PR 產生。
 
 ## 為什麼需要 MatrixTrim？
 
@@ -149,6 +149,28 @@ Action 一定會產生 **Step Summary**。在 Pull Request 上，若 token 權�
 
 報告包含目前/建議 cell 數、historical failure recall、combinatorial coverage、估算 compute 降幅、runner-aware rate-card / 估算費用、holdout recall、unseen-failure recall，以及建議保留的 cell。
 
+### 產生 draft 最佳化 PR（opt-in）
+
+PR 產生功能**預設關閉**。只有在希望 MatrixTrim 直接提出 workflow 修改時才明確啟用。
+
+```yaml
+permissions:
+  actions: read
+  contents: write
+  pull-requests: write
+
+steps:
+  - uses: eburairu/matrixtrim@main
+    with:
+      workflow: ci.yml
+      limit: "100"
+      strength: "2"
+      holdout: "25"
+      create-pr: "true"
+```
+
+MatrixTrim 只會建立 **draft PR**，不會自動合併。它會把選中的 static cell 改寫成明確的 `matrix.include` 列，並在寫入前對 workflow 做 round-trip 驗證。只要存在 dynamic matrix、未解析 axis、workflow/job 名稱對應不完整、coverage 低於 100%，或已有 holdout 檢查未通過，就會拒絕產生 PR。由 `pull_request` / `pull_request_target` 觸發的 run 也會強制略過最佳化 PR 建立。
+
 ## runner-aware cost model
 
 MatrixTrim 不再把所有 CI minute 視為相同成本，而是依實際 runner label 與已觀測的 job 執行時間估算金額影響。
@@ -224,7 +246,7 @@ MatrixTrim 會移除 timestamp、絕對路徑、UUID、duration、line number �
 - [x] matrix-heavy OSS可重現benchmark
 - [x] runner-aware monetary cost model
 - [ ] multi-event failure fingerprint
-- [ ] 自動產生 recommendation PR
+- [x] opt-in draft recommendation PR 產生
 - [ ] 更強 / exact optimizer
 
 ## 設計原則
