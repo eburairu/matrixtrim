@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { readdir, readFile, stat } from "node:fs/promises";
 import { extname, resolve } from "node:path";
-import { analyzeRepository } from "./analyze.js";
+import { type AnalysisReport, analyzeRepository } from "./analyze.js";
 import { backtestRecommendation } from "./backtest.js";
 import { loadRepositoryConfig, type MatrixTrimConstraints } from "./config.js";
 import { GitHubClient } from "./github.js";
@@ -108,6 +108,87 @@ async function repositoryConstraints(
 		path,
 		constraints: config?.constraints,
 	};
+}
+
+function printDiagnostics(report: AnalysisReport): void {
+	const diagnostics = report.diagnostics ?? [];
+	const warnings = diagnostics.filter(
+		(item) => item.severity === "warning",
+	).length;
+	const info = diagnostics.length - warnings;
+	console.log(`Diagnostics: ${warnings} warning(s), ${info} info`);
+
+	if (!diagnostics.length) {
+		console.log("No matrix coverage diagnostics were reported.");
+		return;
+	}
+
+	for (const item of diagnostics) {
+		const target = [
+			item.jobId ? `job=${item.jobId}` : "",
+			item.cell ? `cell=${item.cell}` : "",
+		]
+			.filter(Boolean)
+			.join(" ");
+		const occurrences =
+			(item.occurrences ?? 1) > 1 ? ` x${item.occurrences}` : "";
+		console.log(
+			`\n[${item.severity.toUpperCase()}] ${item.code}${occurrences}${target ? ` (${target})` : ""}`,
+		);
+		console.log(`  ${item.message}`);
+		if (item.details) {
+			console.log(`  details: ${JSON.stringify(item.details)}`);
+		}
+		if (item.remediation) {
+			console.log(`  fix: ${item.remediation.summary}`);
+			console.log(
+				`  analysis permissions: ${item.remediation.permissions.join(", ")}`,
+			);
+			console.log("  capture step:");
+			for (const line of item.remediation.snippet.split("\n")) {
+				console.log(`    ${line}`);
+			}
+		}
+	}
+}
+
+async function doctorCommand(args: string[], json: boolean): Promise<void> {
+	const repository = args[1];
+	if (!repository) {
+		throw new Error(
+			"usage: matrixtrim doctor owner/repo [--workflow ci.yml] [--limit 30] [--run ID]",
+		);
+	}
+	const workflow = flagValue(args, "--workflow");
+	const limit = parseOptionalInt(args, "--limit", 1, 500) ?? 30;
+	const runId = parseOptionalInt(args, "--run", 1, Number.MAX_SAFE_INTEGER);
+	const token = requireGitHubToken("doctor");
+	const report = await analyzeRepository(repository, {
+		limit,
+		workflow,
+		runId,
+		token,
+	});
+
+	if (json) {
+		console.log(
+			JSON.stringify(
+				{
+					repository: report.repository,
+					workflow: report.workflow,
+					diagnostics: report.diagnostics ?? [],
+				},
+				null,
+				2,
+			),
+		);
+		return;
+	}
+
+	console.log(`Repository: ${report.repository}`);
+	console.log(`Workflow:   ${report.workflow ?? "all"}`);
+	console.log(`Runs:       ${report.runsAnalyzed}`);
+	printDiagnostics(report);
 }
 
 async function analyzeCommand(args: string[], json: boolean): Promise<void> {
@@ -475,7 +556,9 @@ try {
 	const json = args.includes("--json");
 	const command = args[0];
 
-	if (command === "analyze") {
+	if (command === "doctor") {
+		await doctorCommand(args, json);
+	} else if (command === "analyze") {
 		await analyzeCommand(args, json);
 	} else if (command === "recommend") {
 		await recommendCommand(args, json);
