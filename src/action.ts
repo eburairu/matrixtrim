@@ -15,6 +15,7 @@ import { loadRepositoryConfig } from "./config.js";
 import { encodeMatrixEvidence } from "./evidence.js";
 import { GitHubClient } from "./github.js";
 import { createOrUpdateOptimizationPullRequest } from "./optimization-pr.js";
+import { evaluateRecommendationReadiness } from "./readiness.js";
 import { type OptimizerMode, recommendMatrix } from "./recommend.js";
 
 function inferWorkflowFile(repository: string): string | undefined {
@@ -107,6 +108,7 @@ async function main(): Promise<void> {
 	const configPath = actionInput("config") || ".matrixtrim.yml";
 	const comment = boolActionInput("comment", true);
 	const createPr = boolActionInput("create-pr", false);
+	const allowDiagnosticPr = boolActionInput("allow-diagnostic-pr", false);
 	const github = new GitHubClient(repository, token);
 	const config = await loadRepositoryConfig(
 		github,
@@ -166,6 +168,13 @@ async function main(): Promise<void> {
 		warning(`rolling backtest unavailable: ${rollingBacktestError}`);
 	}
 
+	recommendation.readiness = evaluateRecommendationReadiness(
+		analysis,
+		recommendation,
+		backtest,
+		rollingBacktest,
+	);
+
 	const report = formatActionReport(
 		repository,
 		workflow,
@@ -191,6 +200,15 @@ async function main(): Promise<void> {
 	await writeOutput(
 		"capture-evidence-errors",
 		analysis.captureEvidenceErrors ?? 0,
+	);
+	await writeOutput("readiness-level", recommendation.readiness.level);
+	await writeOutput(
+		"readiness-automation-eligible",
+		String(recommendation.readiness.automationEligible),
+	);
+	await writeOutput(
+		"readiness-reasons",
+		recommendation.readiness.reasons.map((item) => item.code).join(","),
 	);
 	await writeOutput("current-cells", recommendation.currentCells);
 	await writeOutput("selected-cells", recommendation.selectedCells.length);
@@ -335,6 +353,7 @@ async function main(): Promise<void> {
 					recommendation,
 					backtest,
 					backtestError,
+					{ allowDiagnosticReadiness: allowDiagnosticPr },
 				);
 				optimizationStatus = result.status;
 				optimizationNumber = result.number?.toString() ?? "";

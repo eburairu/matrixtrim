@@ -7430,6 +7430,7 @@ _Showing 40/${recommendation.cellDecisions.length} decisions. The complete struc
     `| Selection stability (mean Jaccard) | ${percent(rollingBacktest.meanPairwiseSelectionJaccard)} |`
   ].join("\n") : `| Rolling validation | unavailable${rollingBacktestError ? `: ${rollingBacktestError}` : ""} |`;
   const warnings = recommendation.warnings.map((warning2) => `- \u26A0\uFE0F ${warning2}`).join("\n");
+  const readinessReasons = recommendation.readiness.reasons.length ? recommendation.readiness.reasons.map((item) => `- \`${item.code}\` \u2014 ${item.message}`).join("\n") : "- No readiness downgrade reasons.";
   return `<!-- matrixtrim-report -->
 ## MatrixTrim analysis
 
@@ -7439,6 +7440,7 @@ _Showing 40/${recommendation.cellDecisions.length} decisions. The complete struc
 
 | Metric | Result |
 | --- | ---: |
+| Recommendation readiness | **${recommendation.readiness.level}** (automation=${recommendation.readiness.automationEligible ? "eligible" : "not eligible"}) |
 | Current matrix cells | ${recommendation.currentCells} |
 | Suggested cells | ${recommendation.selectedCells.length} |
 | Optimizer | ${recommendation.algorithm} (mode=${recommendation.optimizerMode}, optimal=${recommendation.optimizerOptimal ?? "n/a"}, nodes=${recommendation.optimizerSearchNodes}) |
@@ -7469,6 +7471,9 @@ ${selected || "_No cells selected._"}
 
 </details>
 
+### Readiness
+
+${readinessReasons}
 <details>
 <summary>Why cells were kept or omitted</summary>
 
@@ -8669,9 +8674,9 @@ var GitHubClient = class {
         lastError = error;
         if (attempt === attempts - 1) {
           const timedOut = controller.signal.aborted && !externalSignal?.aborted;
-          const reason = timedOut ? `timed out after ${this.timeoutMs}ms` : error instanceof Error ? error.message : String(error);
+          const reason2 = timedOut ? `timed out after ${this.timeoutMs}ms` : error instanceof Error ? error.message : String(error);
           throw new Error(
-            `GitHub API request failed after ${attempts} attempt(s): ${path}: ${reason}`,
+            `GitHub API request failed after ${attempts} attempt(s): ${path}: ${reason2}`,
             { cause: error }
           );
         }
@@ -8918,7 +8923,7 @@ var AXIS_DIAGNOSTIC_CODES = {
   "axis-value-count-mismatch": "axis-value-count-mismatch",
   "opaque-dynamic-job-name": "axis-opaque-dynamic-job-name"
 };
-function axisDiagnosticMessage(reason) {
+function axisDiagnosticMessage(reason2) {
   return {
     "ambiguous-rendered-name": "More than one static matrix cell renders to this job name, so axis values cannot be assigned uniquely.",
     "ambiguous-dynamic-name": "More than one dynamic matrix name template matches this job name, so axis values cannot be assigned uniquely.",
@@ -8927,7 +8932,7 @@ function axisDiagnosticMessage(reason) {
     "axis-names-unavailable": "The runtime matrix values are visible in the job name, but the workflow does not expose stable axis names.",
     "axis-value-count-mismatch": "The number of values rendered in the job name does not match the known matrix axis count.",
     "opaque-dynamic-job-name": "The dynamic matrix job uses a name that does not expose runtime axis values."
-  }[reason];
+  }[reason2];
 }
 async function analyzeRepository(repository, options) {
   const client = new GitHubClient(repository, options.token);
@@ -9230,16 +9235,16 @@ async function analyzeRepository(repository, options) {
   );
   for (const observation of matrixJobs) {
     if (observation.axes !== null) continue;
-    const reason = axisFailureByJobId.get(observation.jobId);
-    if (!reason) continue;
+    const reason2 = axisFailureByJobId.get(observation.jobId);
+    if (!reason2) continue;
     const definition = definitionsByRunId.get(observation.runId)?.find((item) => item.jobId === observation.baseJob);
     diagnostics.push({
-      code: AXIS_DIAGNOSTIC_CODES[reason],
+      code: AXIS_DIAGNOSTIC_CODES[reason2],
       severity: "warning",
       scope: "cell",
       jobId: observation.baseJob,
       cell: observation.cell,
-      message: axisDiagnosticMessage(reason),
+      message: axisDiagnosticMessage(reason2),
       ...definition?.dynamic ? { remediation: captureRemediation(observation.baseJob) } : {}
     });
   }
@@ -9948,6 +9953,246 @@ function estimatePricing(report, selectedCells) {
   };
 }
 
+// src/readiness.ts
+function reason(code, severity, message) {
+  return { code, severity, message };
+}
+function ratio(numerator, denominator) {
+  return denominator ? numerator / denominator : 1;
+}
+function evaluateRecommendationReadiness(analysis, recommendation, backtest = null, rolling = null) {
+  const failureEvidenceRuns = new Set(
+    analysis.observations.map((item) => item.runId)
+  ).size;
+  const axisResolved = analysis.cells.filter(
+    (cell) => cell.axes !== null
+  ).length;
+  const constraintCoverage = ratio(
+    recommendation.coveredConstraintRequirements,
+    recommendation.constraintRequirements
+  );
+  const metrics = {
+    axisResolution: ratio(axisResolved, analysis.cells.length),
+    workflowRenderCoverage: analysis.workflowRenderCoverage ?? null,
+    workflowMatchCoverage: analysis.workflowMatchCoverage ?? null,
+    fingerprints: analysis.fingerprints,
+    failureEvidenceRuns,
+    unavailableFailedLogs: analysis.expiredLogs + analysis.logErrors,
+    diagnosticWarnings: (analysis.diagnostics ?? []).filter(
+      (item) => item.severity === "warning"
+    ).length,
+    optimizerOptimal: recommendation.optimizerOptimal,
+    historicalRecall: recommendation.historicalRecall,
+    combinatorialCoverage: recommendation.combinatorialCoverage,
+    constraintCoverage,
+    pricingCoverage: recommendation.pricingCoverage,
+    holdoutRecall: backtest?.holdoutRecall ?? null,
+    unseenHoldoutRecall: backtest?.unseenHoldoutRecall ?? null,
+    rollingValidFolds: rolling?.validFolds ?? null,
+    rollingWorstHoldoutRecall: rolling?.worstHoldoutRecall ?? null,
+    rollingUnseenFailureRecall: rolling?.aggregateUnseenHoldoutRecall ?? null,
+    rollingSelectionStability: rolling?.meanPairwiseSelectionJaccard ?? null
+  };
+  const reasons = [];
+  if (!analysis.fingerprints) {
+    reasons.push(
+      reason(
+        "no-failure-evidence",
+        "diagnostic",
+        "No analyzable historical failure fingerprints were observed; the result is structural diagnostics rather than empirically validated failure optimization."
+      )
+    );
+  } else if (failureEvidenceRuns < 5) {
+    reasons.push(
+      reason(
+        "sparse-failure-evidence",
+        "caution",
+        "Only " + failureEvidenceRuns + " workflow run(s) contributed analyzable failure evidence."
+      )
+    );
+  }
+  if (recommendation.unresolvedAxisCells.length) {
+    reasons.push(
+      reason(
+        "unresolved-axis-cells",
+        "diagnostic",
+        recommendation.unresolvedAxisCells.length + " observed matrix cell(s) still have unresolved axes."
+      )
+    );
+  }
+  if (analysis.workflowRenderCoverage != null && analysis.workflowRenderCoverage < 1) {
+    reasons.push(
+      reason(
+        "incomplete-workflow-render",
+        "diagnostic",
+        "Static job-name rendering coverage is " + (analysis.workflowRenderCoverage * 100).toFixed(1) + "%."
+      )
+    );
+  }
+  if (analysis.workflowMatchCoverage != null && analysis.workflowMatchCoverage < 1) {
+    reasons.push(
+      reason(
+        "incomplete-workflow-match",
+        "diagnostic",
+        "Expected static-cell/job-name match coverage is " + (analysis.workflowMatchCoverage * 100).toFixed(1) + "%."
+      )
+    );
+  }
+  if (analysis.dynamicMatrixDefinitions) {
+    reasons.push(
+      reason(
+        "dynamic-matrix-present",
+        "diagnostic",
+        analysis.dynamicMatrixDefinitions + " dynamic matrix definition(s) are present; automatic static rewrite is not considered ready."
+      )
+    );
+  }
+  if (metrics.unavailableFailedLogs) {
+    reasons.push(
+      reason(
+        "unavailable-failed-logs",
+        "diagnostic",
+        metrics.unavailableFailedLogs + " failed-job log(s) were unavailable or could not be read."
+      )
+    );
+  }
+  if (analysis.workflowDefinitionErrors) {
+    reasons.push(
+      reason(
+        "workflow-definition-errors",
+        "diagnostic",
+        analysis.workflowDefinitionErrors + " historical workflow definition(s) were unavailable."
+      )
+    );
+  }
+  if (recommendation.historicalRecall != null && recommendation.historicalRecall < 1) {
+    reasons.push(
+      reason(
+        "historical-coverage-miss",
+        "blocked",
+        "Historical failure recall is below 100%."
+      )
+    );
+  }
+  if (recommendation.combinatorialCoverage != null && recommendation.combinatorialCoverage < 1) {
+    reasons.push(
+      reason(
+        "combinatorial-coverage-miss",
+        "blocked",
+        "Observed combinatorial coverage is below 100%."
+      )
+    );
+  }
+  if (constraintCoverage < 1) {
+    reasons.push(
+      reason(
+        "constraint-coverage-miss",
+        "blocked",
+        "One or more explicit hard constraints are not satisfied."
+      )
+    );
+  }
+  if (recommendation.optimizerMode === "auto" && recommendation.optimizerOptimal === false) {
+    reasons.push(
+      reason(
+        "optimizer-unproven",
+        "blocked",
+        "The automatic exact optimizer did not prove optimality inside the configured search budget."
+      )
+    );
+  } else if (recommendation.optimizerOptimal !== true) {
+    reasons.push(
+      reason(
+        "optimizer-unproven",
+        "caution",
+        "The selected set does not carry an exact optimality proof."
+      )
+    );
+  }
+  if (backtest && backtest.holdoutRecall < 1) {
+    reasons.push(
+      reason(
+        "temporal-validation-miss",
+        "blocked",
+        "Single-holdout failure recall is " + (backtest.holdoutRecall * 100).toFixed(1) + "%."
+      )
+    );
+  }
+  if (backtest?.unseenHoldoutRecall != null && backtest.unseenHoldoutRecall < 1) {
+    reasons.push(
+      reason(
+        "unseen-failure-miss",
+        "blocked",
+        "Single-holdout unseen-failure recall is " + (backtest.unseenHoldoutRecall * 100).toFixed(1) + "%."
+      )
+    );
+  }
+  if (!rolling || rolling.validFolds === 0) {
+    reasons.push(
+      reason(
+        "temporal-validation-unavailable",
+        "caution",
+        "Rolling temporal validation has no valid fold with analyzable holdout failure evidence."
+      )
+    );
+  } else {
+    if (rolling.validFolds < 2) {
+      reasons.push(
+        reason(
+          "temporal-validation-sparse",
+          "caution",
+          "Only " + rolling.validFolds + " rolling temporal fold is valid."
+        )
+      );
+    }
+    if (rolling.worstHoldoutRecall != null && rolling.worstHoldoutRecall < 1) {
+      reasons.push(
+        reason(
+          "temporal-validation-miss",
+          "blocked",
+          "Worst valid rolling-fold failure recall is " + (rolling.worstHoldoutRecall * 100).toFixed(1) + "%."
+        )
+      );
+    }
+    if (rolling.aggregateUnseenHoldoutRecall != null && rolling.aggregateUnseenHoldoutRecall < 1) {
+      reasons.push(
+        reason(
+          "unseen-failure-miss",
+          "blocked",
+          "Rolling unseen-failure recall is " + (rolling.aggregateUnseenHoldoutRecall * 100).toFixed(1) + "%."
+        )
+      );
+    }
+    if (rolling.meanPairwiseSelectionJaccard != null && rolling.meanPairwiseSelectionJaccard < 0.75) {
+      reasons.push(
+        reason(
+          "unstable-selection",
+          "caution",
+          "Selected cell sets vary substantially across rolling folds (mean Jaccard " + (rolling.meanPairwiseSelectionJaccard * 100).toFixed(1) + "%)."
+        )
+      );
+    }
+  }
+  if (recommendation.pricingCoverage < 1) {
+    reasons.push(
+      reason(
+        "pricing-incomplete",
+        "caution",
+        "Runner pricing coverage is " + (recommendation.pricingCoverage * 100).toFixed(1) + "%; monetary estimates are incomplete."
+      )
+    );
+  }
+  const level = reasons.some(
+    (item) => item.severity === "blocked"
+  ) ? "blocked" : reasons.some((item) => item.severity === "diagnostic") ? "diagnostic-only" : reasons.some((item) => item.severity === "caution") ? "caution" : "ready";
+  return {
+    level,
+    automationEligible: level === "ready" || level === "caution",
+    metrics,
+    reasons
+  };
+}
+
 // src/recommend.ts
 function median3(values) {
   if (!values.length) return null;
@@ -10355,7 +10600,7 @@ function recommendMatrix(report, options = {}) {
       `${report.captureEvidenceErrors} runtime matrix evidence lookup(s) failed or were conflicting; verify checks: read permission and capture-step execution.`
     );
   }
-  return {
+  const recommendation = {
     mode: "history+combinatorial",
     algorithm,
     optimizerMode,
@@ -10406,6 +10651,10 @@ function recommendMatrix(report, options = {}) {
     keptCells: keepRequirements.map((item) => item.cell),
     requiredSelectors: requireRequirements.length,
     warnings
+  };
+  return {
+    ...recommendation,
+    readiness: evaluateRecommendationReadiness(report, recommendation)
   };
 }
 
@@ -10896,7 +11145,15 @@ function slug(value) {
 function optimizationBranch(workflowPath) {
   return `matrixtrim/optimize-${slug((0, import_node_path.basename)(workflowPath))}`;
 }
-function optimizationSafetyReason(analysis, recommendation, backtest) {
+function optimizationSafetyReason(analysis, recommendation, backtest, options = {}) {
+  if (recommendation.readiness.level === "blocked") {
+    const codes = recommendation.readiness.reasons.filter((item) => item.severity === "blocked").map((item) => item.code).join(", ");
+    return `recommendation readiness is blocked: ${codes}`;
+  }
+  if (recommendation.readiness.level === "diagnostic-only" && !options.allowDiagnosticReadiness) {
+    const codes = recommendation.readiness.reasons.filter((item) => item.severity === "diagnostic").map((item) => item.code).join(", ");
+    return `recommendation is diagnostic-only: ${codes}`;
+  }
   if (!analysis.workflowPath) {
     return "workflow path could not be resolved";
   }
@@ -10958,6 +11215,8 @@ ${jobs}
 
 ### Evidence
 
+- Readiness: ${recommendation.readiness.level} (automation=${recommendation.readiness.automationEligible ? "eligible" : "not eligible"})
+- Readiness reasons: ${recommendation.readiness.reasons.map((item) => item.code).join(", ") || "none"}
 - Optimizer: ${recommendation.algorithm} (mode=${recommendation.optimizerMode}, optimal=${recommendation.optimizerOptimal ?? "n/a"}, nodes=${recommendation.optimizerSearchNodes})
 - Optimizer improvement vs greedy: ${recommendation.optimizerImprovementPercent.toFixed(1)}%
 - Historical failure recall: ${recommendation.historicalRecall === null ? "n/a" : `${(recommendation.historicalRecall * 100).toFixed(1)}%`}
@@ -10975,10 +11234,15 @@ MatrixTrim only creates this PR when the current workflow is a fully resolved st
 Review and run the repository's normal CI before merging.
 `;
 }
-async function createOrUpdateOptimizationPullRequest(client, analysis, recommendation, backtest, backtestError) {
-  const reason = optimizationSafetyReason(analysis, recommendation, backtest);
-  if (reason) {
-    return { status: "skipped", reason };
+async function createOrUpdateOptimizationPullRequest(client, analysis, recommendation, backtest, backtestError, options = {}) {
+  const reason2 = optimizationSafetyReason(
+    analysis,
+    recommendation,
+    backtest,
+    options
+  );
+  if (reason2) {
+    return { status: "skipped", reason: reason2 };
   }
   const repository = await client.repositoryInfo();
   const base = repository.default_branch;
@@ -11129,6 +11393,7 @@ async function main() {
   const configPath = actionInput("config") || ".matrixtrim.yml";
   const comment = boolActionInput("comment", true);
   const createPr = boolActionInput("create-pr", false);
+  const allowDiagnosticPr = boolActionInput("allow-diagnostic-pr", false);
   const github = new GitHubClient(repository, token);
   const config = await loadRepositoryConfig(
     github,
@@ -11183,6 +11448,12 @@ async function main() {
     rollingBacktestError = error.message;
     warning(`rolling backtest unavailable: ${rollingBacktestError}`);
   }
+  recommendation.readiness = evaluateRecommendationReadiness(
+    analysis,
+    recommendation,
+    backtest,
+    rollingBacktest
+  );
   const report = formatActionReport(
     repository,
     workflow,
@@ -11206,6 +11477,15 @@ async function main() {
   await writeOutput(
     "capture-evidence-errors",
     analysis.captureEvidenceErrors ?? 0
+  );
+  await writeOutput("readiness-level", recommendation.readiness.level);
+  await writeOutput(
+    "readiness-automation-eligible",
+    String(recommendation.readiness.automationEligible)
+  );
+  await writeOutput(
+    "readiness-reasons",
+    recommendation.readiness.reasons.map((item) => item.code).join(",")
   );
   await writeOutput("current-cells", recommendation.currentCells);
   await writeOutput("selected-cells", recommendation.selectedCells.length);
@@ -11338,7 +11618,8 @@ async function main() {
           analysis,
           recommendation,
           backtest,
-          backtestError
+          backtestError,
+          { allowDiagnosticReadiness: allowDiagnosticPr }
         );
         optimizationStatus = result.status;
         optimizationNumber = result.number?.toString() ?? "";

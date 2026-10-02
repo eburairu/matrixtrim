@@ -57,6 +57,10 @@ inputs:
     description: Create or update a draft optimization pull request. Disabled by default and only attempted for fully resolved static matrices.
     required: false
     default: "false"
+  allow-diagnostic-pr:
+    description: Advanced override that permits diagnostic-only readiness to proceed to existing PR safety checks. Blocked readiness and existing fail-closed rewrite checks cannot be overridden.
+    required: false
+    default: "false"
 
 outputs:
   capture-status:
@@ -67,6 +71,12 @@ outputs:
     description: Number of jobs whose runtime matrix axes were restored from capture evidence.
   capture-evidence-errors:
     description: Number of annotation lookups or conflicting evidence payloads that failed.
+  readiness-level:
+    description: "Recommendation readiness level: ready, caution, diagnostic-only, or blocked."
+  readiness-automation-eligible:
+    description: Whether readiness permits automation before the existing detailed rewrite safety checks.
+  readiness-reasons:
+    description: Comma-separated stable reason codes that downgraded readiness.
   current-cells:
     description: Number of matrix cells observed.
   selected-cells:

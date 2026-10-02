@@ -191,6 +191,19 @@ GH_TOKEN="$(gh auth token)" \
 
 Each fold trains only on older runs and evaluates the immediately newer segment. Folds without analyzable holdout failures are reported as invalid instead of being assigned a synthetic recall. MatrixTrim reports aggregate and worst-fold recall, unseen-failure recall, per-cell selection frequency, and mean pairwise Jaccard similarity of selected cell sets. The GitHub Action runs the same rolling validation alongside the existing single holdout; configure the fold count with `rolling-folds`.
 
+## Recommendation readiness
+
+Every recommendation now carries a machine-readable `readiness` result that is deliberately separate from optimizer optimality:
+
+- `ready` — no modeled evidence-health downgrade was found.
+- `caution` — the recommendation is usable for review, but evidence is sparse, temporal validation is weak/unavailable, selection is unstable, pricing is incomplete, or the chosen optimizer lacks an exact proof.
+- `diagnostic-only` — evidence quality is insufficient for normal automation, for example because no failure fingerprints were observed or matrix resolution is incomplete.
+- `blocked` — a modeled safety check failed, such as historical/temporal recall below 100%, unsatisfied combinatorial or hard constraints, or an unproven `auto` optimization.
+
+The result also includes stable reason codes and the input metrics used to derive the level. The GitHub Action recomputes readiness after both single-holdout and rolling validation, exposes it in the Step Summary and Action outputs, and refuses `diagnostic-only` draft-PR automation by default. The advanced `allow-diagnostic-pr: "true"` input only bypasses that readiness guard; it does **not** bypass existing fail-closed checks for dynamic matrices, unresolved axes, incomplete workflow/job matching, coverage loss, or blocked readiness.
+
+An exact optimizer proof answers “is this the cheapest set for the modeled requirements?” Readiness answers the different question “is the evidence supporting those requirements healthy enough to act on?” Neither is a guarantee about unseen future failures.
+
 ## Multi-event failure fingerprints
 
 A failed matrix job can contain more than one independent failure signal. MatrixTrim now fingerprints strong root causes separately, so a job containing `Error X` and `Error Y` contributes two events instead of one compound `X+Y` fingerprint. Typed errors/exceptions, panic/fatal lines and segmentation faults are preferred; test-runner summary lines are used only when no strong root cause is present, avoiding obvious double-counting.
