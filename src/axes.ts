@@ -31,6 +31,19 @@ export type AxisInference = {
 	source: "workflow-rendered-name" | "workflow-job-name" | "unavailable";
 };
 
+export type AxisInferenceFailureReason =
+	| "ambiguous-rendered-name"
+	| "ambiguous-dynamic-name"
+	| "job-name-not-matrix-shaped"
+	| "matrix-definition-not-found"
+	| "axis-names-unavailable"
+	| "axis-value-count-mismatch"
+	| "opaque-dynamic-job-name";
+
+export type AxisInferenceDiagnostic = AxisInference & {
+	reason?: AxisInferenceFailureReason;
+};
+
 function stableStringify(value: unknown): string {
 	if (value === null) return "null";
 	if (typeof value !== "object") return String(value);
@@ -305,10 +318,10 @@ export function workflowMatrixDefinitions(text: string): MatrixDefinition[] {
 	return definitions;
 }
 
-export function inferAxesFromExpandedJobName(
+export function diagnoseAxesFromExpandedJobName(
 	name: string,
 	definitions: MatrixDefinition[],
-): AxisInference {
+): AxisInferenceDiagnostic {
 	const exactMatches = definitions.flatMap((definition) =>
 		definition.cells
 			.filter(
@@ -323,6 +336,14 @@ export function inferAxesFromExpandedJobName(
 			baseJob: match.definition.jobId,
 			axes: match.cell.axes,
 			source: "workflow-rendered-name",
+		};
+	}
+	if (exactMatches.length > 1) {
+		return {
+			baseJob: name,
+			axes: null,
+			source: "unavailable",
+			reason: "ambiguous-rendered-name",
 		};
 	}
 
@@ -340,10 +361,28 @@ export function inferAxesFromExpandedJobName(
 			source: "workflow-rendered-name",
 		};
 	}
+	if (dynamicMatches.length > 1) {
+		return {
+			baseJob: name,
+			axes: null,
+			source: "unavailable",
+			reason: "ambiguous-dynamic-name",
+		};
+	}
 
 	const match = name.match(/^(.*?)\s+\((.*)\)$/);
 	if (!match) {
-		return { baseJob: name, axes: null, source: "unavailable" };
+		const direct = definitions.find(
+			(candidate) => candidate.displayName === name || candidate.jobId === name,
+		);
+		return {
+			baseJob: direct?.jobId ?? name,
+			axes: null,
+			source: "unavailable",
+			reason: direct?.dynamic
+				? "opaque-dynamic-job-name"
+				: "job-name-not-matrix-shaped",
+		};
 	}
 
 	const baseJob = match[1]!.trim();
@@ -353,13 +392,19 @@ export function inferAxesFromExpandedJobName(
 			candidate.displayName === baseJob || candidate.jobId === baseJob,
 	);
 	if (!definition) {
-		return { baseJob, axes: null, source: "unavailable" };
+		return {
+			baseJob,
+			axes: null,
+			source: "unavailable",
+			reason: "matrix-definition-not-found",
+		};
 	}
 	if (!definition.axes.length) {
 		return {
 			baseJob: definition.jobId,
 			axes: null,
 			source: "unavailable",
+			reason: "axis-names-unavailable",
 		};
 	}
 
@@ -369,7 +414,12 @@ export function inferAxesFromExpandedJobName(
 			: inner.split(",").map((value) => value.trim());
 
 	if (values.length !== definition.axes.length) {
-		return { baseJob, axes: null, source: "unavailable" };
+		return {
+			baseJob: definition.jobId,
+			axes: null,
+			source: "unavailable",
+			reason: "axis-value-count-mismatch",
+		};
 	}
 
 	return {
@@ -379,4 +429,15 @@ export function inferAxesFromExpandedJobName(
 		),
 		source: "workflow-job-name",
 	};
+}
+
+export function inferAxesFromExpandedJobName(
+	name: string,
+	definitions: MatrixDefinition[],
+): AxisInference {
+	const { reason: _reason, ...inference } = diagnoseAxesFromExpandedJobName(
+		name,
+		definitions,
+	);
+	return inference;
 }
