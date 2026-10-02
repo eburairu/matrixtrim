@@ -7391,7 +7391,7 @@ function boolActionInput(name, fallback, env = process.env) {
 var percent = (value) => value === null ? "n/a" : `${(value * 100).toFixed(1)}%`;
 var seconds = (value) => value === null ? "n/a" : `${value.toFixed(1)}s`;
 var dollars = (value, digits = 3) => value === null ? "n/a" : `$${value.toFixed(digits)}`;
-function formatActionReport(repository, workflow, recommendation, backtest, backtestError) {
+function formatActionReport(repository, workflow, recommendation, backtest, backtestError, rollingBacktest, rollingBacktestError) {
   const selected = recommendation.selectedCells.map(
     (cell) => `- \`${cell.cell}\` \u2014 failures=${cell.coveredFailures}, combinations=${cell.coveredCombinations}, median=${seconds(cell.medianRuntimeSeconds)}, list-price/run=${dollars(cell.estimatedListPriceUsdPerRun)}`
   ).join("\n");
@@ -7411,6 +7411,13 @@ function formatActionReport(repository, workflow, recommendation, backtest, back
     `| Unseen-failure recall | ${backtest.unseenHoldoutRecall === null ? "n/a" : `${backtest.coveredUnseenHoldoutFingerprints}/${backtest.unseenHoldoutFingerprints} (${percent(backtest.unseenHoldoutRecall)})`} |`,
     `| Holdout combinatorial coverage | ${backtest.holdoutCombinatorialCoverage === null ? "n/a" : `${backtest.coveredHoldoutCombinatorialRequirements}/${backtest.holdoutCombinatorialRequirements} (${percent(backtest.holdoutCombinatorialCoverage)})`} |`
   ].join("\n") : `| Backtest | unavailable${backtestError ? `: ${backtestError}` : ""} |`;
+  const rollingRows = rollingBacktest ? [
+    `| Rolling valid folds | ${rollingBacktest.validFolds}/${rollingBacktest.foldCount} |`,
+    `| Rolling aggregate failure recall | ${rollingBacktest.aggregateHoldoutRecall === null ? "n/a" : `${rollingBacktest.aggregateCoveredHoldoutFingerprints}/${rollingBacktest.aggregateHoldoutFingerprints} (${percent(rollingBacktest.aggregateHoldoutRecall)})`} |`,
+    `| Rolling worst-fold recall | ${percent(rollingBacktest.worstHoldoutRecall)} |`,
+    `| Rolling unseen-failure recall | ${rollingBacktest.aggregateUnseenHoldoutRecall === null ? "n/a" : `${rollingBacktest.aggregateCoveredUnseenHoldoutFingerprints}/${rollingBacktest.aggregateUnseenHoldoutFingerprints} (${percent(rollingBacktest.aggregateUnseenHoldoutRecall)})`} |`,
+    `| Selection stability (mean Jaccard) | ${percent(rollingBacktest.meanPairwiseSelectionJaccard)} |`
+  ].join("\n") : `| Rolling validation | unavailable${rollingBacktestError ? `: ${rollingBacktestError}` : ""} |`;
   const warnings = recommendation.warnings.map((warning2) => `- \u26A0\uFE0F ${warning2}`).join("\n");
   return `<!-- matrixtrim-report -->
 ## MatrixTrim analysis
@@ -7442,6 +7449,7 @@ function formatActionReport(repository, workflow, recommendation, backtest, back
 | Estimated GitHub charge reduction | ${estimatedChargeReduction} |
 | Projected 30-day GitHub charge | ${projectedCharge30d} |
 ${backtestRows}
+${rollingRows}
 
 <details>
 <summary>Suggested cells</summary>
@@ -10406,6 +10414,224 @@ function backtestRecommendation(report, holdoutPercent = 25, coverageStrength = 
     warnings
   };
 }
+function conclusiveRuns(report) {
+  const conclusive = (value) => value === void 0 || ["success", "failure", "timed_out", "neutral"].includes(value ?? "");
+  return [
+    ...new Map(
+      report.matrixJobs.filter((item) => conclusive(item.runConclusion)).map((item) => [
+        item.runId,
+        { runId: item.runId, runNumber: item.runNumber }
+      ])
+    ).values()
+  ].sort((a, b) => a.runNumber - b.runNumber || a.runId - b.runId);
+}
+function selectionJaccard(a, b) {
+  const left = new Set(a);
+  const right = new Set(b);
+  const union = /* @__PURE__ */ new Set([...left, ...right]);
+  if (!union.size) return 1;
+  let intersection = 0;
+  for (const cell of left) {
+    if (right.has(cell)) intersection++;
+  }
+  return intersection / union.size;
+}
+function rollingFold(report, fold, trainingRunIds, holdoutRunIds, coverageStrength, constraints, optimizerOptions) {
+  const training = report.observations.filter(
+    (item) => trainingRunIds.has(item.runId)
+  );
+  const holdout = report.observations.filter(
+    (item) => holdoutRunIds.has(item.runId)
+  );
+  const base = {
+    fold,
+    trainingRuns: trainingRunIds.size,
+    holdoutRuns: holdoutRunIds.size,
+    selectedCells: [],
+    trainingFingerprints: new Set(training.map((item) => item.fingerprint)).size,
+    holdoutFingerprints: 0,
+    coveredHoldoutFingerprints: 0,
+    holdoutRecall: null,
+    unseenHoldoutFingerprints: 0,
+    coveredUnseenHoldoutFingerprints: 0,
+    unseenHoldoutRecall: null
+  };
+  if (!holdout.length) {
+    return {
+      ...base,
+      status: "invalid",
+      reason: "no analyzable failure fingerprints in holdout window"
+    };
+  }
+  const trainingReport = subsetReport(report, training, trainingRunIds);
+  if (!trainingReport.cells.length) {
+    return {
+      ...base,
+      status: "invalid",
+      reason: "no matrix observations in training window"
+    };
+  }
+  try {
+    const recommendation = recommendMatrix(trainingReport, {
+      maxStrength: coverageStrength,
+      constraints,
+      ...optimizerOptions
+    });
+    const selected = new Set(
+      recommendation.selectedCells.map((cell) => cell.cell)
+    );
+    const trainingFingerprints = new Set(
+      training.map((item) => item.fingerprint)
+    );
+    const holdoutClusters = clustersFor(holdout);
+    let covered = 0;
+    let unseen = 0;
+    let coveredUnseen = 0;
+    for (const cluster of holdoutClusters) {
+      const detected = cluster.cells.some((cell) => selected.has(cell));
+      const seenInTraining = trainingFingerprints.has(cluster.fingerprint);
+      if (detected) covered++;
+      if (!seenInTraining) {
+        unseen++;
+        if (detected) coveredUnseen++;
+      }
+    }
+    return {
+      ...base,
+      status: "valid",
+      selectedCells: [...selected].sort(),
+      holdoutFingerprints: holdoutClusters.length,
+      coveredHoldoutFingerprints: covered,
+      holdoutRecall: covered / holdoutClusters.length,
+      unseenHoldoutFingerprints: unseen,
+      coveredUnseenHoldoutFingerprints: coveredUnseen,
+      unseenHoldoutRecall: unseen ? coveredUnseen / unseen : null,
+      optimizerAlgorithm: recommendation.algorithm,
+      optimizerOptimal: recommendation.optimizerOptimal,
+      optimizerSearchNodes: recommendation.optimizerSearchNodes
+    };
+  } catch (error) {
+    return {
+      ...base,
+      status: "invalid",
+      reason: `training recommendation unavailable: ${error.message}`
+    };
+  }
+}
+function rollingBacktestRecommendation(report, requestedFolds = 4, coverageStrength = 2, constraints, optimizerOptions = {}) {
+  if (!Number.isInteger(requestedFolds) || requestedFolds < 2) {
+    throw new Error("requestedFolds must be an integer of at least 2");
+  }
+  const runs = conclusiveRuns(report);
+  if (runs.length < 3) {
+    throw new Error(
+      "rolling backtest requires at least three completed matrix workflow runs"
+    );
+  }
+  const foldCount = Math.min(requestedFolds, runs.length - 1);
+  const segmentCount = foldCount + 1;
+  const baseSize = Math.floor(runs.length / segmentCount);
+  const extra = runs.length % segmentCount;
+  const segments = [];
+  let offset = 0;
+  for (let index = 0; index < segmentCount; index++) {
+    const size = baseSize + (index < extra ? 1 : 0);
+    segments.push(runs.slice(offset, offset + size));
+    offset += size;
+  }
+  const folds = [];
+  for (let index = 1; index < segments.length; index++) {
+    const trainingRuns = segments.slice(0, index).flat();
+    const holdoutRuns = segments[index];
+    folds.push(
+      rollingFold(
+        report,
+        index,
+        new Set(trainingRuns.map((run) => run.runId)),
+        new Set(holdoutRuns.map((run) => run.runId)),
+        coverageStrength,
+        constraints,
+        optimizerOptions
+      )
+    );
+  }
+  const valid = folds.filter((item) => item.status === "valid");
+  const aggregateHoldoutFingerprints = valid.reduce(
+    (sum, item) => sum + item.holdoutFingerprints,
+    0
+  );
+  const aggregateCoveredHoldoutFingerprints = valid.reduce(
+    (sum, item) => sum + item.coveredHoldoutFingerprints,
+    0
+  );
+  const aggregateUnseenHoldoutFingerprints = valid.reduce(
+    (sum, item) => sum + item.unseenHoldoutFingerprints,
+    0
+  );
+  const aggregateCoveredUnseenHoldoutFingerprints = valid.reduce(
+    (sum, item) => sum + item.coveredUnseenHoldoutFingerprints,
+    0
+  );
+  const holdoutRecalls = valid.map((item) => item.holdoutRecall).filter((value) => value !== null);
+  const unseenRecalls = valid.map((item) => item.unseenHoldoutRecall).filter((value) => value !== null);
+  const pairwiseJaccards = [];
+  for (let left = 0; left < valid.length; left++) {
+    for (let right = left + 1; right < valid.length; right++) {
+      pairwiseJaccards.push(
+        selectionJaccard(
+          valid[left].selectedCells,
+          valid[right].selectedCells
+        )
+      );
+    }
+  }
+  const selectionCounts = /* @__PURE__ */ new Map();
+  for (const item of valid) {
+    for (const cell of item.selectedCells) {
+      selectionCounts.set(cell, (selectionCounts.get(cell) ?? 0) + 1);
+    }
+  }
+  const cellSelectionFrequency = [...selectionCounts.entries()].map(([cell, selectedFolds]) => ({
+    cell,
+    selectedFolds,
+    frequency: valid.length ? selectedFolds / valid.length : 0
+  })).sort((a, b) => b.frequency - a.frequency || a.cell.localeCompare(b.cell));
+  const warnings = [
+    "Rolling validation uses expanding training windows and only newer runs in each holdout fold.",
+    "Failure-recall aggregates include only folds with at least one analyzable holdout failure fingerprint.",
+    "Training windows may contain zero historical failures; in that case selection is driven by non-failure safety constraints and all holdout fingerprints are unseen."
+  ];
+  if (valid.length < folds.length) {
+    warnings.push(
+      `${folds.length - valid.length}/${folds.length} fold(s) were excluded from recall aggregation because they lacked evaluable holdout failure evidence or a valid training recommendation.`
+    );
+  }
+  if (!valid.length) {
+    warnings.push(
+      "No rolling fold had analyzable holdout failure evidence; recall and stability metrics are n/a."
+    );
+  }
+  return {
+    mode: "rolling-time-validation",
+    requestedFolds,
+    foldCount,
+    validFolds: valid.length,
+    invalidFolds: folds.length - valid.length,
+    coverageStrength,
+    aggregateHoldoutFingerprints,
+    aggregateCoveredHoldoutFingerprints,
+    aggregateHoldoutRecall: aggregateHoldoutFingerprints ? aggregateCoveredHoldoutFingerprints / aggregateHoldoutFingerprints : null,
+    worstHoldoutRecall: holdoutRecalls.length ? Math.min(...holdoutRecalls) : null,
+    aggregateUnseenHoldoutFingerprints,
+    aggregateCoveredUnseenHoldoutFingerprints,
+    aggregateUnseenHoldoutRecall: aggregateUnseenHoldoutFingerprints ? aggregateCoveredUnseenHoldoutFingerprints / aggregateUnseenHoldoutFingerprints : null,
+    worstUnseenHoldoutRecall: unseenRecalls.length ? Math.min(...unseenRecalls) : null,
+    meanPairwiseSelectionJaccard: pairwiseJaccards.length ? pairwiseJaccards.reduce((sum, value) => sum + value, 0) / pairwiseJaccards.length : null,
+    cellSelectionFrequency,
+    folds,
+    warnings
+  };
+}
 
 // src/optimization-pr.ts
 var import_node_path = require("node:path");
@@ -10737,6 +10963,7 @@ async function main() {
   const workflow = actionInput("workflow") || inferWorkflowFile(repository);
   const limit = intActionInput("limit", 100, 2, 500);
   const holdout = intActionInput("holdout", 25, 5, 50);
+  const rollingFolds = intActionInput("rolling-folds", 4, 2, 20);
   const strength = intActionInput("strength", 2, 1, 4);
   const optimizerRaw = actionInput("optimizer") || "auto";
   if (!["auto", "exact", "greedy"].includes(optimizerRaw)) {
@@ -10759,7 +10986,7 @@ async function main() {
     configPath !== ".matrixtrim.yml"
   );
   console.log(
-    `MatrixTrim: repository=${repository}, workflow=${workflow ?? "all"}, limit=${limit}, strength=${strength}, optimizer=${optimizer}, exactMaxNodes=${exactMaxNodes}, constraints=${(config?.constraints.keep.length ?? 0) + (config?.constraints.require.length ?? 0)}`
+    `MatrixTrim: repository=${repository}, workflow=${workflow ?? "all"}, limit=${limit}, strength=${strength}, rollingFolds=${rollingFolds}, optimizer=${optimizer}, exactMaxNodes=${exactMaxNodes}, constraints=${(config?.constraints.keep.length ?? 0) + (config?.constraints.require.length ?? 0)}`
   );
   const analysis = await analyzeRepository(repository, {
     limit,
@@ -10789,12 +11016,31 @@ async function main() {
     backtestError = error.message;
     warning(`backtest unavailable: ${backtestError}`);
   }
+  let rollingBacktest = null;
+  let rollingBacktestError;
+  try {
+    rollingBacktest = rollingBacktestRecommendation(
+      analysis,
+      rollingFolds,
+      strength,
+      config?.constraints,
+      {
+        optimizer,
+        exactMaxNodes
+      }
+    );
+  } catch (error) {
+    rollingBacktestError = error.message;
+    warning(`rolling backtest unavailable: ${rollingBacktestError}`);
+  }
   const report = formatActionReport(
     repository,
     workflow,
     recommendation,
     backtest,
-    backtestError
+    backtestError,
+    rollingBacktest,
+    rollingBacktestError
   );
   const summaryPath = process.env.GITHUB_STEP_SUMMARY;
   if (summaryPath) {
@@ -10908,6 +11154,23 @@ async function main() {
   await writeOutput(
     "unseen-failure-recall",
     backtest?.unseenHoldoutRecall?.toFixed(4) ?? ""
+  );
+  await writeOutput("rolling-valid-folds", rollingBacktest?.validFolds ?? 0);
+  await writeOutput(
+    "rolling-holdout-recall",
+    rollingBacktest?.aggregateHoldoutRecall?.toFixed(4) ?? ""
+  );
+  await writeOutput(
+    "rolling-worst-holdout-recall",
+    rollingBacktest?.worstHoldoutRecall?.toFixed(4) ?? ""
+  );
+  await writeOutput(
+    "rolling-unseen-failure-recall",
+    rollingBacktest?.aggregateUnseenHoldoutRecall?.toFixed(4) ?? ""
+  );
+  await writeOutput(
+    "rolling-selection-stability",
+    rollingBacktest?.meanPairwiseSelectionJaccard?.toFixed(4) ?? ""
   );
   let optimizationStatus = createPr ? "skipped" : "disabled";
   let optimizationNumber = "";

@@ -1,4 +1,4 @@
-import type { BacktestReport } from "./backtest.js";
+import type { BacktestReport, RollingBacktestReport } from "./backtest.js";
 import type { RecommendationReport } from "./recommend.js";
 
 const percent = (value: number | null): string =>
@@ -16,6 +16,8 @@ export function formatActionReport(
 	recommendation: RecommendationReport,
 	backtest: BacktestReport | null,
 	backtestError?: string,
+	rollingBacktest?: RollingBacktestReport | null,
+	rollingBacktestError?: string,
 ): string {
 	const selected = recommendation.selectedCells
 		.map(
@@ -82,6 +84,16 @@ export function formatActionReport(
 			].join("\n")
 		: `| Backtest | unavailable${backtestError ? `: ${backtestError}` : ""} |`;
 
+	const rollingRows = rollingBacktest
+		? [
+				`| Rolling valid folds | ${rollingBacktest.validFolds}/${rollingBacktest.foldCount} |`,
+				`| Rolling aggregate failure recall | ${rollingBacktest.aggregateHoldoutRecall === null ? "n/a" : `${rollingBacktest.aggregateCoveredHoldoutFingerprints}/${rollingBacktest.aggregateHoldoutFingerprints} (${percent(rollingBacktest.aggregateHoldoutRecall)})`} |`,
+				`| Rolling worst-fold recall | ${percent(rollingBacktest.worstHoldoutRecall)} |`,
+				`| Rolling unseen-failure recall | ${rollingBacktest.aggregateUnseenHoldoutRecall === null ? "n/a" : `${rollingBacktest.aggregateCoveredUnseenHoldoutFingerprints}/${rollingBacktest.aggregateUnseenHoldoutFingerprints} (${percent(rollingBacktest.aggregateUnseenHoldoutRecall)})`} |`,
+				`| Selection stability (mean Jaccard) | ${percent(rollingBacktest.meanPairwiseSelectionJaccard)} |`,
+			].join("\n")
+		: `| Rolling validation | unavailable${rollingBacktestError ? `: ${rollingBacktestError}` : ""} |`;
+
 	const warnings = recommendation.warnings
 		.map((warning) => `- ⚠️ ${warning}`)
 		.join("\n");
@@ -116,6 +128,7 @@ export function formatActionReport(
 | Estimated GitHub charge reduction | ${estimatedChargeReduction} |
 | Projected 30-day GitHub charge | ${projectedCharge30d} |
 ${backtestRows}
+${rollingRows}
 
 <details>
 <summary>Suggested cells</summary>
