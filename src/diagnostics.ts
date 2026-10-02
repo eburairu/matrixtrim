@@ -21,7 +21,8 @@ export type AnalysisDiagnosticCode =
 	| "axis-opaque-dynamic-job-name"
 	| "capture-evidence-missing"
 	| "capture-evidence-conflict"
-	| "capture-evidence-fetch-error";
+	| "capture-evidence-fetch-error"
+	| "skipped-unexpanded-matrix-placeholder";
 
 export type DiagnosticRemediation = {
 	kind: "capture";

@@ -87,6 +87,18 @@ function splitJobName(name: string): {
 		: { baseJob: name, cell: name, matrixLike: false };
 }
 
+export function isSkippedUnexpandedMatrixPlaceholder(job: {
+	name: string;
+	conclusion: string | null;
+	labels?: string[];
+}): boolean {
+	return (
+		job.conclusion === "skipped" &&
+		!job.labels?.length &&
+		/\$\{\{\s*matrix(?:\.|\[)/.test(job.name)
+	);
+}
+
 function durationSeconds(
 	startedAt: string | null,
 	completedAt: string | null,
@@ -414,6 +426,17 @@ export async function analyzeRepository(
 		}
 
 		for (const job of jobs) {
+			if (isSkippedUnexpandedMatrixPlaceholder(job)) {
+				diagnostics.push({
+					code: "skipped-unexpanded-matrix-placeholder",
+					severity: "info",
+					scope: "job",
+					cell: job.name,
+					message:
+						"GitHub left a skipped matrix job at its unexpanded name template; this placeholder is not an executed matrix cell and is excluded from analysis.",
+				});
+				continue;
+			}
 			const parsed = splitJobName(job.name);
 			const inferred = diagnoseAxesFromExpandedJobName(job.name, definitions);
 			const renderedMatch = inferred.source !== "unavailable";
