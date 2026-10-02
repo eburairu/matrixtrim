@@ -1,0 +1,4 @@
+2026-09-29T10:00:01Z Traceback (most recent call last):
+2026-09-29T10:00:02Z   File "/home/runner/work/pytest/pytest/.tox/py311/lib/python3.11/site-packages/_pytest/fixtures.py", line 91, in <module>
+2026-09-29T10:00:03Z ImportError: cannot import name '_resolve_args_directness' from partially initialized module '_pytest.fixtures' (most likely due to a circular import) (/home/runner/work/pytest/pytest/.tox/py311/lib/python3.11/site-packages/_pytest/fixtures.py)
+2026-09-29T10:00:04Z FAILED testing/test_fixture.py::test_fixture

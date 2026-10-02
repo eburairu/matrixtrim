@@ -1,0 +1,3 @@
+2026-09-29T12:30:01Z thread 'demo' (14599) panicked at tests/demo.rs:912:4:
+2026-09-29T12:30:02Z assertion `left == right` failed
+2026-09-29T12:30:03Z error: test run failed
