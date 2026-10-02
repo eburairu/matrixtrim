@@ -97,6 +97,11 @@ export function formatActionReport(
 	const warnings = recommendation.warnings
 		.map((warning) => `- ⚠️ ${warning}`)
 		.join("\n");
+	const readinessReasons = recommendation.readiness.reasons.length
+		? recommendation.readiness.reasons
+				.map((item) => `- \`${item.code}\` — ${item.message}`)
+				.join("\n")
+		: "- No readiness downgrade reasons.";
 
 	return `<!-- matrixtrim-report -->
 ## MatrixTrim analysis
@@ -107,6 +112,7 @@ export function formatActionReport(
 
 | Metric | Result |
 | --- | ---: |
+| Recommendation readiness | **${recommendation.readiness.level}** (automation=${recommendation.readiness.automationEligible ? "eligible" : "not eligible"}) |
 | Current matrix cells | ${recommendation.currentCells} |
 | Suggested cells | ${recommendation.selectedCells.length} |
 | Optimizer | ${recommendation.algorithm} (mode=${recommendation.optimizerMode}, optimal=${recommendation.optimizerOptimal ?? "n/a"}, nodes=${recommendation.optimizerSearchNodes}) |
@@ -136,6 +142,10 @@ ${rollingRows}
 ${selected || "_No cells selected._"}
 
 </details>
+
+### Readiness
+
+${readinessReasons}
 
 ### Interpretation
 

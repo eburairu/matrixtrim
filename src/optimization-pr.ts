@@ -17,6 +17,10 @@ export type OptimizationPullRequestResult = {
 	rewrite?: WorkflowRewriteResult;
 };
 
+export type OptimizationPullRequestOptions = {
+	allowDiagnosticReadiness?: boolean;
+};
+
 export type OptimizationGitHubClient = {
 	repositoryInfo(): Promise<RepositoryInfo>;
 	file(path: string, ref?: string): Promise<{ text: string; sha: string }>;
@@ -65,7 +69,25 @@ export function optimizationSafetyReason(
 	analysis: AnalysisReport,
 	recommendation: RecommendationReport,
 	backtest: BacktestReport | null,
+	options: OptimizationPullRequestOptions = {},
 ): string | null {
+	if (recommendation.readiness.level === "blocked") {
+		const codes = recommendation.readiness.reasons
+			.filter((item) => item.severity === "blocked")
+			.map((item) => item.code)
+			.join(", ");
+		return `recommendation readiness is blocked: ${codes}`;
+	}
+	if (
+		recommendation.readiness.level === "diagnostic-only" &&
+		!options.allowDiagnosticReadiness
+	) {
+		const codes = recommendation.readiness.reasons
+			.filter((item) => item.severity === "diagnostic")
+			.map((item) => item.code)
+			.join(", ");
+		return `recommendation is diagnostic-only: ${codes}`;
+	}
 	if (!analysis.workflowPath) {
 		return "workflow path could not be resolved";
 	}
@@ -172,6 +194,8 @@ ${jobs}
 
 ### Evidence
 
+- Readiness: ${recommendation.readiness.level} (automation=${recommendation.readiness.automationEligible ? "eligible" : "not eligible"})
+- Readiness reasons: ${recommendation.readiness.reasons.map((item) => item.code).join(", ") || "none"}
 - Optimizer: ${recommendation.algorithm} (mode=${recommendation.optimizerMode}, optimal=${recommendation.optimizerOptimal ?? "n/a"}, nodes=${recommendation.optimizerSearchNodes})
 - Optimizer improvement vs greedy: ${recommendation.optimizerImprovementPercent.toFixed(1)}%
 - Historical failure recall: ${recommendation.historicalRecall === null ? "n/a" : `${(recommendation.historicalRecall * 100).toFixed(1)}%`}
@@ -196,8 +220,14 @@ export async function createOrUpdateOptimizationPullRequest(
 	recommendation: RecommendationReport,
 	backtest: BacktestReport | null,
 	backtestError?: string,
+	options: OptimizationPullRequestOptions = {},
 ): Promise<OptimizationPullRequestResult> {
-	const reason = optimizationSafetyReason(analysis, recommendation, backtest);
+	const reason = optimizationSafetyReason(
+		analysis,
+		recommendation,
+		backtest,
+		options,
+	);
 	if (reason) {
 		return { status: "skipped", reason };
 	}

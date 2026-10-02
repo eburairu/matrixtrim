@@ -12,6 +12,10 @@ import {
 	type PricingEstimate,
 	standardRunnerListPriceUsd,
 } from "./pricing.js";
+import {
+	evaluateRecommendationReadiness,
+	type RecommendationReadiness,
+} from "./readiness.js";
 
 export type RecommendedCell = {
 	cell: string;
@@ -71,6 +75,7 @@ export type RecommendationReport = {
 	keptCells: string[];
 	requiredSelectors: number;
 	warnings: string[];
+	readiness: RecommendationReadiness;
 };
 
 function median(values: number[]): number | null {
@@ -423,7 +428,7 @@ export function recommendMatrix(
 		);
 	}
 
-	return {
+	const recommendation: Omit<RecommendationReport, "readiness"> = {
 		mode: "history+combinatorial",
 		algorithm,
 		optimizerMode,
@@ -478,5 +483,9 @@ export function recommendMatrix(
 		keptCells: keepRequirements.map((item) => item.cell),
 		requiredSelectors: requireRequirements.length,
 		warnings,
+	};
+	return {
+		...recommendation,
+		readiness: evaluateRecommendationReadiness(report, recommendation),
 	};
 }

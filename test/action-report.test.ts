@@ -74,6 +74,31 @@ describe("GitHub Action report", () => {
 			keptCells: ["test (ubuntu, 20)"],
 			requiredSelectors: 1,
 			warnings: ["example warning"],
+			readiness: {
+				level: "ready",
+				automationEligible: true,
+				metrics: {
+					axisResolution: 1,
+					workflowRenderCoverage: 1,
+					workflowMatchCoverage: 1,
+					fingerprints: 2,
+					failureEvidenceRuns: 6,
+					unavailableFailedLogs: 0,
+					diagnosticWarnings: 0,
+					optimizerOptimal: true,
+					historicalRecall: 1,
+					combinatorialCoverage: 1,
+					constraintCoverage: 1,
+					pricingCoverage: 1,
+					holdoutRecall: 1,
+					unseenHoldoutRecall: 1,
+					rollingValidFolds: 3,
+					rollingWorstHoldoutRecall: 1,
+					rollingUnseenFailureRecall: 1,
+					rollingSelectionStability: 0.9,
+				},
+				reasons: [],
+			},
 		};
 
 		const backtest: BacktestReport = {
@@ -133,6 +158,10 @@ describe("GitHub Action report", () => {
 		);
 
 		expect(report).toContain("<!-- matrixtrim-report -->");
+		expect(report).toContain(
+			"| Recommendation readiness | **ready** (automation=eligible) |",
+		);
+		expect(report).toContain("### Readiness");
 		expect(report).toContain("| Current matrix cells | 8 |");
 		expect(report).toContain("| Suggested cells | 1 |");
 		expect(report).toContain(

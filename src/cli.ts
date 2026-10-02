@@ -354,6 +354,14 @@ async function recommendCommand(args: string[], json: boolean): Promise<void> {
 
 	console.log(`Repository: ${repository}`);
 	console.log("Mode:       history + combinatorial coverage (experimental)");
+	console.log(
+		`Readiness:  ${recommendation.readiness.level} (automation=${recommendation.readiness.automationEligible ? "eligible" : "not eligible"})`,
+	);
+	if (recommendation.readiness.reasons.length) {
+		console.log(
+			`Reasons:    ${recommendation.readiness.reasons.map((item) => item.code).join(", ")}`,
+		);
+	}
 	console.log(`Strength:   ${recommendation.coverageStrength}`);
 	console.log(
 		`Optimizer:  ${recommendation.algorithm} (mode=${recommendation.optimizerMode}, optimal=${recommendation.optimizerOptimal ?? "n/a"}, nodes=${recommendation.optimizerSearchNodes})`,
