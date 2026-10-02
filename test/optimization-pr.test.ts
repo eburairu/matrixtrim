@@ -81,6 +81,7 @@ function recommendation(): RecommendationReport {
 		optimizerImprovementPercent: 0,
 		coverageStrength: 1,
 		currentCells: 2,
+		cellDecisions: [],
 		selectedCells: [
 			{
 				cell: "test (20)",
@@ -138,6 +139,37 @@ function recommendation(): RecommendationReport {
 		keptCells: [],
 		requiredSelectors: 0,
 		warnings: [],
+		readiness: {
+			level: "caution",
+			automationEligible: true,
+			metrics: {
+				axisResolution: 1,
+				workflowRenderCoverage: 1,
+				workflowMatchCoverage: 1,
+				fingerprints: 1,
+				failureEvidenceRuns: 5,
+				unavailableFailedLogs: 0,
+				diagnosticWarnings: 0,
+				optimizerOptimal: true,
+				historicalRecall: 1,
+				combinatorialCoverage: 1,
+				constraintCoverage: 1,
+				pricingCoverage: 0,
+				holdoutRecall: null,
+				unseenHoldoutRecall: null,
+				rollingValidFolds: null,
+				rollingWorstHoldoutRecall: null,
+				rollingUnseenFailureRecall: null,
+				rollingSelectionStability: null,
+			},
+			reasons: [
+				{
+					code: "pricing-incomplete",
+					severity: "caution",
+					message: "test",
+				},
+			],
+		},
 	};
 }
 
@@ -306,6 +338,31 @@ describe("optimization pull requests", () => {
 
 		expect(result.status).toBe("skipped");
 		expect(github.calls).toEqual([]);
+	});
+
+	it("requires an explicit override for diagnostic-only readiness", () => {
+		const rec = recommendation();
+		rec.readiness = {
+			...rec.readiness,
+			level: "diagnostic-only",
+			automationEligible: false,
+			reasons: [
+				{
+					code: "no-failure-evidence",
+					severity: "diagnostic",
+					message: "test",
+				},
+			],
+		};
+
+		expect(optimizationSafetyReason(analysis(), rec, null)).toMatch(
+			/diagnostic-only/,
+		);
+		expect(
+			optimizationSafetyReason(analysis(), rec, null, {
+				allowDiagnosticReadiness: true,
+			}),
+		).toBeNull();
 	});
 
 	it("skips mutation when the matrix is not fully resolved", async () => {

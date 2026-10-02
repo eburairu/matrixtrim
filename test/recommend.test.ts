@@ -133,6 +133,52 @@ describe("history-only recommendation", () => {
 		);
 	});
 
+	it("explains selected and omitted cells with counterfactual coverage", () => {
+		const recommendation = recommendMatrix(report(), { maxStrength: 1 });
+		const selected = recommendation.cellDecisions.find(
+			(item) => item.cell === "test (fast-a)",
+		);
+		const omitted = recommendation.cellDecisions.find(
+			(item) => item.cell === "test (all-in-one)",
+		);
+
+		expect(selected).toMatchObject({
+			decision: "selected",
+			indispensable: true,
+			objectiveCost: 3,
+			counterfactualUncoveredRequirements: {
+				total: 1,
+			},
+		});
+		expect(selected?.reasonCodes).toContain("counterfactual-failure-required");
+		expect(selected?.counterfactualUncoveredRequirements?.samples).toContain(
+			"failure:f1",
+		);
+
+		expect(omitted).toMatchObject({
+			decision: "omitted",
+			objectiveCost: 10,
+			uniqueHistoricalFailures: 0,
+			zeroUniqueHistoricalFailureEvidence: true,
+			replacementCellCount: 2,
+			replacementCells: [
+				{
+					cell: "test (fast-a)",
+					objectiveCost: 3,
+					coveredRequirements: 3,
+				},
+				{
+					cell: "test (fast-b)",
+					objectiveCost: 3,
+					coveredRequirements: 1,
+				},
+			],
+		});
+		expect(omitted?.reasonCodes).toContain(
+			"zero-unique-historical-failure-evidence",
+		);
+	});
+
 	it("uses exact branch-and-bound by default when optimality is proven", () => {
 		const recommendation = recommendMatrix(report(), { maxStrength: 1 });
 

@@ -84,8 +84,10 @@ function getPath(row: Record<string, MatrixValue>, path: string): unknown {
 				.filter((item) => item !== undefined);
 		}
 
-		if (!value || typeof value !== "object") return undefined;
-		return descend((value as Record<string, unknown>)[part], index + 1);
+		if (!value || typeof value !== "object") return null;
+		const record = value as Record<string, unknown>;
+		if (!(part in record)) return null;
+		return descend(record[part], index + 1);
 	}
 
 	return descend(row, 0);
@@ -374,7 +376,7 @@ export function renderName(
 			return String(value ?? "");
 		},
 	);
-	return failed ? null : rendered;
+	return failed ? null : rendered.trim();
 }
 
 function escapeRegex(text: string): string {

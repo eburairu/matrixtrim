@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	diagnoseAxesFromExpandedJobName,
 	inferAxesFromExpandedJobName,
 	workflowMatrixDefinitions,
 } from "../src/axes.js";
@@ -207,6 +208,91 @@ describe("matrix axis inference", () => {
 			"Build linux (i686 - manylinux)",
 			"Build linux (x86_64 - musllinux_1_1)",
 		]);
+	});
+
+	it("omits empty scalar values from GitHub default matrix job names", () => {
+		const workflow = [
+			"jobs:",
+			"  test:",
+			"    name: Test",
+			"    strategy:",
+			"      matrix:",
+			"        pyver: ['3.14']",
+			"        no-extensions: ['']",
+			"        os: [ubuntu]",
+			"        experimental: [false]",
+		].join("\n");
+
+		const definitions = workflowMatrixDefinitions(workflow);
+		expect(definitions[0]?.cells[0]).toMatchObject({
+			name: "Test (3.14, ubuntu, false)",
+			axes: {
+				pyver: "3.14",
+				"no-extensions": "",
+				os: "ubuntu",
+				experimental: "false",
+			},
+		});
+		expect(
+			inferAxesFromExpandedJobName("Test (3.14, ubuntu, false)", definitions)
+				.axes,
+		).toMatchObject({ "no-extensions": "", os: "ubuntu" });
+	});
+
+	it("preserves standalone include key order in default job names", () => {
+		const workflow = [
+			"jobs:",
+			"  test:",
+			"    name: Test",
+			"    strategy:",
+			"      matrix:",
+			"        pyver: ['3.14']",
+			"        no-extensions: ['']",
+			"        os: [ubuntu]",
+			"        experimental: [false]",
+			"        include:",
+			"          - os: ubuntu",
+			"            pyver: '3.14t'",
+			"            no-extensions: ''",
+			"            experimental: false",
+		].join("\n");
+
+		const definitions = workflowMatrixDefinitions(workflow);
+		expect(definitions[0]?.cells.map((cell) => cell.name)).toEqual([
+			"Test (3.14, ubuntu, false)",
+			"Test (ubuntu, 3.14t, false)",
+		]);
+		expect(
+			inferAxesFromExpandedJobName("Test (ubuntu, 3.14t, false)", definitions)
+				.axes,
+		).toMatchObject({
+			pyver: "3.14t",
+			"no-extensions": "",
+			os: "ubuntu",
+			experimental: "false",
+		});
+	});
+
+	it("renders missing properties in standalone static include rows as empty strings", () => {
+		const workflow = [
+			"jobs:",
+			"  build:",
+			"    name: Build ${{ matrix.os }} ${{ matrix.qemu }} ${{ matrix.platform }}",
+			"    strategy:",
+			"      matrix:",
+			"        os: [ubuntu]",
+			"        qemu: ['']",
+			"        platform: ['']",
+			"        include:",
+			"          - {os: ubuntu, qemu: ppc64le}",
+		].join("\n");
+
+		const [definition] = workflowMatrixDefinitions(workflow);
+		expect(definition?.expectedCells).toBe(2);
+		expect(definition?.renderedCells).toBe(2);
+		expect(definition?.cells.map((cell) => cell.name)).toContain(
+			"Build ubuntu ppc64le",
+		);
 	});
 
 	it("keeps one-axis matrix values intact", () => {
@@ -502,5 +588,69 @@ describe("matrix axis inference", () => {
 		expect(
 			inferAxesFromExpandedJobName("Runtime default", definitions).axes,
 		).toBeNull();
+	});
+
+	it("reports why an opaque whole dynamic matrix cannot recover axes", () => {
+		const workflow = [
+			"jobs:",
+			"  test:",
+			"    strategy:",
+			"      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}",
+		].join("\n");
+		const definitions = workflowMatrixDefinitions(workflow);
+
+		expect(
+			diagnoseAxesFromExpandedJobName("test (ubuntu, 22)", definitions),
+		).toMatchObject({
+			baseJob: "test",
+			axes: null,
+			source: "unavailable",
+			reason: "axis-names-unavailable",
+		});
+	});
+
+	it("reports value-count mismatches instead of guessing axis assignments", () => {
+		const workflow = [
+			"jobs:",
+			"  test:",
+			"    strategy:",
+			"      matrix:",
+			"        os: [ubuntu]",
+			"        node: ${{ fromJSON(needs.prepare.outputs.nodes) }}",
+		].join("\n");
+		const definitions = workflowMatrixDefinitions(workflow);
+
+		expect(
+			diagnoseAxesFromExpandedJobName("test (ubuntu)", definitions),
+		).toMatchObject({
+			baseJob: "test",
+			axes: null,
+			reason: "axis-value-count-mismatch",
+		});
+	});
+
+	it("reports ambiguous static rendered names instead of choosing a cell", () => {
+		const workflow = [
+			"jobs:",
+			"  first:",
+			"    name: Same",
+			"    strategy:",
+			"      matrix:",
+			"        node: [20]",
+			"  second:",
+			"    name: Same",
+			"    strategy:",
+			"      matrix:",
+			"        node: [20]",
+		].join("\n");
+		const definitions = workflowMatrixDefinitions(workflow);
+
+		expect(
+			diagnoseAxesFromExpandedJobName("Same (20)", definitions),
+		).toMatchObject({
+			axes: null,
+			source: "unavailable",
+			reason: "ambiguous-rendered-name",
+		});
 	});
 });

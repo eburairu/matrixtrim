@@ -7,11 +7,19 @@ import {
 	summarizeCells,
 } from "./analysis-summary.js";
 import {
+	type AxisInferenceFailureReason,
 	axesFromMatrixEvidence,
-	inferAxesFromExpandedJobName,
+	diagnoseAxesFromExpandedJobName,
 	type MatrixDefinition,
 	workflowMatrixDefinitions,
 } from "./axes.js";
+import {
+	type AnalysisDiagnostic,
+	type AnalysisDiagnosticCode,
+	captureEvidenceDiagnostic,
+	captureRemediation,
+	compactDiagnostics,
+} from "./diagnostics.js";
 import { decodeMatrixEvidence, type MatrixEvidence } from "./evidence.js";
 import { fingerprintFailures } from "./fingerprint.js";
 import { GitHubClient, GitHubHttpError, type WorkflowRun } from "./github.js";
@@ -26,6 +34,7 @@ export {
 	applyCapturedMatrixEvidence,
 	summarizeCells,
 } from "./analysis-summary.js";
+export type { AnalysisDiagnostic } from "./diagnostics.js";
 
 export type FailureCluster = {
 	fingerprint: string;
@@ -58,6 +67,7 @@ export type AnalysisReport = {
 	captureEvidenceCandidates?: number;
 	captureEvidenceJobs?: number;
 	captureEvidenceErrors?: number;
+	diagnostics?: AnalysisDiagnostic[];
 	runWindowDays?: number | null;
 	projectedRunsPer30Days?: number | null;
 	cells: CellSummary[];
@@ -75,6 +85,18 @@ function splitJobName(name: string): {
 	return match
 		? { baseJob: match[1]!.trim(), cell: name, matrixLike: true }
 		: { baseJob: name, cell: name, matrixLike: false };
+}
+
+export function isSkippedUnexpandedMatrixPlaceholder(job: {
+	name: string;
+	conclusion: string | null;
+	labels?: string[];
+}): boolean {
+	return (
+		job.conclusion === "skipped" &&
+		!job.labels?.length &&
+		/\$\{\{\s*matrix(?:\.|\[)/.test(job.name)
+	);
 }
 
 function durationSeconds(
@@ -108,6 +130,38 @@ async function mapLimit<T, R>(
 	return results;
 }
 
+const AXIS_DIAGNOSTIC_CODES: Record<
+	AxisInferenceFailureReason,
+	AnalysisDiagnosticCode
+> = {
+	"ambiguous-rendered-name": "axis-ambiguous-rendered-name",
+	"ambiguous-dynamic-name": "axis-ambiguous-dynamic-name",
+	"job-name-not-matrix-shaped": "axis-job-name-not-matrix-shaped",
+	"matrix-definition-not-found": "axis-definition-not-found",
+	"axis-names-unavailable": "axis-names-unavailable",
+	"axis-value-count-mismatch": "axis-value-count-mismatch",
+	"opaque-dynamic-job-name": "axis-opaque-dynamic-job-name",
+};
+
+function axisDiagnosticMessage(reason: AxisInferenceFailureReason): string {
+	return {
+		"ambiguous-rendered-name":
+			"More than one static matrix cell renders to this job name, so axis values cannot be assigned uniquely.",
+		"ambiguous-dynamic-name":
+			"More than one dynamic matrix name template matches this job name, so axis values cannot be assigned uniquely.",
+		"job-name-not-matrix-shaped":
+			"The observed job name does not expose a matrix suffix or a supported deterministic name template.",
+		"matrix-definition-not-found":
+			"No matrix definition matches the observed job-name prefix.",
+		"axis-names-unavailable":
+			"The runtime matrix values are visible in the job name, but the workflow does not expose stable axis names.",
+		"axis-value-count-mismatch":
+			"The number of values rendered in the job name does not match the known matrix axis count.",
+		"opaque-dynamic-job-name":
+			"The dynamic matrix job uses a name that does not expose runtime axis values.",
+	}[reason];
+}
+
 export async function analyzeRepository(
 	repository: string,
 	options: {
@@ -121,6 +175,7 @@ export async function analyzeRepository(
 ): Promise<AnalysisReport> {
 	const client = new GitHubClient(repository, options.token);
 	const concurrency = options.concurrency ?? 4;
+	const diagnostics: AnalysisDiagnostic[] = [];
 	let repositoryVisibility: AnalysisReport["repositoryVisibility"];
 	try {
 		const info = await client.repositoryInfo();
@@ -248,6 +303,62 @@ export async function analyzeRepository(
 		(definition) => definition.dynamic,
 	).length;
 
+	if (workflowDefinitionFallbacks) {
+		diagnostics.push({
+			code: "workflow-definition-fallback",
+			severity: "warning",
+			scope: "workflow",
+			message:
+				"One or more historical workflow revisions were unavailable; the default-branch workflow definition was used instead.",
+			occurrences: workflowDefinitionFallbacks,
+		});
+	}
+	if (workflowDefinitionErrors) {
+		diagnostics.push({
+			code: "workflow-definition-unavailable",
+			severity: "warning",
+			scope: "workflow",
+			message:
+				"One or more historical workflow definitions could not be loaded, so matrix classification may be incomplete.",
+			occurrences: workflowDefinitionErrors,
+		});
+	}
+
+	for (const definition of revisionDefinitions) {
+		if (
+			!definition.dynamic &&
+			definition.renderedCells < definition.expectedCells
+		) {
+			diagnostics.push({
+				code: "static-name-render-incomplete",
+				severity: "warning",
+				scope: "definition",
+				jobId: definition.jobId,
+				message:
+					"Some static matrix cells could not be rendered to deterministic GitHub job names.",
+				details: {
+					expectedCells: definition.expectedCells,
+					renderedCells: definition.renderedCells,
+				},
+			});
+		}
+		if (
+			definition.dynamic &&
+			definition.axes.length === 0 &&
+			!definition.captureEvidence
+		) {
+			diagnostics.push({
+				code: "dynamic-matrix-capture-not-configured",
+				severity: "warning",
+				scope: "definition",
+				jobId: definition.jobId,
+				message:
+					"This dynamic matrix does not expose stable axis names and has no MatrixTrim runtime evidence capture step.",
+				remediation: captureRemediation(definition.jobId),
+			});
+		}
+	}
+
 	// Job metadata is intentionally fetched for every completed run, including
 	// successful runs. Failure logs are downloaded only for failed matrix jobs.
 	const jobsByRun = await mapLimit(runs, concurrency, async (run) => ({
@@ -258,6 +369,7 @@ export async function analyzeRepository(
 	const matrixJobs: MatrixJobObservation[] = [];
 	const matrixJobIds = new Set<number>();
 	const matrixJobById = new Map<number, MatrixJobObservation>();
+	const axisFailureByJobId = new Map<number, AxisInferenceFailureReason>();
 	let workflowExpectedMatrixCells = 0;
 	let workflowMatchedMatrixCells = 0;
 	let inactiveStaticMatrixFamilies = 0;
@@ -284,12 +396,49 @@ export async function analyzeRepository(
 
 				workflowExpectedMatrixCells += definition.expectedCells;
 				workflowMatchedMatrixCells += matched;
+				if (matched < definition.expectedCells) {
+					const unmatched = definition.cells
+						.filter(
+							(cell) =>
+								!jobs.some(
+									(job) =>
+										job.name === cell.name ||
+										job.name.startsWith(`${cell.name} / `),
+								),
+						)
+						.map((cell) => cell.name)
+						.slice(0, 5);
+					diagnostics.push({
+						code: "static-cell-job-match-incomplete",
+						severity: "warning",
+						scope: "definition",
+						jobId: definition.jobId,
+						message:
+							"Some expected static matrix cells did not match actual GitHub job names in an active matrix family.",
+						details: {
+							expectedCells: definition.expectedCells,
+							matchedCells: matched,
+							unmatchedSamples: unmatched,
+						},
+					});
+				}
 			}
 		}
 
 		for (const job of jobs) {
+			if (isSkippedUnexpandedMatrixPlaceholder(job)) {
+				diagnostics.push({
+					code: "skipped-unexpanded-matrix-placeholder",
+					severity: "info",
+					scope: "job",
+					cell: job.name,
+					message:
+						"GitHub left a skipped matrix job at its unexpanded name template; this placeholder is not an executed matrix cell and is excluded from analysis.",
+				});
+				continue;
+			}
 			const parsed = splitJobName(job.name);
-			const inferred = inferAxesFromExpandedJobName(job.name, definitions);
+			const inferred = diagnoseAxesFromExpandedJobName(job.name, definitions);
 			const renderedMatch = inferred.source !== "unavailable";
 			const fallbackDefinition = definitions.find(
 				(definition) =>
@@ -308,6 +457,9 @@ export async function analyzeRepository(
 
 			if (!renderedMatch && !defaultNameFallback && !exactDynamicDefinition) {
 				continue;
+			}
+			if (inferred.reason) {
+				axisFailureByJobId.set(job.id, inferred.reason);
 			}
 
 			const observation: MatrixJobObservation = {
@@ -364,7 +516,16 @@ export async function analyzeRepository(
 						(evidence): evidence is MatrixEvidence =>
 							evidence !== null && evidence.jobId === observation.baseJob,
 					);
-				if (!matches.length) return;
+				if (!matches.length) {
+					diagnostics.push(
+						captureEvidenceDiagnostic(
+							"missing",
+							observation.baseJob,
+							observation.cell,
+						),
+					);
+					return;
+				}
 
 				const unique = new Map(
 					matches.map((evidence) => [
@@ -374,6 +535,13 @@ export async function analyzeRepository(
 				);
 				if (unique.size !== 1) {
 					captureEvidenceErrors++;
+					diagnostics.push(
+						captureEvidenceDiagnostic(
+							"conflict",
+							observation.baseJob,
+							observation.cell,
+						),
+					);
 					return;
 				}
 
@@ -381,9 +549,36 @@ export async function analyzeRepository(
 				captureEvidenceJobs++;
 			} catch {
 				captureEvidenceErrors++;
+				diagnostics.push(
+					captureEvidenceDiagnostic(
+						"fetch-error",
+						observation.baseJob,
+						observation.cell,
+					),
+				);
 			}
 		},
 	);
+
+	for (const observation of matrixJobs) {
+		if (observation.axes !== null) continue;
+		const reason = axisFailureByJobId.get(observation.jobId);
+		if (!reason) continue;
+		const definition = definitionsByRunId
+			.get(observation.runId)
+			?.find((item) => item.jobId === observation.baseJob);
+		diagnostics.push({
+			code: AXIS_DIAGNOSTIC_CODES[reason],
+			severity: "warning",
+			scope: "cell",
+			jobId: observation.baseJob,
+			cell: observation.cell,
+			message: axisDiagnosticMessage(reason),
+			...(definition?.dynamic
+				? { remediation: captureRemediation(observation.baseJob) }
+				: {}),
+		});
+	}
 
 	const allFailedJobs = jobsByRun.flatMap(({ run, jobs }) =>
 		jobs
@@ -493,6 +688,7 @@ export async function analyzeRepository(
 		captureEvidenceCandidates: captureCandidates.length,
 		captureEvidenceJobs,
 		captureEvidenceErrors,
+		diagnostics: compactDiagnostics(diagnostics),
 		runWindowDays,
 		projectedRunsPer30Days,
 		cells,

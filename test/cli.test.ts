@@ -54,4 +54,10 @@ describe("CLI", () => {
 		expect(result.status).toBe(1);
 		expect(result.stderr).toContain("usage: matrixtrim analyze owner/repo");
 	});
+
+	it("routes doctor to the diagnostic command", () => {
+		const result = runCli(["doctor"]);
+		expect(result.status).toBe(1);
+		expect(result.stderr).toContain("usage: matrixtrim doctor owner/repo");
+	});
 });

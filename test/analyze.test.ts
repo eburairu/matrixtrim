@@ -1,9 +1,29 @@
 import { describe, expect, it } from "vitest";
 import {
 	applyCapturedMatrixEvidence,
+	isSkippedUnexpandedMatrixPlaceholder,
 	type MatrixJobObservation,
 	summarizeCells,
 } from "../src/analyze.js";
+
+describe("matrix job classification", () => {
+	it("ignores skipped GitHub placeholders whose matrix name never expanded", () => {
+		expect(
+			isSkippedUnexpandedMatrixPlaceholder({
+				name: "check (${{ matrix.os }})",
+				conclusion: "skipped",
+				labels: [],
+			}),
+		).toBe(true);
+		expect(
+			isSkippedUnexpandedMatrixPlaceholder({
+				name: "check (ubuntu-latest)",
+				conclusion: "success",
+				labels: ["ubuntu-latest"],
+			}),
+		).toBe(false);
+	});
+});
 
 describe("cell history summarization", () => {
 	it("uses captured axes to create a stable unique cell identity", () => {
