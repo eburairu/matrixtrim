@@ -72,7 +72,7 @@ outputs:
   capture-evidence-errors:
     description: Number of annotation lookups or conflicting evidence payloads that failed.
   readiness-level:
-    description: Recommendation readiness level: ready, caution, diagnostic-only, or blocked.
+    description: "Recommendation readiness level: ready, caution, diagnostic-only, or blocked."
   readiness-automation-eligible:
     description: Whether readiness permits automation before the existing detailed rewrite safety checks.
   readiness-reasons:
