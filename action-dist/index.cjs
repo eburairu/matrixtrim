@@ -8080,7 +8080,7 @@ function workflowMatrixDefinitions(text) {
   }
   return definitions;
 }
-function inferAxesFromExpandedJobName(name, definitions) {
+function diagnoseAxesFromExpandedJobName(name, definitions) {
   const exactMatches = definitions.flatMap(
     (definition2) => definition2.cells.filter(
       (cell) => cell.name === name || name.startsWith(`${cell.name} / `)
@@ -8092,6 +8092,14 @@ function inferAxesFromExpandedJobName(name, definitions) {
       baseJob: match2.definition.jobId,
       axes: match2.cell.axes,
       source: "workflow-rendered-name"
+    };
+  }
+  if (exactMatches.length > 1) {
+    return {
+      baseJob: name,
+      axes: null,
+      source: "unavailable",
+      reason: "ambiguous-rendered-name"
     };
   }
   const dynamicMatches = definitions.flatMap((definition2) => {
@@ -8107,9 +8115,25 @@ function inferAxesFromExpandedJobName(name, definitions) {
       source: "workflow-rendered-name"
     };
   }
+  if (dynamicMatches.length > 1) {
+    return {
+      baseJob: name,
+      axes: null,
+      source: "unavailable",
+      reason: "ambiguous-dynamic-name"
+    };
+  }
   const match = name.match(/^(.*?)\s+\((.*)\)$/);
   if (!match) {
-    return { baseJob: name, axes: null, source: "unavailable" };
+    const direct = definitions.find(
+      (candidate) => candidate.displayName === name || candidate.jobId === name
+    );
+    return {
+      baseJob: direct?.jobId ?? name,
+      axes: null,
+      source: "unavailable",
+      reason: direct?.dynamic ? "opaque-dynamic-job-name" : "job-name-not-matrix-shaped"
+    };
   }
   const baseJob = match[1].trim();
   const inner = match[2].trim();
@@ -8117,18 +8141,29 @@ function inferAxesFromExpandedJobName(name, definitions) {
     (candidate) => candidate.displayName === baseJob || candidate.jobId === baseJob
   );
   if (!definition) {
-    return { baseJob, axes: null, source: "unavailable" };
+    return {
+      baseJob,
+      axes: null,
+      source: "unavailable",
+      reason: "matrix-definition-not-found"
+    };
   }
   if (!definition.axes.length) {
     return {
       baseJob: definition.jobId,
       axes: null,
-      source: "unavailable"
+      source: "unavailable",
+      reason: "axis-names-unavailable"
     };
   }
   const values = definition.axes.length === 1 ? [inner] : inner.split(",").map((value) => value.trim());
   if (values.length !== definition.axes.length) {
-    return { baseJob, axes: null, source: "unavailable" };
+    return {
+      baseJob: definition.jobId,
+      axes: null,
+      source: "unavailable",
+      reason: "axis-value-count-mismatch"
+    };
   }
   return {
     baseJob: definition.jobId,
@@ -8248,6 +8283,72 @@ function summarizeCells(matrixJobs, observations) {
     };
   }).sort(
     (a, b) => b.uniqueFailures - a.uniqueFailures || b.distinctFailures - a.distinctFailures || a.cell.localeCompare(b.cell)
+  );
+}
+
+// src/diagnostics.ts
+function captureRemediation(jobId) {
+  return {
+    kind: "capture",
+    summary: "Capture the exact runtime matrix object from a step that has access to the matrix context. A reusable-workflow caller with uses: cannot add steps directly; place capture in an executable matrix job instead.",
+    permissions: ["actions: read", "checks: read", "contents: read"],
+    snippet: [
+      "- uses: eburairu/matrixtrim@v0",
+      "  with:",
+      "    mode: capture",
+      "    matrix: ${{ toJSON(matrix) }}",
+      "",
+      `# analysis later maps this evidence back to job: ${jobId}`
+    ].join("\n")
+  };
+}
+function captureEvidenceDiagnostic(problem, jobId, cell) {
+  const messages = {
+    missing: "The workflow opted into runtime matrix capture, but no matching evidence annotation was found for this observed job.",
+    conflict: "Multiple conflicting runtime matrix evidence payloads were found for this observed job; MatrixTrim refused to choose one.",
+    "fetch-error": "MatrixTrim could not read runtime matrix evidence annotations for this observed job."
+  };
+  return {
+    code: problem === "missing" ? "capture-evidence-missing" : problem === "conflict" ? "capture-evidence-conflict" : "capture-evidence-fetch-error",
+    severity: "warning",
+    scope: "cell",
+    jobId,
+    cell,
+    message: messages[problem],
+    remediation: captureRemediation(jobId)
+  };
+}
+function compactDiagnostics(items) {
+  const byKey = /* @__PURE__ */ new Map();
+  for (const item of items) {
+    const key = [
+      item.code,
+      item.scope,
+      item.jobId ?? "",
+      item.scope === "cell" ? "" : item.cell ?? "",
+      item.message
+    ].join("\0");
+    const current = byKey.get(key);
+    if (current) {
+      current.occurrences = (current.occurrences ?? 1) + (item.occurrences ?? 1);
+      if (item.scope === "cell") {
+        const affectedCells = /* @__PURE__ */ new Set([
+          ...current.details?.affectedCells ?? [],
+          ...current.cell ? [current.cell] : [],
+          ...item.cell ? [item.cell] : []
+        ]);
+        current.details = {
+          ...current.details,
+          affectedCells: [...affectedCells].sort().slice(0, 10)
+        };
+        if (affectedCells.size > 1) current.cell = void 0;
+      }
+      continue;
+    }
+    byKey.set(key, { ...item, occurrences: item.occurrences ?? 1 });
+  }
+  return [...byKey.values()].sort(
+    (a, b) => (a.severity === b.severity ? 0 : a.severity === "warning" ? -1 : 1) || a.code.localeCompare(b.code) || (a.jobId ?? "").localeCompare(b.jobId ?? "") || (a.cell ?? "").localeCompare(b.cell ?? "")
   );
 }
 
@@ -8790,9 +8891,30 @@ async function mapLimit(items, concurrency, fn) {
   );
   return results;
 }
+var AXIS_DIAGNOSTIC_CODES = {
+  "ambiguous-rendered-name": "axis-ambiguous-rendered-name",
+  "ambiguous-dynamic-name": "axis-ambiguous-dynamic-name",
+  "job-name-not-matrix-shaped": "axis-job-name-not-matrix-shaped",
+  "matrix-definition-not-found": "axis-definition-not-found",
+  "axis-names-unavailable": "axis-names-unavailable",
+  "axis-value-count-mismatch": "axis-value-count-mismatch",
+  "opaque-dynamic-job-name": "axis-opaque-dynamic-job-name"
+};
+function axisDiagnosticMessage(reason) {
+  return {
+    "ambiguous-rendered-name": "More than one static matrix cell renders to this job name, so axis values cannot be assigned uniquely.",
+    "ambiguous-dynamic-name": "More than one dynamic matrix name template matches this job name, so axis values cannot be assigned uniquely.",
+    "job-name-not-matrix-shaped": "The observed job name does not expose a matrix suffix or a supported deterministic name template.",
+    "matrix-definition-not-found": "No matrix definition matches the observed job-name prefix.",
+    "axis-names-unavailable": "The runtime matrix values are visible in the job name, but the workflow does not expose stable axis names.",
+    "axis-value-count-mismatch": "The number of values rendered in the job name does not match the known matrix axis count.",
+    "opaque-dynamic-job-name": "The dynamic matrix job uses a name that does not expose runtime axis values."
+  }[reason];
+}
 async function analyzeRepository(repository, options) {
   const client = new GitHubClient(repository, options.token);
   const concurrency = options.concurrency ?? 4;
+  const diagnostics = [];
   let repositoryVisibility;
   try {
     const info = await client.repositoryInfo();
@@ -8902,6 +9024,49 @@ async function analyzeRepository(repository, options) {
   const dynamicMatrixDefinitions = revisionDefinitions.filter(
     (definition) => definition.dynamic
   ).length;
+  if (workflowDefinitionFallbacks) {
+    diagnostics.push({
+      code: "workflow-definition-fallback",
+      severity: "warning",
+      scope: "workflow",
+      message: "One or more historical workflow revisions were unavailable; the default-branch workflow definition was used instead.",
+      occurrences: workflowDefinitionFallbacks
+    });
+  }
+  if (workflowDefinitionErrors) {
+    diagnostics.push({
+      code: "workflow-definition-unavailable",
+      severity: "warning",
+      scope: "workflow",
+      message: "One or more historical workflow definitions could not be loaded, so matrix classification may be incomplete.",
+      occurrences: workflowDefinitionErrors
+    });
+  }
+  for (const definition of revisionDefinitions) {
+    if (!definition.dynamic && definition.renderedCells < definition.expectedCells) {
+      diagnostics.push({
+        code: "static-name-render-incomplete",
+        severity: "warning",
+        scope: "definition",
+        jobId: definition.jobId,
+        message: "Some static matrix cells could not be rendered to deterministic GitHub job names.",
+        details: {
+          expectedCells: definition.expectedCells,
+          renderedCells: definition.renderedCells
+        }
+      });
+    }
+    if (definition.dynamic && definition.axes.length === 0 && !definition.captureEvidence) {
+      diagnostics.push({
+        code: "dynamic-matrix-capture-not-configured",
+        severity: "warning",
+        scope: "definition",
+        jobId: definition.jobId,
+        message: "This dynamic matrix does not expose stable axis names and has no MatrixTrim runtime evidence capture step.",
+        remediation: captureRemediation(definition.jobId)
+      });
+    }
+  }
   const jobsByRun = await mapLimit(runs, concurrency, async (run) => ({
     run,
     jobs: await client.listJobs(run.id)
@@ -8909,6 +9074,7 @@ async function analyzeRepository(repository, options) {
   const matrixJobs = [];
   const matrixJobIds = /* @__PURE__ */ new Set();
   const matrixJobById = /* @__PURE__ */ new Map();
+  const axisFailureByJobId = /* @__PURE__ */ new Map();
   let workflowExpectedMatrixCells = 0;
   let workflowMatchedMatrixCells = 0;
   let inactiveStaticMatrixFamilies = 0;
@@ -8928,11 +9094,30 @@ async function analyzeRepository(repository, options) {
         }
         workflowExpectedMatrixCells += definition.expectedCells;
         workflowMatchedMatrixCells += matched;
+        if (matched < definition.expectedCells) {
+          const unmatched = definition.cells.filter(
+            (cell) => !jobs.some(
+              (job) => job.name === cell.name || job.name.startsWith(`${cell.name} / `)
+            )
+          ).map((cell) => cell.name).slice(0, 5);
+          diagnostics.push({
+            code: "static-cell-job-match-incomplete",
+            severity: "warning",
+            scope: "definition",
+            jobId: definition.jobId,
+            message: "Some expected static matrix cells did not match actual GitHub job names in an active matrix family.",
+            details: {
+              expectedCells: definition.expectedCells,
+              matchedCells: matched,
+              unmatchedSamples: unmatched
+            }
+          });
+        }
       }
     }
     for (const job of jobs) {
       const parsed = splitJobName(job.name);
-      const inferred = inferAxesFromExpandedJobName(job.name, definitions);
+      const inferred = diagnoseAxesFromExpandedJobName(job.name, definitions);
       const renderedMatch = inferred.source !== "unavailable";
       const fallbackDefinition = definitions.find(
         (definition) => definition.displayName === parsed.baseJob || definition.jobId === parsed.baseJob
@@ -8943,6 +9128,9 @@ async function analyzeRepository(repository, options) {
       );
       if (!renderedMatch && !defaultNameFallback && !exactDynamicDefinition) {
         continue;
+      }
+      if (inferred.reason) {
+        axisFailureByJobId.set(job.id, inferred.reason);
       }
       const observation = {
         runId: run.id,
@@ -8981,7 +9169,16 @@ async function analyzeRepository(repository, options) {
         const matches = annotations.map((annotation) => decodeMatrixEvidence(annotation.message)).filter(
           (evidence) => evidence !== null && evidence.jobId === observation.baseJob
         );
-        if (!matches.length) return;
+        if (!matches.length) {
+          diagnostics.push(
+            captureEvidenceDiagnostic(
+              "missing",
+              observation.baseJob,
+              observation.cell
+            )
+          );
+          return;
+        }
         const unique = new Map(
           matches.map((evidence) => [
             JSON.stringify(axesFromMatrixEvidence(evidence.matrix)),
@@ -8990,15 +9187,44 @@ async function analyzeRepository(repository, options) {
         );
         if (unique.size !== 1) {
           captureEvidenceErrors++;
+          diagnostics.push(
+            captureEvidenceDiagnostic(
+              "conflict",
+              observation.baseJob,
+              observation.cell
+            )
+          );
           return;
         }
         applyCapturedMatrixEvidence(observation, [...unique.values()][0]);
         captureEvidenceJobs++;
       } catch {
         captureEvidenceErrors++;
+        diagnostics.push(
+          captureEvidenceDiagnostic(
+            "fetch-error",
+            observation.baseJob,
+            observation.cell
+          )
+        );
       }
     }
   );
+  for (const observation of matrixJobs) {
+    if (observation.axes !== null) continue;
+    const reason = axisFailureByJobId.get(observation.jobId);
+    if (!reason) continue;
+    const definition = definitionsByRunId.get(observation.runId)?.find((item) => item.jobId === observation.baseJob);
+    diagnostics.push({
+      code: AXIS_DIAGNOSTIC_CODES[reason],
+      severity: "warning",
+      scope: "cell",
+      jobId: observation.baseJob,
+      cell: observation.cell,
+      message: axisDiagnosticMessage(reason),
+      ...definition?.dynamic ? { remediation: captureRemediation(observation.baseJob) } : {}
+    });
+  }
   const allFailedJobs = jobsByRun.flatMap(
     ({ run, jobs }) => jobs.filter((job) => ["failure", "timed_out"].includes(job.conclusion ?? "")).map((job) => ({ run, job }))
   );
@@ -9077,6 +9303,7 @@ async function analyzeRepository(repository, options) {
     captureEvidenceCandidates: captureCandidates.length,
     captureEvidenceJobs,
     captureEvidenceErrors,
+    diagnostics: compactDiagnostics(diagnostics),
     runWindowDays,
     projectedRunsPer30Days,
     cells,

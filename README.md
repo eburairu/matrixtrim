@@ -119,6 +119,19 @@ node=22
 
 For static matrices, MatrixTrim can reconstruct common rendered job names using direct or bracketed `matrix.*` references, boolean/comparison operators, `format(...)`, `contains(...)`, `startsWith(...)`, `endsWith(...)`, `join(...)`, `toJSON(...)`, `fromJSON(...)`, `case(...)`, object filters, fallback expressions, and include-only matrices. For dynamic matrices, MatrixTrim keeps observed jobs in the analysis when they can be identified safely and only inverts deterministic name mappings. When runtime outputs are otherwise opaque, an explicit `mode: capture` step can preserve the exact `toJSON(matrix)` value in a versioned Check Run annotation for later analysis. Dynamic matrices remain ineligible for automatic workflow rewriting. See [docs/dynamic-matrices.md](docs/dynamic-matrices.md), [docs/expression-support.md](docs/expression-support.md), and [docs/runtime-evidence.md](docs/runtime-evidence.md).
 
+### Diagnose partial matrix coverage
+
+When axis recovery or workflow/job-name matching is incomplete, use the diagnostic view instead of guessing from aggregate percentages:
+
+```bash
+GH_TOKEN="$(gh auth token)" \
+  node dist/cli.js doctor owner/repo \
+  --workflow ci.yml \
+  --limit 100
+```
+
+Diagnostics use stable reason codes for unresolved axes, static-name rendering gaps, static-cell/job-name mismatches, workflow-definition fallbacks, and runtime capture problems. Opaque dynamic matrices include the required analysis permissions and a `mode: capture` step template. The same diagnostics are available in `analyze --json`.
+
 ## Recommend a smaller matrix
 
 ```bash
