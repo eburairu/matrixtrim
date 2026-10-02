@@ -82,6 +82,25 @@ export function formatActionReport(
 			].join("\n")
 		: `| Backtest | unavailable${backtestError ? `: ${backtestError}` : ""} |`;
 
+	const decisionLines = recommendation.cellDecisions
+		.slice(0, 40)
+		.map((decision) => {
+			if (decision.decision === "selected") {
+				const uncovered =
+					decision.counterfactualUncoveredRequirements?.total ?? 0;
+				return `- **KEEP** \`${decision.cell}\` — reasons=${decision.reasonCodes.join(", ")}, uncovered-if-removed=${uncovered}, objective-cost=${decision.objectiveCost.toFixed(1)}`;
+			}
+			const replacements = decision.replacementCells
+				.map((item) => `\`${item.cell}\``)
+				.join(", ");
+			return `- **OMIT** \`${decision.cell}\` — reasons=${decision.reasonCodes.join(", ")}, replaced-by=${replacements || "n/a"}, objective-cost=${decision.objectiveCost.toFixed(1)}`;
+		})
+		.join("\n");
+	const decisionTruncation =
+		recommendation.cellDecisions.length > 40
+			? `\n\n_Showing 40/${recommendation.cellDecisions.length} decisions. The complete structured explanations are available from the JSON CLI output._`
+			: "";
+
 	const warnings = recommendation.warnings
 		.map((warning) => `- ⚠️ ${warning}`)
 		.join("\n");
@@ -121,6 +140,13 @@ ${backtestRows}
 <summary>Suggested cells</summary>
 
 ${selected || "_No cells selected._"}
+
+</details>
+
+<details>
+<summary>Why cells were kept or omitted</summary>
+
+${decisionLines || "_No cell decision explanations available._"}${decisionTruncation}
 
 </details>
 

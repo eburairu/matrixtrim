@@ -130,6 +130,8 @@ GH_TOKEN="$(gh auth token)" \
 
 The recommendation layer is still **experimental**. Its primary job is to measure configuration value; automatic deletion is not implied.
 
+Recommendations also include a deterministic per-cell explanation. For a kept cell, MatrixTrim reports which modeled requirements would become uncovered if that cell were removed from the selected set. For an omitted cell, it reports which selected cells cover the same modeled requirements and whether the omitted cell had zero historically unique failure fingerprints. These explanations describe the observed evidence model; they are not a claim that an omitted environment can never catch a future failure. The CLI shows a compact view, the Action Step Summary includes an expandable section, and `recommend --json` returns the complete structured explanation.
+
 By default (`--strength 2`), selection preserves:
 
 1. every analyzed historical failure fingerprint,

@@ -81,6 +81,7 @@ function recommendation(): RecommendationReport {
 		optimizerImprovementPercent: 0,
 		coverageStrength: 1,
 		currentCells: 2,
+		cellDecisions: [],
 		selectedCells: [
 			{
 				cell: "test (20)",

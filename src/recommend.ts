@@ -23,6 +23,42 @@ export type RecommendedCell = {
 	coveredCombinations: number;
 };
 
+export type RequirementCategory =
+	| "failure"
+	| "combinatorial"
+	| "job-anchor"
+	| "unresolved-safety"
+	| "hard-constraint";
+
+export type RequirementSummary = {
+	total: number;
+	byCategory: Record<RequirementCategory, number>;
+	samples: string[];
+};
+
+export type ReplacementCoverage = {
+	cell: string;
+	objectiveCost: number;
+	coveredRequirements: number;
+};
+
+export type CellDecisionExplanation = {
+	cell: string;
+	baseJob: string;
+	decision: "selected" | "omitted";
+	objectiveCost: number;
+	medianRuntimeSeconds: number | null;
+	uniqueHistoricalFailures: number;
+	zeroUniqueHistoricalFailureEvidence: boolean;
+	coveredRequirements: RequirementSummary;
+	counterfactualUncoveredRequirements?: RequirementSummary;
+	indispensable?: boolean;
+	replacementCellCount: number;
+	replacementCells: ReplacementCoverage[];
+	replacementCellsTruncated: boolean;
+	reasonCodes: string[];
+};
+
 export type OptimizerMode = "auto" | "exact" | "greedy";
 
 export type RecommendationOptions = {
@@ -45,6 +81,7 @@ export type RecommendationReport = {
 	coverageStrength: number;
 	currentCells: number;
 	selectedCells: RecommendedCell[];
+	cellDecisions: CellDecisionExplanation[];
 	historicalFingerprints: number;
 	coveredFingerprints: number;
 	historicalRecall: number | null;
@@ -95,6 +132,76 @@ function matchesRequireConstraint(
 	return Object.entries(selector.axes).every(
 		([key, value]) => cell.axes?.[key] === value,
 	);
+}
+
+function requirementCategory(token: string): RequirementCategory {
+	if (token.startsWith("failure:")) return "failure";
+	if (token.startsWith("tw:")) return "combinatorial";
+	if (token.startsWith("base:")) return "job-anchor";
+	if (token.startsWith("unresolved:")) return "unresolved-safety";
+	return "hard-constraint";
+}
+
+function summarizeRequirements(tokens: Iterable<string>): RequirementSummary {
+	const sorted = [...new Set(tokens)].sort();
+	const byCategory: Record<RequirementCategory, number> = {
+		failure: 0,
+		combinatorial: 0,
+		"job-anchor": 0,
+		"unresolved-safety": 0,
+		"hard-constraint": 0,
+	};
+	for (const token of sorted) byCategory[requirementCategory(token)]++;
+	return {
+		total: sorted.length,
+		byCategory,
+		samples: sorted.slice(0, 8),
+	};
+}
+
+function replacementCoverage(
+	target: Set<string>,
+	selectedCells: string[],
+	coverageByCell: Map<string, Set<string>>,
+	costByCell: Map<string, number>,
+): ReplacementCoverage[] {
+	const remaining = new Set(target);
+	const available = [...selectedCells].sort();
+	const replacements: ReplacementCoverage[] = [];
+
+	while (remaining.size) {
+		const ranked = available
+			.filter((cell) => !replacements.some((item) => item.cell === cell))
+			.map((cell) => {
+				const coverage = coverageByCell.get(cell) ?? new Set<string>();
+				const newlyCovered = [...remaining].filter((token) =>
+					coverage.has(token),
+				);
+				return {
+					cell,
+					objectiveCost: costByCell.get(cell) ?? 0,
+					coveredRequirements: newlyCovered.length,
+					newlyCovered,
+				};
+			})
+			.filter((item) => item.coveredRequirements > 0)
+			.sort(
+				(a, b) =>
+					b.coveredRequirements - a.coveredRequirements ||
+					a.objectiveCost - b.objectiveCost ||
+					a.cell.localeCompare(b.cell),
+			);
+		const best = ranked[0];
+		if (!best) break;
+		for (const token of best.newlyCovered) remaining.delete(token);
+		replacements.push({
+			cell: best.cell,
+			objectiveCost: best.objectiveCost,
+			coveredRequirements: best.coveredRequirements,
+		});
+	}
+
+	return replacements;
 }
 
 export function recommendMatrix(
@@ -285,6 +392,89 @@ export function recommendMatrix(
 		}
 	}
 
+	const objectiveCostByCell = new Map(
+		solverCandidates.map((candidate) => [candidate.id, candidate.cost]),
+	);
+	const selectedCellNames = [...selectedNames].sort();
+	const cellDecisions: CellDecisionExplanation[] = [...report.cells]
+		.sort((a, b) => a.cell.localeCompare(b.cell))
+		.map((cell) => {
+			const coverage = new Set(
+				[...(coverageByCell.get(cell.cell) ?? [])].filter((token) =>
+					universe.has(token),
+				),
+			);
+			const common = {
+				cell: cell.cell,
+				baseJob: cell.baseJob,
+				objectiveCost: objectiveCostByCell.get(cell.cell) ?? 0,
+				medianRuntimeSeconds: cell.medianRuntimeSeconds,
+				uniqueHistoricalFailures: cell.uniqueFailures,
+				zeroUniqueHistoricalFailureEvidence: cell.uniqueFailures === 0,
+				coveredRequirements: summarizeRequirements(coverage),
+			};
+
+			if (selectedNames.has(cell.cell)) {
+				const coveredByOthers = new Set<string>();
+				for (const other of selectedCellNames) {
+					if (other === cell.cell) continue;
+					for (const token of coverageByCell.get(other) ?? []) {
+						if (universe.has(token)) coveredByOthers.add(token);
+					}
+				}
+				const uncovered = [...coverage].filter(
+					(token) => !coveredByOthers.has(token),
+				);
+				const counterfactual = summarizeRequirements(uncovered);
+				const reasonCodes: string[] = [];
+				if (counterfactual.byCategory["hard-constraint"]) {
+					reasonCodes.push("counterfactual-hard-constraint");
+				}
+				if (counterfactual.byCategory["unresolved-safety"]) {
+					reasonCodes.push("counterfactual-unresolved-safety");
+				}
+				if (counterfactual.byCategory.failure) {
+					reasonCodes.push("counterfactual-failure-required");
+				}
+				if (counterfactual.byCategory.combinatorial) {
+					reasonCodes.push("counterfactual-combinatorial-required");
+				}
+				if (counterfactual.byCategory["job-anchor"]) {
+					reasonCodes.push("counterfactual-job-anchor");
+				}
+				if (!reasonCodes.length) reasonCodes.push("cost-efficient-contributor");
+				return {
+					...common,
+					decision: "selected" as const,
+					counterfactualUncoveredRequirements: counterfactual,
+					indispensable: counterfactual.total > 0,
+					replacementCellCount: 0,
+					replacementCells: [],
+					replacementCellsTruncated: false,
+					reasonCodes,
+				};
+			}
+
+			const replacements = replacementCoverage(
+				coverage,
+				selectedCellNames,
+				coverageByCell,
+				objectiveCostByCell,
+			);
+			const reasonCodes = ["requirements-covered-by-selected"];
+			if (cell.uniqueFailures === 0) {
+				reasonCodes.push("zero-unique-historical-failure-evidence");
+			}
+			return {
+				...common,
+				decision: "omitted" as const,
+				replacementCellCount: replacements.length,
+				replacementCells: replacements.slice(0, 12),
+				replacementCellsTruncated: replacements.length > 12,
+				reasonCodes,
+			};
+		});
+
 	const currentKnown = report.cells.every(
 		(cell) => cell.medianRuntimeSeconds !== null,
 	);
@@ -448,6 +638,7 @@ export function recommendMatrix(
 			coveredCombinations: (combinatorial.byCell.get(cell.cell) ?? new Set())
 				.size,
 		})),
+		cellDecisions,
 		historicalFingerprints: report.fingerprints,
 		coveredFingerprints: coveredFailures.size,
 		historicalRecall: report.fingerprints

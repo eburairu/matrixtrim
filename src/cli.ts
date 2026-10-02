@@ -376,6 +376,29 @@ async function recommendCommand(args: string[], json: boolean): Promise<void> {
 		);
 	}
 
+	console.log("\nCell decision explanations");
+	for (const decision of recommendation.cellDecisions.slice(0, 30)) {
+		if (decision.decision === "selected") {
+			const counterfactual =
+				decision.counterfactualUncoveredRequirements?.total ?? 0;
+			console.log(
+				`  KEEP ${decision.cell}  reasons=${decision.reasonCodes.join(",")}  uncovered-if-removed=${counterfactual}  objective-cost=${decision.objectiveCost.toFixed(1)}`,
+			);
+		} else {
+			const replacements = decision.replacementCells
+				.map((item) => item.cell)
+				.join(", ");
+			console.log(
+				`  OMIT ${decision.cell}  reasons=${decision.reasonCodes.join(",")}  replaced-by=${replacements || "n/a"}  objective-cost=${decision.objectiveCost.toFixed(1)}`,
+			);
+		}
+	}
+	if (recommendation.cellDecisions.length > 30) {
+		console.log(
+			`  ... ${recommendation.cellDecisions.length - 30} more; use --json for the complete structured explanation.`,
+		);
+	}
+
 	console.log("\nWarnings");
 	for (const warning of recommendation.warnings) {
 		console.log(`  - ${warning}`);
