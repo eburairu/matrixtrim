@@ -1,0 +1,4 @@
+2026-09-30T08:10:01Z npm error code ERESOLVE
+2026-09-30T08:10:02Z npm error ERESOLVE unable to resolve dependency tree
+2026-09-30T08:10:03Z npm error While resolving: demo@2.3.4
+2026-09-30T08:10:04Z npm error A complete log of this run can be found in: C:\\Users\\runneradmin\\AppData\\Local\\npm-cache\\_logs\\debug.log

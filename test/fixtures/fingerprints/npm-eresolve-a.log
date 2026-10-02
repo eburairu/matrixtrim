@@ -1,0 +1,4 @@
+2026-09-29T13:00:01Z npm ERR! code ERESOLVE
+2026-09-29T13:00:02Z npm ERR! ERESOLVE unable to resolve dependency tree
+2026-09-29T13:00:03Z npm ERR! While resolving: demo@1.0.0
+2026-09-29T13:00:04Z npm ERR! A complete log of this run can be found in: /home/runner/.npm/_logs/2026-09-29-debug.log

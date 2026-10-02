@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { AnalysisReport } from "../src/analyze.js";
-import { backtestRecommendation } from "../src/backtest.js";
+import {
+	backtestRecommendation,
+	rollingBacktestRecommendation,
+} from "../src/backtest.js";
 
 function makeReport(): AnalysisReport {
 	return {
@@ -227,5 +230,58 @@ describe("time holdout backtest", () => {
 		expect(result.warnings.join("\n")).toContain(
 			"Applied 1 explicit hard constraint",
 		);
+	});
+});
+
+describe("rolling temporal backtest", () => {
+	it("evaluates newer folds without requiring failure evidence in every holdout", () => {
+		const result = rollingBacktestRecommendation(makeReport(), 3);
+
+		expect(result.foldCount).toBe(3);
+		expect(result.validFolds).toBe(2);
+		expect(result.invalidFolds).toBe(1);
+		expect(result.aggregateHoldoutFingerprints).toBe(2);
+		expect(result.aggregateCoveredHoldoutFingerprints).toBe(2);
+		expect(result.aggregateHoldoutRecall).toBe(1);
+		expect(result.worstHoldoutRecall).toBe(1);
+		expect(result.aggregateUnseenHoldoutRecall).toBe(1);
+		expect(result.meanPairwiseSelectionJaccard).toBe(1);
+		expect(result.cellSelectionFrequency).toEqual([
+			{ cell: "test (a)", selectedFolds: 2, frequency: 1 },
+			{ cell: "test (b)", selectedFolds: 2, frequency: 1 },
+		]);
+		expect(result.folds[0]).toMatchObject({
+			status: "invalid",
+			reason: "no analyzable failure fingerprints in holdout window",
+		});
+	});
+
+	it("returns null recall and stability when no fold has holdout failure evidence", () => {
+		const report = makeReport();
+		report.observations = report.observations.filter(
+			(item) => item.runId === 1,
+		);
+		const result = rollingBacktestRecommendation(report, 3);
+
+		expect(result.validFolds).toBe(0);
+		expect(result.aggregateHoldoutRecall).toBeNull();
+		expect(result.worstHoldoutRecall).toBeNull();
+		expect(result.aggregateUnseenHoldoutRecall).toBeNull();
+		expect(result.meanPairwiseSelectionJaccard).toBeNull();
+		expect(result.cellSelectionFrequency).toEqual([]);
+	});
+
+	it("does not leak newer holdout runtimes into an earlier fold selection", () => {
+		const report = makeReport();
+		for (const job of report.matrixJobs) job.axes = { env: "same" };
+		const result = rollingBacktestRecommendation(report, 2);
+
+		expect(result.folds[0]).toMatchObject({
+			status: "valid",
+			trainingRuns: 2,
+			holdoutRuns: 1,
+			selectedCells: ["test (a)"],
+			holdoutRecall: 0,
+		});
 	});
 });

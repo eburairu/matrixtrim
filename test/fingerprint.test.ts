@@ -1,11 +1,81 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
+	failureExtractorOrder,
 	fingerprintFailure,
 	fingerprintFailures,
 	normalizeLogLine,
 } from "../src/fingerprint.js";
 
+function fixture(name: string): string {
+	return readFileSync(
+		new URL(`./fixtures/fingerprints/${name}`, import.meta.url),
+		"utf8",
+	);
+}
+
 describe("failure fingerprints", () => {
+	it("uses deterministic extractor precedence with a generic fallback", () => {
+		expect(failureExtractorOrder()).toEqual([
+			"python-pytest",
+			"rust-cargo",
+			"node-package-manager",
+			"generic",
+		]);
+	});
+
+	it("normalizes equivalent pytest failures across runner platforms", () => {
+		const linux = fingerprintFailures(fixture("pytest-linux.log"));
+		const windows = fingerprintFailures(fixture("pytest-windows.log"));
+
+		expect(linux).toHaveLength(1);
+		expect(windows).toHaveLength(1);
+		expect(linux[0]!.id).toBe(windows[0]!.id);
+		expect(linux[0]!.signature[0]).toContain("ImportError:");
+	});
+
+	it("normalizes cargo panic volatility and suppresses derivative summaries", () => {
+		const a = fingerprintFailures(fixture("cargo-a.log"));
+		const b = fingerprintFailures(fixture("cargo-b.log"));
+
+		expect(a).toHaveLength(1);
+		expect(b).toHaveLength(1);
+		expect(a[0]!.id).toBe(b[0]!.id);
+		expect(a[0]!.signature[0]).toContain("(<thread>)");
+	});
+
+	it("normalizes npm wrapper noise while separating a different pnpm cause", () => {
+		const npmA = fingerprintFailures(fixture("npm-eresolve-a.log"));
+		const npmB = fingerprintFailures(fixture("npm-eresolve-b.log"));
+		const pnpm = fingerprintFailures(fixture("pnpm-lockfile.log"));
+
+		expect(npmA).toHaveLength(1);
+		expect(npmB).toHaveLength(1);
+		expect(npmA[0]!.id).toBe(npmB[0]!.id);
+		expect(npmA[0]!.signature).toEqual([
+			"ERESOLVE unable to resolve dependency tree",
+		]);
+		expect(pnpm[0]!.id).not.toBe(npmA[0]!.id);
+		expect(pnpm[0]!.signature[0]).toContain("ERR_PNPM_OUTDATED_LOCKFILE");
+	});
+
+	it("keeps a Node test-runner summary when no stronger cause exists", () => {
+		const events = fingerprintFailures(fixture("vitest-summary.log"));
+		expect(events).toHaveLength(1);
+		expect(events[0]!.signature).toEqual([
+			"FAIL src/math.test.ts > math > adds values",
+		]);
+	});
+
+	it("bounds extracted events per job", () => {
+		const events = fingerprintFailures(
+			Array.from({ length: 12 }, (_, i) => `TypeError: failure ${i}`).join(
+				"\n",
+			),
+		);
+		expect(events).toHaveLength(8);
+	});
+
 	it("normalizes timestamps, workspace paths, and volatile values", () => {
 		const a =
 			"2026-09-29T10:00:01.123Z ##[error]Error at /home/runner/work/foo/foo/src/a.ts:42:7 after 123ms";
