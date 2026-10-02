@@ -143,6 +143,8 @@ GH_TOKEN="$(gh auth token)" \
 
 The recommendation layer is still **experimental**. Its primary job is to measure configuration value; automatic deletion is not implied.
 
+Recommendations also include a deterministic per-cell explanation. For a kept cell, MatrixTrim reports which modeled requirements would become uncovered if that cell were removed from the selected set. For an omitted cell, it reports which selected cells cover the same modeled requirements and whether the omitted cell had zero historically unique failure fingerprints. These explanations describe the observed evidence model; they are not a claim that an omitted environment can never catch a future failure. The CLI shows a compact view, the Action Step Summary includes an expandable section, and `recommend --json` returns the complete structured explanation.
+
 By default (`--strength 2`), selection preserves:
 
 1. every analyzed historical failure fingerprint,
@@ -176,6 +178,31 @@ The older runs are used for selection, then the newer holdout runs are used to m
 - which failures the selected matrix missed.
 
 Runtime costs are computed from the **training window only**, avoiding leakage from the holdout period.
+
+For a less split-sensitive view, use expanding-window rolling validation:
+
+```bash
+GH_TOKEN="$(gh auth token)" \
+  node dist/cli.js backtest owner/repo \
+  --workflow ci.yml \
+  --limit 100 \
+  --rolling-folds 4
+```
+
+Each fold trains only on older runs and evaluates the immediately newer segment. Folds without analyzable holdout failures are reported as invalid instead of being assigned a synthetic recall. MatrixTrim reports aggregate and worst-fold recall, unseen-failure recall, per-cell selection frequency, and mean pairwise Jaccard similarity of selected cell sets. The GitHub Action runs the same rolling validation alongside the existing single holdout; configure the fold count with `rolling-folds`.
+
+## Recommendation readiness
+
+Every recommendation now carries a machine-readable `readiness` result that is deliberately separate from optimizer optimality:
+
+- `ready` — no modeled evidence-health downgrade was found.
+- `caution` — the recommendation is usable for review, but evidence is sparse, temporal validation is weak/unavailable, selection is unstable, pricing is incomplete, or the chosen optimizer lacks an exact proof.
+- `diagnostic-only` — evidence quality is insufficient for normal automation, for example because no failure fingerprints were observed or matrix resolution is incomplete.
+- `blocked` — a modeled safety check failed, such as historical/temporal recall below 100%, unsatisfied combinatorial or hard constraints, or an unproven `auto` optimization.
+
+The result also includes stable reason codes and the input metrics used to derive the level. The GitHub Action recomputes readiness after both single-holdout and rolling validation, exposes it in the Step Summary and Action outputs, and refuses `diagnostic-only` draft-PR automation by default. The advanced `allow-diagnostic-pr: "true"` input only bypasses that readiness guard; it does **not** bypass existing fail-closed checks for dynamic matrices, unresolved axes, incomplete workflow/job matching, coverage loss, or blocked readiness.
+
+An exact optimizer proof answers “is this the cheapest set for the modeled requirements?” Readiness answers the different question “is the evidence supporting those requirements healthy enough to act on?” Neither is a guarantee about unseen future failures.
 
 ## Multi-event failure fingerprints
 

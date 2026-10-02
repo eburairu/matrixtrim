@@ -2,7 +2,10 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { extname, resolve } from "node:path";
 import { type AnalysisReport, analyzeRepository } from "./analyze.js";
-import { backtestRecommendation } from "./backtest.js";
+import {
+	backtestRecommendation,
+	rollingBacktestRecommendation,
+} from "./backtest.js";
 import { loadRepositoryConfig, type MatrixTrimConstraints } from "./config.js";
 import { GitHubClient } from "./github.js";
 import { inspectWorkflow } from "./matrix.js";
@@ -351,6 +354,14 @@ async function recommendCommand(args: string[], json: boolean): Promise<void> {
 
 	console.log(`Repository: ${repository}`);
 	console.log("Mode:       history + combinatorial coverage (experimental)");
+	console.log(
+		`Readiness:  ${recommendation.readiness.level} (automation=${recommendation.readiness.automationEligible ? "eligible" : "not eligible"})`,
+	);
+	if (recommendation.readiness.reasons.length) {
+		console.log(
+			`Reasons:    ${recommendation.readiness.reasons.map((item) => item.code).join(", ")}`,
+		);
+	}
 	console.log(`Strength:   ${recommendation.coverageStrength}`);
 	console.log(
 		`Optimizer:  ${recommendation.algorithm} (mode=${recommendation.optimizerMode}, optimal=${recommendation.optimizerOptimal ?? "n/a"}, nodes=${recommendation.optimizerSearchNodes})`,
@@ -457,6 +468,29 @@ async function recommendCommand(args: string[], json: boolean): Promise<void> {
 		);
 	}
 
+	console.log("\nCell decision explanations");
+	for (const decision of recommendation.cellDecisions.slice(0, 30)) {
+		if (decision.decision === "selected") {
+			const counterfactual =
+				decision.counterfactualUncoveredRequirements?.total ?? 0;
+			console.log(
+				`  KEEP ${decision.cell}  reasons=${decision.reasonCodes.join(",")}  uncovered-if-removed=${counterfactual}  objective-cost=${decision.objectiveCost.toFixed(1)}`,
+			);
+		} else {
+			const replacements = decision.replacementCells
+				.map((item) => item.cell)
+				.join(", ");
+			console.log(
+				`  OMIT ${decision.cell}  reasons=${decision.reasonCodes.join(",")}  replaced-by=${replacements || "n/a"}  objective-cost=${decision.objectiveCost.toFixed(1)}`,
+			);
+		}
+	}
+	if (recommendation.cellDecisions.length > 30) {
+		console.log(
+			`  ... ${recommendation.cellDecisions.length - 30} more; use --json for the complete structured explanation.`,
+		);
+	}
+
 	console.log("\nWarnings");
 	for (const warning of recommendation.warnings) {
 		console.log(`  - ${warning}`);
@@ -467,13 +501,14 @@ async function backtestCommand(args: string[], json: boolean): Promise<void> {
 	const repository = args[1];
 	if (!repository) {
 		throw new Error(
-			"usage: matrixtrim backtest owner/repo [--workflow ci.yml] [--limit 100] [--holdout 25] [--strength 2] [--config .matrixtrim.yml] [--optimizer auto|exact|greedy] [--exact-max-nodes 250000]",
+			"usage: matrixtrim backtest owner/repo [--workflow ci.yml] [--limit 100] [--holdout 25 | --rolling-folds 4] [--strength 2] [--config .matrixtrim.yml] [--optimizer auto|exact|greedy] [--exact-max-nodes 250000]",
 		);
 	}
 
 	const workflow = flagValue(args, "--workflow");
 	const limit = parseOptionalInt(args, "--limit", 2, 500) ?? 100;
 	const holdout = parseOptionalInt(args, "--holdout", 5, 50) ?? 25;
+	const rollingFolds = parseOptionalInt(args, "--rolling-folds", 2, 20);
 	const strength = parseOptionalInt(args, "--strength", 1, 4) ?? 2;
 	const optimizer = optimizerArgs(args);
 	const token = requireGitHubToken("backtest");
@@ -484,6 +519,57 @@ async function backtestCommand(args: string[], json: boolean): Promise<void> {
 		workflow,
 		token,
 	});
+
+	if (rollingFolds !== undefined) {
+		const rolling = rollingBacktestRecommendation(
+			analysis,
+			rollingFolds,
+			strength,
+			config.constraints,
+			optimizer,
+		);
+		if (json) {
+			console.log(
+				JSON.stringify({ analysis, rollingBacktest: rolling }, null, 2),
+			);
+			return;
+		}
+
+		console.log(`Repository: ${repository}`);
+		console.log("Mode:       rolling temporal validation");
+		console.log(`Strength:   ${rolling.coverageStrength}`);
+		console.log(
+			`Folds:      valid=${rolling.validFolds}, invalid=${rolling.invalidFolds}, requested=${rolling.requestedFolds}`,
+		);
+		console.log(
+			`Aggregate holdout recall: ${rolling.aggregateHoldoutRecall === null ? "n/a" : `${rolling.aggregateCoveredHoldoutFingerprints}/${rolling.aggregateHoldoutFingerprints} (${(rolling.aggregateHoldoutRecall * 100).toFixed(1)}%)`}`,
+		);
+		console.log(
+			`Worst-fold holdout recall: ${rolling.worstHoldoutRecall === null ? "n/a" : `${(rolling.worstHoldoutRecall * 100).toFixed(1)}%`}`,
+		);
+		console.log(
+			`Aggregate unseen-failure recall: ${rolling.aggregateUnseenHoldoutRecall === null ? "n/a" : `${rolling.aggregateCoveredUnseenHoldoutFingerprints}/${rolling.aggregateUnseenHoldoutFingerprints} (${(rolling.aggregateUnseenHoldoutRecall * 100).toFixed(1)}%)`}`,
+		);
+		console.log(
+			`Selection stability (mean pairwise Jaccard): ${rolling.meanPairwiseSelectionJaccard === null ? "n/a" : `${(rolling.meanPairwiseSelectionJaccard * 100).toFixed(1)}%`}`,
+		);
+		console.log("\nRolling folds");
+		for (const fold of rolling.folds) {
+			console.log(
+				`  fold ${fold.fold}: ${fold.status}, train=${fold.trainingRuns}, holdout=${fold.holdoutRuns}, recall=${fold.holdoutRecall === null ? "n/a" : `${(fold.holdoutRecall * 100).toFixed(1)}%`}${fold.reason ? `, reason=${fold.reason}` : ""}`,
+			);
+		}
+		console.log("\nCell selection frequency");
+		for (const item of rolling.cellSelectionFrequency.slice(0, 20)) {
+			console.log(
+				`  ${item.cell}: ${item.selectedFolds}/${rolling.validFolds} (${(item.frequency * 100).toFixed(1)}%)`,
+			);
+		}
+		console.log("\nWarnings");
+		for (const warning of rolling.warnings) console.log(`  - ${warning}`);
+		return;
+	}
+
 	const result = backtestRecommendation(
 		analysis,
 		holdout,

@@ -7391,7 +7391,7 @@ function boolActionInput(name, fallback, env = process.env) {
 var percent = (value) => value === null ? "n/a" : `${(value * 100).toFixed(1)}%`;
 var seconds = (value) => value === null ? "n/a" : `${value.toFixed(1)}s`;
 var dollars = (value, digits = 3) => value === null ? "n/a" : `$${value.toFixed(digits)}`;
-function formatActionReport(repository, workflow, recommendation, backtest, backtestError) {
+function formatActionReport(repository, workflow, recommendation, backtest, backtestError, rollingBacktest, rollingBacktestError) {
   const selected = recommendation.selectedCells.map(
     (cell) => `- \`${cell.cell}\` \u2014 failures=${cell.coveredFailures}, combinations=${cell.coveredCombinations}, median=${seconds(cell.medianRuntimeSeconds)}, list-price/run=${dollars(cell.estimatedListPriceUsdPerRun)}`
   ).join("\n");
@@ -7411,7 +7411,26 @@ function formatActionReport(repository, workflow, recommendation, backtest, back
     `| Unseen-failure recall | ${backtest.unseenHoldoutRecall === null ? "n/a" : `${backtest.coveredUnseenHoldoutFingerprints}/${backtest.unseenHoldoutFingerprints} (${percent(backtest.unseenHoldoutRecall)})`} |`,
     `| Holdout combinatorial coverage | ${backtest.holdoutCombinatorialCoverage === null ? "n/a" : `${backtest.coveredHoldoutCombinatorialRequirements}/${backtest.holdoutCombinatorialRequirements} (${percent(backtest.holdoutCombinatorialCoverage)})`} |`
   ].join("\n") : `| Backtest | unavailable${backtestError ? `: ${backtestError}` : ""} |`;
+  const decisionLines = recommendation.cellDecisions.slice(0, 40).map((decision) => {
+    if (decision.decision === "selected") {
+      const uncovered = decision.counterfactualUncoveredRequirements?.total ?? 0;
+      return `- **KEEP** \`${decision.cell}\` \u2014 reasons=${decision.reasonCodes.join(", ")}, uncovered-if-removed=${uncovered}, objective-cost=${decision.objectiveCost.toFixed(1)}`;
+    }
+    const replacements = decision.replacementCells.map((item) => `\`${item.cell}\``).join(", ");
+    return `- **OMIT** \`${decision.cell}\` \u2014 reasons=${decision.reasonCodes.join(", ")}, replaced-by=${replacements || "n/a"}, objective-cost=${decision.objectiveCost.toFixed(1)}`;
+  }).join("\n");
+  const decisionTruncation = recommendation.cellDecisions.length > 40 ? `
+
+_Showing 40/${recommendation.cellDecisions.length} decisions. The complete structured explanations are available from the JSON CLI output._` : "";
+  const rollingRows = rollingBacktest ? [
+    `| Rolling valid folds | ${rollingBacktest.validFolds}/${rollingBacktest.foldCount} |`,
+    `| Rolling aggregate failure recall | ${rollingBacktest.aggregateHoldoutRecall === null ? "n/a" : `${rollingBacktest.aggregateCoveredHoldoutFingerprints}/${rollingBacktest.aggregateHoldoutFingerprints} (${percent(rollingBacktest.aggregateHoldoutRecall)})`} |`,
+    `| Rolling worst-fold recall | ${percent(rollingBacktest.worstHoldoutRecall)} |`,
+    `| Rolling unseen-failure recall | ${rollingBacktest.aggregateUnseenHoldoutRecall === null ? "n/a" : `${rollingBacktest.aggregateCoveredUnseenHoldoutFingerprints}/${rollingBacktest.aggregateUnseenHoldoutFingerprints} (${percent(rollingBacktest.aggregateUnseenHoldoutRecall)})`} |`,
+    `| Selection stability (mean Jaccard) | ${percent(rollingBacktest.meanPairwiseSelectionJaccard)} |`
+  ].join("\n") : `| Rolling validation | unavailable${rollingBacktestError ? `: ${rollingBacktestError}` : ""} |`;
   const warnings = recommendation.warnings.map((warning2) => `- \u26A0\uFE0F ${warning2}`).join("\n");
+  const readinessReasons = recommendation.readiness.reasons.length ? recommendation.readiness.reasons.map((item) => `- \`${item.code}\` \u2014 ${item.message}`).join("\n") : "- No readiness downgrade reasons.";
   return `<!-- matrixtrim-report -->
 ## MatrixTrim analysis
 
@@ -7421,6 +7440,7 @@ function formatActionReport(repository, workflow, recommendation, backtest, back
 
 | Metric | Result |
 | --- | ---: |
+| Recommendation readiness | **${recommendation.readiness.level}** (automation=${recommendation.readiness.automationEligible ? "eligible" : "not eligible"}) |
 | Current matrix cells | ${recommendation.currentCells} |
 | Suggested cells | ${recommendation.selectedCells.length} |
 | Optimizer | ${recommendation.algorithm} (mode=${recommendation.optimizerMode}, optimal=${recommendation.optimizerOptimal ?? "n/a"}, nodes=${recommendation.optimizerSearchNodes}) |
@@ -7442,11 +7462,22 @@ function formatActionReport(repository, workflow, recommendation, backtest, back
 | Estimated GitHub charge reduction | ${estimatedChargeReduction} |
 | Projected 30-day GitHub charge | ${projectedCharge30d} |
 ${backtestRows}
+${rollingRows}
 
 <details>
 <summary>Suggested cells</summary>
 
 ${selected || "_No cells selected._"}
+
+</details>
+
+### Readiness
+
+${readinessReasons}
+<details>
+<summary>Why cells were kept or omitted</summary>
+
+${decisionLines || "_No cell decision explanations available._"}${decisionTruncation}
 
 </details>
 
@@ -8645,9 +8676,9 @@ var GitHubClient = class {
         lastError = error;
         if (attempt === attempts - 1) {
           const timedOut = controller.signal.aborted && !externalSignal?.aborted;
-          const reason = timedOut ? `timed out after ${this.timeoutMs}ms` : error instanceof Error ? error.message : String(error);
+          const reason2 = timedOut ? `timed out after ${this.timeoutMs}ms` : error instanceof Error ? error.message : String(error);
           throw new Error(
-            `GitHub API request failed after ${attempts} attempt(s): ${path}: ${reason}`,
+            `GitHub API request failed after ${attempts} attempt(s): ${path}: ${reason2}`,
             { cause: error }
           );
         }
@@ -8897,7 +8928,7 @@ var AXIS_DIAGNOSTIC_CODES = {
   "axis-value-count-mismatch": "axis-value-count-mismatch",
   "opaque-dynamic-job-name": "axis-opaque-dynamic-job-name"
 };
-function axisDiagnosticMessage(reason) {
+function axisDiagnosticMessage(reason2) {
   return {
     "ambiguous-rendered-name": "More than one static matrix cell renders to this job name, so axis values cannot be assigned uniquely.",
     "ambiguous-dynamic-name": "More than one dynamic matrix name template matches this job name, so axis values cannot be assigned uniquely.",
@@ -8906,7 +8937,7 @@ function axisDiagnosticMessage(reason) {
     "axis-names-unavailable": "The runtime matrix values are visible in the job name, but the workflow does not expose stable axis names.",
     "axis-value-count-mismatch": "The number of values rendered in the job name does not match the known matrix axis count.",
     "opaque-dynamic-job-name": "The dynamic matrix job uses a name that does not expose runtime axis values."
-  }[reason];
+  }[reason2];
 }
 async function analyzeRepository(repository, options) {
   const client = new GitHubClient(repository, options.token);
@@ -9219,16 +9250,16 @@ async function analyzeRepository(repository, options) {
   );
   for (const observation of matrixJobs) {
     if (observation.axes !== null) continue;
-    const reason = axisFailureByJobId.get(observation.jobId);
-    if (!reason) continue;
+    const reason2 = axisFailureByJobId.get(observation.jobId);
+    if (!reason2) continue;
     const definition = definitionsByRunId.get(observation.runId)?.find((item) => item.jobId === observation.baseJob);
     diagnostics.push({
-      code: AXIS_DIAGNOSTIC_CODES[reason],
+      code: AXIS_DIAGNOSTIC_CODES[reason2],
       severity: "warning",
       scope: "cell",
       jobId: observation.baseJob,
       cell: observation.cell,
-      message: axisDiagnosticMessage(reason),
+      message: axisDiagnosticMessage(reason2),
       ...definition?.dynamic ? { remediation: captureRemediation(observation.baseJob) } : {}
     });
   }
@@ -9937,6 +9968,246 @@ function estimatePricing(report, selectedCells) {
   };
 }
 
+// src/readiness.ts
+function reason(code, severity, message) {
+  return { code, severity, message };
+}
+function ratio(numerator, denominator) {
+  return denominator ? numerator / denominator : 1;
+}
+function evaluateRecommendationReadiness(analysis, recommendation, backtest = null, rolling = null) {
+  const failureEvidenceRuns = new Set(
+    analysis.observations.map((item) => item.runId)
+  ).size;
+  const axisResolved = analysis.cells.filter(
+    (cell) => cell.axes !== null
+  ).length;
+  const constraintCoverage = ratio(
+    recommendation.coveredConstraintRequirements,
+    recommendation.constraintRequirements
+  );
+  const metrics = {
+    axisResolution: ratio(axisResolved, analysis.cells.length),
+    workflowRenderCoverage: analysis.workflowRenderCoverage ?? null,
+    workflowMatchCoverage: analysis.workflowMatchCoverage ?? null,
+    fingerprints: analysis.fingerprints,
+    failureEvidenceRuns,
+    unavailableFailedLogs: analysis.expiredLogs + analysis.logErrors,
+    diagnosticWarnings: (analysis.diagnostics ?? []).filter(
+      (item) => item.severity === "warning"
+    ).length,
+    optimizerOptimal: recommendation.optimizerOptimal,
+    historicalRecall: recommendation.historicalRecall,
+    combinatorialCoverage: recommendation.combinatorialCoverage,
+    constraintCoverage,
+    pricingCoverage: recommendation.pricingCoverage,
+    holdoutRecall: backtest?.holdoutRecall ?? null,
+    unseenHoldoutRecall: backtest?.unseenHoldoutRecall ?? null,
+    rollingValidFolds: rolling?.validFolds ?? null,
+    rollingWorstHoldoutRecall: rolling?.worstHoldoutRecall ?? null,
+    rollingUnseenFailureRecall: rolling?.aggregateUnseenHoldoutRecall ?? null,
+    rollingSelectionStability: rolling?.meanPairwiseSelectionJaccard ?? null
+  };
+  const reasons = [];
+  if (!analysis.fingerprints) {
+    reasons.push(
+      reason(
+        "no-failure-evidence",
+        "diagnostic",
+        "No analyzable historical failure fingerprints were observed; the result is structural diagnostics rather than empirically validated failure optimization."
+      )
+    );
+  } else if (failureEvidenceRuns < 5) {
+    reasons.push(
+      reason(
+        "sparse-failure-evidence",
+        "caution",
+        "Only " + failureEvidenceRuns + " workflow run(s) contributed analyzable failure evidence."
+      )
+    );
+  }
+  if (recommendation.unresolvedAxisCells.length) {
+    reasons.push(
+      reason(
+        "unresolved-axis-cells",
+        "diagnostic",
+        recommendation.unresolvedAxisCells.length + " observed matrix cell(s) still have unresolved axes."
+      )
+    );
+  }
+  if (analysis.workflowRenderCoverage != null && analysis.workflowRenderCoverage < 1) {
+    reasons.push(
+      reason(
+        "incomplete-workflow-render",
+        "diagnostic",
+        "Static job-name rendering coverage is " + (analysis.workflowRenderCoverage * 100).toFixed(1) + "%."
+      )
+    );
+  }
+  if (analysis.workflowMatchCoverage != null && analysis.workflowMatchCoverage < 1) {
+    reasons.push(
+      reason(
+        "incomplete-workflow-match",
+        "diagnostic",
+        "Expected static-cell/job-name match coverage is " + (analysis.workflowMatchCoverage * 100).toFixed(1) + "%."
+      )
+    );
+  }
+  if (analysis.dynamicMatrixDefinitions) {
+    reasons.push(
+      reason(
+        "dynamic-matrix-present",
+        "diagnostic",
+        analysis.dynamicMatrixDefinitions + " dynamic matrix definition(s) are present; automatic static rewrite is not considered ready."
+      )
+    );
+  }
+  if (metrics.unavailableFailedLogs) {
+    reasons.push(
+      reason(
+        "unavailable-failed-logs",
+        "diagnostic",
+        metrics.unavailableFailedLogs + " failed-job log(s) were unavailable or could not be read."
+      )
+    );
+  }
+  if (analysis.workflowDefinitionErrors) {
+    reasons.push(
+      reason(
+        "workflow-definition-errors",
+        "diagnostic",
+        analysis.workflowDefinitionErrors + " historical workflow definition(s) were unavailable."
+      )
+    );
+  }
+  if (recommendation.historicalRecall != null && recommendation.historicalRecall < 1) {
+    reasons.push(
+      reason(
+        "historical-coverage-miss",
+        "blocked",
+        "Historical failure recall is below 100%."
+      )
+    );
+  }
+  if (recommendation.combinatorialCoverage != null && recommendation.combinatorialCoverage < 1) {
+    reasons.push(
+      reason(
+        "combinatorial-coverage-miss",
+        "blocked",
+        "Observed combinatorial coverage is below 100%."
+      )
+    );
+  }
+  if (constraintCoverage < 1) {
+    reasons.push(
+      reason(
+        "constraint-coverage-miss",
+        "blocked",
+        "One or more explicit hard constraints are not satisfied."
+      )
+    );
+  }
+  if (recommendation.optimizerMode === "auto" && recommendation.optimizerOptimal === false) {
+    reasons.push(
+      reason(
+        "optimizer-unproven",
+        "blocked",
+        "The automatic exact optimizer did not prove optimality inside the configured search budget."
+      )
+    );
+  } else if (recommendation.optimizerOptimal !== true) {
+    reasons.push(
+      reason(
+        "optimizer-unproven",
+        "caution",
+        "The selected set does not carry an exact optimality proof."
+      )
+    );
+  }
+  if (backtest && backtest.holdoutRecall < 1) {
+    reasons.push(
+      reason(
+        "temporal-validation-miss",
+        "blocked",
+        "Single-holdout failure recall is " + (backtest.holdoutRecall * 100).toFixed(1) + "%."
+      )
+    );
+  }
+  if (backtest?.unseenHoldoutRecall != null && backtest.unseenHoldoutRecall < 1) {
+    reasons.push(
+      reason(
+        "unseen-failure-miss",
+        "blocked",
+        "Single-holdout unseen-failure recall is " + (backtest.unseenHoldoutRecall * 100).toFixed(1) + "%."
+      )
+    );
+  }
+  if (!rolling || rolling.validFolds === 0) {
+    reasons.push(
+      reason(
+        "temporal-validation-unavailable",
+        "caution",
+        "Rolling temporal validation has no valid fold with analyzable holdout failure evidence."
+      )
+    );
+  } else {
+    if (rolling.validFolds < 2) {
+      reasons.push(
+        reason(
+          "temporal-validation-sparse",
+          "caution",
+          "Only " + rolling.validFolds + " rolling temporal fold is valid."
+        )
+      );
+    }
+    if (rolling.worstHoldoutRecall != null && rolling.worstHoldoutRecall < 1) {
+      reasons.push(
+        reason(
+          "temporal-validation-miss",
+          "blocked",
+          "Worst valid rolling-fold failure recall is " + (rolling.worstHoldoutRecall * 100).toFixed(1) + "%."
+        )
+      );
+    }
+    if (rolling.aggregateUnseenHoldoutRecall != null && rolling.aggregateUnseenHoldoutRecall < 1) {
+      reasons.push(
+        reason(
+          "unseen-failure-miss",
+          "blocked",
+          "Rolling unseen-failure recall is " + (rolling.aggregateUnseenHoldoutRecall * 100).toFixed(1) + "%."
+        )
+      );
+    }
+    if (rolling.meanPairwiseSelectionJaccard != null && rolling.meanPairwiseSelectionJaccard < 0.75) {
+      reasons.push(
+        reason(
+          "unstable-selection",
+          "caution",
+          "Selected cell sets vary substantially across rolling folds (mean Jaccard " + (rolling.meanPairwiseSelectionJaccard * 100).toFixed(1) + "%)."
+        )
+      );
+    }
+  }
+  if (recommendation.pricingCoverage < 1) {
+    reasons.push(
+      reason(
+        "pricing-incomplete",
+        "caution",
+        "Runner pricing coverage is " + (recommendation.pricingCoverage * 100).toFixed(1) + "%; monetary estimates are incomplete."
+      )
+    );
+  }
+  const level = reasons.some(
+    (item) => item.severity === "blocked"
+  ) ? "blocked" : reasons.some((item) => item.severity === "diagnostic") ? "diagnostic-only" : reasons.some((item) => item.severity === "caution") ? "caution" : "ready";
+  return {
+    level,
+    automationEligible: level === "ready" || level === "caution",
+    metrics,
+    reasons
+  };
+}
+
 // src/recommend.ts
 function median3(values) {
   if (!values.length) return null;
@@ -9953,6 +10224,59 @@ function matchesRequireConstraint(cell, selector) {
   return Object.entries(selector.axes).every(
     ([key, value]) => cell.axes?.[key] === value
   );
+}
+function requirementCategory(token) {
+  if (token.startsWith("failure:")) return "failure";
+  if (token.startsWith("tw:")) return "combinatorial";
+  if (token.startsWith("base:")) return "job-anchor";
+  if (token.startsWith("unresolved:")) return "unresolved-safety";
+  return "hard-constraint";
+}
+function summarizeRequirements(tokens) {
+  const sorted = [...new Set(tokens)].sort();
+  const byCategory = {
+    failure: 0,
+    combinatorial: 0,
+    "job-anchor": 0,
+    "unresolved-safety": 0,
+    "hard-constraint": 0
+  };
+  for (const token of sorted) byCategory[requirementCategory(token)]++;
+  return {
+    total: sorted.length,
+    byCategory,
+    samples: sorted.slice(0, 8)
+  };
+}
+function replacementCoverage(target, selectedCells, coverageByCell, costByCell) {
+  const remaining = new Set(target);
+  const available = [...selectedCells].sort();
+  const replacements = [];
+  while (remaining.size) {
+    const ranked = available.filter((cell) => !replacements.some((item) => item.cell === cell)).map((cell) => {
+      const coverage = coverageByCell.get(cell) ?? /* @__PURE__ */ new Set();
+      const newlyCovered = [...remaining].filter(
+        (token) => coverage.has(token)
+      );
+      return {
+        cell,
+        objectiveCost: costByCell.get(cell) ?? 0,
+        coveredRequirements: newlyCovered.length,
+        newlyCovered
+      };
+    }).filter((item) => item.coveredRequirements > 0).sort(
+      (a, b) => b.coveredRequirements - a.coveredRequirements || a.objectiveCost - b.objectiveCost || a.cell.localeCompare(b.cell)
+    );
+    const best = ranked[0];
+    if (!best) break;
+    for (const token of best.newlyCovered) remaining.delete(token);
+    replacements.push({
+      cell: best.cell,
+      objectiveCost: best.objectiveCost,
+      coveredRequirements: best.coveredRequirements
+    });
+  }
+  return replacements;
 }
 function recommendMatrix(report, options = {}) {
   if (!report.cells.length) {
@@ -10110,6 +10434,84 @@ function recommendMatrix(report, options = {}) {
       }
     }
   }
+  const objectiveCostByCell = new Map(
+    solverCandidates.map((candidate) => [candidate.id, candidate.cost])
+  );
+  const selectedCellNames = [...selectedNames].sort();
+  const cellDecisions = [...report.cells].sort((a, b) => a.cell.localeCompare(b.cell)).map((cell) => {
+    const coverage = new Set(
+      [...coverageByCell.get(cell.cell) ?? []].filter(
+        (token) => universe.has(token)
+      )
+    );
+    const common = {
+      cell: cell.cell,
+      baseJob: cell.baseJob,
+      objectiveCost: objectiveCostByCell.get(cell.cell) ?? 0,
+      medianRuntimeSeconds: cell.medianRuntimeSeconds,
+      uniqueHistoricalFailures: cell.uniqueFailures,
+      zeroUniqueHistoricalFailureEvidence: cell.uniqueFailures === 0,
+      coveredRequirements: summarizeRequirements(coverage)
+    };
+    if (selectedNames.has(cell.cell)) {
+      const coveredByOthers = /* @__PURE__ */ new Set();
+      for (const other of selectedCellNames) {
+        if (other === cell.cell) continue;
+        for (const token of coverageByCell.get(other) ?? []) {
+          if (universe.has(token)) coveredByOthers.add(token);
+        }
+      }
+      const uncovered = [...coverage].filter(
+        (token) => !coveredByOthers.has(token)
+      );
+      const counterfactual = summarizeRequirements(uncovered);
+      const reasonCodes2 = [];
+      if (counterfactual.byCategory["hard-constraint"]) {
+        reasonCodes2.push("counterfactual-hard-constraint");
+      }
+      if (counterfactual.byCategory["unresolved-safety"]) {
+        reasonCodes2.push("counterfactual-unresolved-safety");
+      }
+      if (counterfactual.byCategory.failure) {
+        reasonCodes2.push("counterfactual-failure-required");
+      }
+      if (counterfactual.byCategory.combinatorial) {
+        reasonCodes2.push("counterfactual-combinatorial-required");
+      }
+      if (counterfactual.byCategory["job-anchor"]) {
+        reasonCodes2.push("counterfactual-job-anchor");
+      }
+      if (!reasonCodes2.length) reasonCodes2.push("cost-efficient-contributor");
+      return {
+        ...common,
+        decision: "selected",
+        counterfactualUncoveredRequirements: counterfactual,
+        indispensable: counterfactual.total > 0,
+        replacementCellCount: 0,
+        replacementCells: [],
+        replacementCellsTruncated: false,
+        reasonCodes: reasonCodes2
+      };
+    }
+    const replacements = replacementCoverage(
+      coverage,
+      selectedCellNames,
+      coverageByCell,
+      objectiveCostByCell
+    );
+    const reasonCodes = ["requirements-covered-by-selected"];
+    if (cell.uniqueFailures === 0) {
+      reasonCodes.push("zero-unique-historical-failure-evidence");
+    }
+    return {
+      ...common,
+      decision: "omitted",
+      replacementCellCount: replacements.length,
+      replacementCells: replacements.slice(0, 12),
+      replacementCellsTruncated: replacements.length > 12,
+      reasonCodes
+    };
+  });
   const currentKnown = report.cells.every(
     (cell) => cell.medianRuntimeSeconds !== null
   );
@@ -10213,7 +10615,7 @@ function recommendMatrix(report, options = {}) {
       `${report.captureEvidenceErrors} runtime matrix evidence lookup(s) failed or were conflicting; verify checks: read permission and capture-step execution.`
     );
   }
-  return {
+  const recommendation = {
     mode: "history+combinatorial",
     algorithm,
     optimizerMode,
@@ -10237,6 +10639,7 @@ function recommendMatrix(report, options = {}) {
       coveredFailures: (failureCoverage.get(cell.cell) ?? /* @__PURE__ */ new Set()).size,
       coveredCombinations: (combinatorial.byCell.get(cell.cell) ?? /* @__PURE__ */ new Set()).size
     })),
+    cellDecisions,
     historicalFingerprints: report.fingerprints,
     coveredFingerprints: coveredFailures.size,
     historicalRecall: report.fingerprints ? coveredFailures.size / report.fingerprints : null,
@@ -10263,6 +10666,10 @@ function recommendMatrix(report, options = {}) {
     keptCells: keepRequirements.map((item) => item.cell),
     requiredSelectors: requireRequirements.length,
     warnings
+  };
+  return {
+    ...recommendation,
+    readiness: evaluateRecommendationReadiness(report, recommendation)
   };
 }
 
@@ -10421,6 +10828,224 @@ function backtestRecommendation(report, holdoutPercent = 25, coverageStrength = 
     warnings
   };
 }
+function conclusiveRuns(report) {
+  const conclusive = (value) => value === void 0 || ["success", "failure", "timed_out", "neutral"].includes(value ?? "");
+  return [
+    ...new Map(
+      report.matrixJobs.filter((item) => conclusive(item.runConclusion)).map((item) => [
+        item.runId,
+        { runId: item.runId, runNumber: item.runNumber }
+      ])
+    ).values()
+  ].sort((a, b) => a.runNumber - b.runNumber || a.runId - b.runId);
+}
+function selectionJaccard(a, b) {
+  const left = new Set(a);
+  const right = new Set(b);
+  const union = /* @__PURE__ */ new Set([...left, ...right]);
+  if (!union.size) return 1;
+  let intersection = 0;
+  for (const cell of left) {
+    if (right.has(cell)) intersection++;
+  }
+  return intersection / union.size;
+}
+function rollingFold(report, fold, trainingRunIds, holdoutRunIds, coverageStrength, constraints, optimizerOptions) {
+  const training = report.observations.filter(
+    (item) => trainingRunIds.has(item.runId)
+  );
+  const holdout = report.observations.filter(
+    (item) => holdoutRunIds.has(item.runId)
+  );
+  const base = {
+    fold,
+    trainingRuns: trainingRunIds.size,
+    holdoutRuns: holdoutRunIds.size,
+    selectedCells: [],
+    trainingFingerprints: new Set(training.map((item) => item.fingerprint)).size,
+    holdoutFingerprints: 0,
+    coveredHoldoutFingerprints: 0,
+    holdoutRecall: null,
+    unseenHoldoutFingerprints: 0,
+    coveredUnseenHoldoutFingerprints: 0,
+    unseenHoldoutRecall: null
+  };
+  if (!holdout.length) {
+    return {
+      ...base,
+      status: "invalid",
+      reason: "no analyzable failure fingerprints in holdout window"
+    };
+  }
+  const trainingReport = subsetReport(report, training, trainingRunIds);
+  if (!trainingReport.cells.length) {
+    return {
+      ...base,
+      status: "invalid",
+      reason: "no matrix observations in training window"
+    };
+  }
+  try {
+    const recommendation = recommendMatrix(trainingReport, {
+      maxStrength: coverageStrength,
+      constraints,
+      ...optimizerOptions
+    });
+    const selected = new Set(
+      recommendation.selectedCells.map((cell) => cell.cell)
+    );
+    const trainingFingerprints = new Set(
+      training.map((item) => item.fingerprint)
+    );
+    const holdoutClusters = clustersFor(holdout);
+    let covered = 0;
+    let unseen = 0;
+    let coveredUnseen = 0;
+    for (const cluster of holdoutClusters) {
+      const detected = cluster.cells.some((cell) => selected.has(cell));
+      const seenInTraining = trainingFingerprints.has(cluster.fingerprint);
+      if (detected) covered++;
+      if (!seenInTraining) {
+        unseen++;
+        if (detected) coveredUnseen++;
+      }
+    }
+    return {
+      ...base,
+      status: "valid",
+      selectedCells: [...selected].sort(),
+      holdoutFingerprints: holdoutClusters.length,
+      coveredHoldoutFingerprints: covered,
+      holdoutRecall: covered / holdoutClusters.length,
+      unseenHoldoutFingerprints: unseen,
+      coveredUnseenHoldoutFingerprints: coveredUnseen,
+      unseenHoldoutRecall: unseen ? coveredUnseen / unseen : null,
+      optimizerAlgorithm: recommendation.algorithm,
+      optimizerOptimal: recommendation.optimizerOptimal,
+      optimizerSearchNodes: recommendation.optimizerSearchNodes
+    };
+  } catch (error) {
+    return {
+      ...base,
+      status: "invalid",
+      reason: `training recommendation unavailable: ${error.message}`
+    };
+  }
+}
+function rollingBacktestRecommendation(report, requestedFolds = 4, coverageStrength = 2, constraints, optimizerOptions = {}) {
+  if (!Number.isInteger(requestedFolds) || requestedFolds < 2) {
+    throw new Error("requestedFolds must be an integer of at least 2");
+  }
+  const runs = conclusiveRuns(report);
+  if (runs.length < 3) {
+    throw new Error(
+      "rolling backtest requires at least three completed matrix workflow runs"
+    );
+  }
+  const foldCount = Math.min(requestedFolds, runs.length - 1);
+  const segmentCount = foldCount + 1;
+  const baseSize = Math.floor(runs.length / segmentCount);
+  const extra = runs.length % segmentCount;
+  const segments = [];
+  let offset = 0;
+  for (let index = 0; index < segmentCount; index++) {
+    const size = baseSize + (index < extra ? 1 : 0);
+    segments.push(runs.slice(offset, offset + size));
+    offset += size;
+  }
+  const folds = [];
+  for (let index = 1; index < segments.length; index++) {
+    const trainingRuns = segments.slice(0, index).flat();
+    const holdoutRuns = segments[index];
+    folds.push(
+      rollingFold(
+        report,
+        index,
+        new Set(trainingRuns.map((run) => run.runId)),
+        new Set(holdoutRuns.map((run) => run.runId)),
+        coverageStrength,
+        constraints,
+        optimizerOptions
+      )
+    );
+  }
+  const valid = folds.filter((item) => item.status === "valid");
+  const aggregateHoldoutFingerprints = valid.reduce(
+    (sum, item) => sum + item.holdoutFingerprints,
+    0
+  );
+  const aggregateCoveredHoldoutFingerprints = valid.reduce(
+    (sum, item) => sum + item.coveredHoldoutFingerprints,
+    0
+  );
+  const aggregateUnseenHoldoutFingerprints = valid.reduce(
+    (sum, item) => sum + item.unseenHoldoutFingerprints,
+    0
+  );
+  const aggregateCoveredUnseenHoldoutFingerprints = valid.reduce(
+    (sum, item) => sum + item.coveredUnseenHoldoutFingerprints,
+    0
+  );
+  const holdoutRecalls = valid.map((item) => item.holdoutRecall).filter((value) => value !== null);
+  const unseenRecalls = valid.map((item) => item.unseenHoldoutRecall).filter((value) => value !== null);
+  const pairwiseJaccards = [];
+  for (let left = 0; left < valid.length; left++) {
+    for (let right = left + 1; right < valid.length; right++) {
+      pairwiseJaccards.push(
+        selectionJaccard(
+          valid[left].selectedCells,
+          valid[right].selectedCells
+        )
+      );
+    }
+  }
+  const selectionCounts = /* @__PURE__ */ new Map();
+  for (const item of valid) {
+    for (const cell of item.selectedCells) {
+      selectionCounts.set(cell, (selectionCounts.get(cell) ?? 0) + 1);
+    }
+  }
+  const cellSelectionFrequency = [...selectionCounts.entries()].map(([cell, selectedFolds]) => ({
+    cell,
+    selectedFolds,
+    frequency: valid.length ? selectedFolds / valid.length : 0
+  })).sort((a, b) => b.frequency - a.frequency || a.cell.localeCompare(b.cell));
+  const warnings = [
+    "Rolling validation uses expanding training windows and only newer runs in each holdout fold.",
+    "Failure-recall aggregates include only folds with at least one analyzable holdout failure fingerprint.",
+    "Training windows may contain zero historical failures; in that case selection is driven by non-failure safety constraints and all holdout fingerprints are unseen."
+  ];
+  if (valid.length < folds.length) {
+    warnings.push(
+      `${folds.length - valid.length}/${folds.length} fold(s) were excluded from recall aggregation because they lacked evaluable holdout failure evidence or a valid training recommendation.`
+    );
+  }
+  if (!valid.length) {
+    warnings.push(
+      "No rolling fold had analyzable holdout failure evidence; recall and stability metrics are n/a."
+    );
+  }
+  return {
+    mode: "rolling-time-validation",
+    requestedFolds,
+    foldCount,
+    validFolds: valid.length,
+    invalidFolds: folds.length - valid.length,
+    coverageStrength,
+    aggregateHoldoutFingerprints,
+    aggregateCoveredHoldoutFingerprints,
+    aggregateHoldoutRecall: aggregateHoldoutFingerprints ? aggregateCoveredHoldoutFingerprints / aggregateHoldoutFingerprints : null,
+    worstHoldoutRecall: holdoutRecalls.length ? Math.min(...holdoutRecalls) : null,
+    aggregateUnseenHoldoutFingerprints,
+    aggregateCoveredUnseenHoldoutFingerprints,
+    aggregateUnseenHoldoutRecall: aggregateUnseenHoldoutFingerprints ? aggregateCoveredUnseenHoldoutFingerprints / aggregateUnseenHoldoutFingerprints : null,
+    worstUnseenHoldoutRecall: unseenRecalls.length ? Math.min(...unseenRecalls) : null,
+    meanPairwiseSelectionJaccard: pairwiseJaccards.length ? pairwiseJaccards.reduce((sum, value) => sum + value, 0) / pairwiseJaccards.length : null,
+    cellSelectionFrequency,
+    folds,
+    warnings
+  };
+}
 
 // src/optimization-pr.ts
 var import_node_path = require("node:path");
@@ -10535,7 +11160,15 @@ function slug(value) {
 function optimizationBranch(workflowPath) {
   return `matrixtrim/optimize-${slug((0, import_node_path.basename)(workflowPath))}`;
 }
-function optimizationSafetyReason(analysis, recommendation, backtest) {
+function optimizationSafetyReason(analysis, recommendation, backtest, options = {}) {
+  if (recommendation.readiness.level === "blocked") {
+    const codes = recommendation.readiness.reasons.filter((item) => item.severity === "blocked").map((item) => item.code).join(", ");
+    return `recommendation readiness is blocked: ${codes}`;
+  }
+  if (recommendation.readiness.level === "diagnostic-only" && !options.allowDiagnosticReadiness) {
+    const codes = recommendation.readiness.reasons.filter((item) => item.severity === "diagnostic").map((item) => item.code).join(", ");
+    return `recommendation is diagnostic-only: ${codes}`;
+  }
   if (!analysis.workflowPath) {
     return "workflow path could not be resolved";
   }
@@ -10597,6 +11230,8 @@ ${jobs}
 
 ### Evidence
 
+- Readiness: ${recommendation.readiness.level} (automation=${recommendation.readiness.automationEligible ? "eligible" : "not eligible"})
+- Readiness reasons: ${recommendation.readiness.reasons.map((item) => item.code).join(", ") || "none"}
 - Optimizer: ${recommendation.algorithm} (mode=${recommendation.optimizerMode}, optimal=${recommendation.optimizerOptimal ?? "n/a"}, nodes=${recommendation.optimizerSearchNodes})
 - Optimizer improvement vs greedy: ${recommendation.optimizerImprovementPercent.toFixed(1)}%
 - Historical failure recall: ${recommendation.historicalRecall === null ? "n/a" : `${(recommendation.historicalRecall * 100).toFixed(1)}%`}
@@ -10614,10 +11249,15 @@ MatrixTrim only creates this PR when the current workflow is a fully resolved st
 Review and run the repository's normal CI before merging.
 `;
 }
-async function createOrUpdateOptimizationPullRequest(client, analysis, recommendation, backtest, backtestError) {
-  const reason = optimizationSafetyReason(analysis, recommendation, backtest);
-  if (reason) {
-    return { status: "skipped", reason };
+async function createOrUpdateOptimizationPullRequest(client, analysis, recommendation, backtest, backtestError, options = {}) {
+  const reason2 = optimizationSafetyReason(
+    analysis,
+    recommendation,
+    backtest,
+    options
+  );
+  if (reason2) {
+    return { status: "skipped", reason: reason2 };
   }
   const repository = await client.repositoryInfo();
   const base = repository.default_branch;
@@ -10752,6 +11392,7 @@ async function main() {
   const workflow = actionInput("workflow") || inferWorkflowFile(repository);
   const limit = intActionInput("limit", 100, 2, 500);
   const holdout = intActionInput("holdout", 25, 5, 50);
+  const rollingFolds = intActionInput("rolling-folds", 4, 2, 20);
   const strength = intActionInput("strength", 2, 1, 4);
   const optimizerRaw = actionInput("optimizer") || "auto";
   if (!["auto", "exact", "greedy"].includes(optimizerRaw)) {
@@ -10767,6 +11408,7 @@ async function main() {
   const configPath = actionInput("config") || ".matrixtrim.yml";
   const comment = boolActionInput("comment", true);
   const createPr = boolActionInput("create-pr", false);
+  const allowDiagnosticPr = boolActionInput("allow-diagnostic-pr", false);
   const github = new GitHubClient(repository, token);
   const config = await loadRepositoryConfig(
     github,
@@ -10774,7 +11416,7 @@ async function main() {
     configPath !== ".matrixtrim.yml"
   );
   console.log(
-    `MatrixTrim: repository=${repository}, workflow=${workflow ?? "all"}, limit=${limit}, strength=${strength}, optimizer=${optimizer}, exactMaxNodes=${exactMaxNodes}, constraints=${(config?.constraints.keep.length ?? 0) + (config?.constraints.require.length ?? 0)}`
+    `MatrixTrim: repository=${repository}, workflow=${workflow ?? "all"}, limit=${limit}, strength=${strength}, rollingFolds=${rollingFolds}, optimizer=${optimizer}, exactMaxNodes=${exactMaxNodes}, constraints=${(config?.constraints.keep.length ?? 0) + (config?.constraints.require.length ?? 0)}`
   );
   const analysis = await analyzeRepository(repository, {
     limit,
@@ -10804,12 +11446,37 @@ async function main() {
     backtestError = error.message;
     warning(`backtest unavailable: ${backtestError}`);
   }
+  let rollingBacktest = null;
+  let rollingBacktestError;
+  try {
+    rollingBacktest = rollingBacktestRecommendation(
+      analysis,
+      rollingFolds,
+      strength,
+      config?.constraints,
+      {
+        optimizer,
+        exactMaxNodes
+      }
+    );
+  } catch (error) {
+    rollingBacktestError = error.message;
+    warning(`rolling backtest unavailable: ${rollingBacktestError}`);
+  }
+  recommendation.readiness = evaluateRecommendationReadiness(
+    analysis,
+    recommendation,
+    backtest,
+    rollingBacktest
+  );
   const report = formatActionReport(
     repository,
     workflow,
     recommendation,
     backtest,
-    backtestError
+    backtestError,
+    rollingBacktest,
+    rollingBacktestError
   );
   const summaryPath = process.env.GITHUB_STEP_SUMMARY;
   if (summaryPath) {
@@ -10825,6 +11492,15 @@ async function main() {
   await writeOutput(
     "capture-evidence-errors",
     analysis.captureEvidenceErrors ?? 0
+  );
+  await writeOutput("readiness-level", recommendation.readiness.level);
+  await writeOutput(
+    "readiness-automation-eligible",
+    String(recommendation.readiness.automationEligible)
+  );
+  await writeOutput(
+    "readiness-reasons",
+    recommendation.readiness.reasons.map((item) => item.code).join(",")
   );
   await writeOutput("current-cells", recommendation.currentCells);
   await writeOutput("selected-cells", recommendation.selectedCells.length);
@@ -10924,6 +11600,23 @@ async function main() {
     "unseen-failure-recall",
     backtest?.unseenHoldoutRecall?.toFixed(4) ?? ""
   );
+  await writeOutput("rolling-valid-folds", rollingBacktest?.validFolds ?? 0);
+  await writeOutput(
+    "rolling-holdout-recall",
+    rollingBacktest?.aggregateHoldoutRecall?.toFixed(4) ?? ""
+  );
+  await writeOutput(
+    "rolling-worst-holdout-recall",
+    rollingBacktest?.worstHoldoutRecall?.toFixed(4) ?? ""
+  );
+  await writeOutput(
+    "rolling-unseen-failure-recall",
+    rollingBacktest?.aggregateUnseenHoldoutRecall?.toFixed(4) ?? ""
+  );
+  await writeOutput(
+    "rolling-selection-stability",
+    rollingBacktest?.meanPairwiseSelectionJaccard?.toFixed(4) ?? ""
+  );
   let optimizationStatus = createPr ? "skipped" : "disabled";
   let optimizationNumber = "";
   let optimizationUrl = "";
@@ -10940,7 +11633,8 @@ async function main() {
           analysis,
           recommendation,
           backtest,
-          backtestError
+          backtestError,
+          { allowDiagnosticReadiness: allowDiagnosticPr }
         );
         optimizationStatus = result.status;
         optimizationNumber = result.number?.toString() ?? "";

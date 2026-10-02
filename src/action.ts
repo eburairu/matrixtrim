@@ -7,11 +7,15 @@ import {
 } from "./action-input.js";
 import { formatActionReport } from "./action-report.js";
 import { analyzeRepository } from "./analyze.js";
-import { backtestRecommendation } from "./backtest.js";
+import {
+	backtestRecommendation,
+	rollingBacktestRecommendation,
+} from "./backtest.js";
 import { loadRepositoryConfig } from "./config.js";
 import { encodeMatrixEvidence } from "./evidence.js";
 import { GitHubClient } from "./github.js";
 import { createOrUpdateOptimizationPullRequest } from "./optimization-pr.js";
+import { evaluateRecommendationReadiness } from "./readiness.js";
 import { type OptimizerMode, recommendMatrix } from "./recommend.js";
 
 function inferWorkflowFile(repository: string): string | undefined {
@@ -88,6 +92,7 @@ async function main(): Promise<void> {
 	const workflow = actionInput("workflow") || inferWorkflowFile(repository);
 	const limit = intActionInput("limit", 100, 2, 500);
 	const holdout = intActionInput("holdout", 25, 5, 50);
+	const rollingFolds = intActionInput("rolling-folds", 4, 2, 20);
 	const strength = intActionInput("strength", 2, 1, 4);
 	const optimizerRaw = actionInput("optimizer") || "auto";
 	if (!["auto", "exact", "greedy"].includes(optimizerRaw)) {
@@ -103,6 +108,7 @@ async function main(): Promise<void> {
 	const configPath = actionInput("config") || ".matrixtrim.yml";
 	const comment = boolActionInput("comment", true);
 	const createPr = boolActionInput("create-pr", false);
+	const allowDiagnosticPr = boolActionInput("allow-diagnostic-pr", false);
 	const github = new GitHubClient(repository, token);
 	const config = await loadRepositoryConfig(
 		github,
@@ -111,7 +117,7 @@ async function main(): Promise<void> {
 	);
 
 	console.log(
-		`MatrixTrim: repository=${repository}, workflow=${workflow ?? "all"}, limit=${limit}, strength=${strength}, optimizer=${optimizer}, exactMaxNodes=${exactMaxNodes}, constraints=${(config?.constraints.keep.length ?? 0) + (config?.constraints.require.length ?? 0)}`,
+		`MatrixTrim: repository=${repository}, workflow=${workflow ?? "all"}, limit=${limit}, strength=${strength}, rollingFolds=${rollingFolds}, optimizer=${optimizer}, exactMaxNodes=${exactMaxNodes}, constraints=${(config?.constraints.keep.length ?? 0) + (config?.constraints.require.length ?? 0)}`,
 	);
 
 	const analysis = await analyzeRepository(repository, {
@@ -144,12 +150,39 @@ async function main(): Promise<void> {
 		warning(`backtest unavailable: ${backtestError}`);
 	}
 
+	let rollingBacktest = null;
+	let rollingBacktestError: string | undefined;
+	try {
+		rollingBacktest = rollingBacktestRecommendation(
+			analysis,
+			rollingFolds,
+			strength,
+			config?.constraints,
+			{
+				optimizer,
+				exactMaxNodes,
+			},
+		);
+	} catch (error) {
+		rollingBacktestError = (error as Error).message;
+		warning(`rolling backtest unavailable: ${rollingBacktestError}`);
+	}
+
+	recommendation.readiness = evaluateRecommendationReadiness(
+		analysis,
+		recommendation,
+		backtest,
+		rollingBacktest,
+	);
+
 	const report = formatActionReport(
 		repository,
 		workflow,
 		recommendation,
 		backtest,
 		backtestError,
+		rollingBacktest,
+		rollingBacktestError,
 	);
 
 	const summaryPath = process.env.GITHUB_STEP_SUMMARY;
@@ -167,6 +200,15 @@ async function main(): Promise<void> {
 	await writeOutput(
 		"capture-evidence-errors",
 		analysis.captureEvidenceErrors ?? 0,
+	);
+	await writeOutput("readiness-level", recommendation.readiness.level);
+	await writeOutput(
+		"readiness-automation-eligible",
+		String(recommendation.readiness.automationEligible),
+	);
+	await writeOutput(
+		"readiness-reasons",
+		recommendation.readiness.reasons.map((item) => item.code).join(","),
 	);
 	await writeOutput("current-cells", recommendation.currentCells);
 	await writeOutput("selected-cells", recommendation.selectedCells.length);
@@ -274,6 +316,23 @@ async function main(): Promise<void> {
 		"unseen-failure-recall",
 		backtest?.unseenHoldoutRecall?.toFixed(4) ?? "",
 	);
+	await writeOutput("rolling-valid-folds", rollingBacktest?.validFolds ?? 0);
+	await writeOutput(
+		"rolling-holdout-recall",
+		rollingBacktest?.aggregateHoldoutRecall?.toFixed(4) ?? "",
+	);
+	await writeOutput(
+		"rolling-worst-holdout-recall",
+		rollingBacktest?.worstHoldoutRecall?.toFixed(4) ?? "",
+	);
+	await writeOutput(
+		"rolling-unseen-failure-recall",
+		rollingBacktest?.aggregateUnseenHoldoutRecall?.toFixed(4) ?? "",
+	);
+	await writeOutput(
+		"rolling-selection-stability",
+		rollingBacktest?.meanPairwiseSelectionJaccard?.toFixed(4) ?? "",
+	);
 
 	let optimizationStatus = createPr ? "skipped" : "disabled";
 	let optimizationNumber = "";
@@ -294,6 +353,7 @@ async function main(): Promise<void> {
 					recommendation,
 					backtest,
 					backtestError,
+					{ allowDiagnosticReadiness: allowDiagnosticPr },
 				);
 				optimizationStatus = result.status;
 				optimizationNumber = result.number?.toString() ?? "";

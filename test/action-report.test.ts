@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { formatActionReport } from "../src/action-report.js";
-import type { BacktestReport } from "../src/backtest.js";
+import type { BacktestReport, RollingBacktestReport } from "../src/backtest.js";
 import type { RecommendationReport } from "../src/recommend.js";
 
 describe("GitHub Action report", () => {
@@ -16,6 +16,77 @@ describe("GitHub Action report", () => {
 			optimizerImprovementPercent: 20,
 			coverageStrength: 2,
 			currentCells: 8,
+			cellDecisions: [
+				{
+					cell: "test (ubuntu, 20)",
+					baseJob: "test",
+					decision: "selected",
+					objectiveCost: 10,
+					medianRuntimeSeconds: 10,
+					uniqueHistoricalFailures: 1,
+					zeroUniqueHistoricalFailureEvidence: false,
+					coveredRequirements: {
+						total: 1,
+						byCategory: {
+							failure: 0,
+							combinatorial: 0,
+							"job-anchor": 1,
+							"unresolved-safety": 0,
+							"hard-constraint": 0,
+						},
+						samples: ["base:test"],
+					},
+					counterfactualUncoveredRequirements: {
+						total: 1,
+						byCategory: {
+							failure: 0,
+							combinatorial: 0,
+							"job-anchor": 1,
+							"unresolved-safety": 0,
+							"hard-constraint": 0,
+						},
+						samples: ["base:test"],
+					},
+					indispensable: true,
+					replacementCellCount: 0,
+					replacementCells: [],
+					replacementCellsTruncated: false,
+					reasonCodes: ["counterfactual-job-anchor"],
+				},
+				{
+					cell: "test (ubuntu, 22)",
+					baseJob: "test",
+					decision: "omitted",
+					objectiveCost: 20,
+					medianRuntimeSeconds: 20,
+					uniqueHistoricalFailures: 0,
+					zeroUniqueHistoricalFailureEvidence: true,
+					coveredRequirements: {
+						total: 1,
+						byCategory: {
+							failure: 0,
+							combinatorial: 0,
+							"job-anchor": 1,
+							"unresolved-safety": 0,
+							"hard-constraint": 0,
+						},
+						samples: ["base:test"],
+					},
+					replacementCellCount: 1,
+					replacementCells: [
+						{
+							cell: "test (ubuntu, 20)",
+							objectiveCost: 10,
+							coveredRequirements: 1,
+						},
+					],
+					replacementCellsTruncated: false,
+					reasonCodes: [
+						"requirements-covered-by-selected",
+						"zero-unique-historical-failure-evidence",
+					],
+				},
+			],
 			selectedCells: [
 				{
 					cell: "test (ubuntu, 20)",
@@ -74,6 +145,31 @@ describe("GitHub Action report", () => {
 			keptCells: ["test (ubuntu, 20)"],
 			requiredSelectors: 1,
 			warnings: ["example warning"],
+			readiness: {
+				level: "ready",
+				automationEligible: true,
+				metrics: {
+					axisResolution: 1,
+					workflowRenderCoverage: 1,
+					workflowMatchCoverage: 1,
+					fingerprints: 2,
+					failureEvidenceRuns: 6,
+					unavailableFailedLogs: 0,
+					diagnosticWarnings: 0,
+					optimizerOptimal: true,
+					historicalRecall: 1,
+					combinatorialCoverage: 1,
+					constraintCoverage: 1,
+					pricingCoverage: 1,
+					holdoutRecall: 1,
+					unseenHoldoutRecall: 1,
+					rollingValidFolds: 3,
+					rollingWorstHoldoutRecall: 1,
+					rollingUnseenFailureRecall: 1,
+					rollingSelectionStability: 0.9,
+				},
+				reasons: [],
+			},
 		};
 
 		const backtest: BacktestReport = {
@@ -100,14 +196,43 @@ describe("GitHub Action report", () => {
 			warnings: [],
 		};
 
+		const rollingBacktest: RollingBacktestReport = {
+			mode: "rolling-time-validation",
+			requestedFolds: 4,
+			foldCount: 4,
+			validFolds: 3,
+			invalidFolds: 1,
+			coverageStrength: 2,
+			aggregateHoldoutFingerprints: 6,
+			aggregateCoveredHoldoutFingerprints: 5,
+			aggregateHoldoutRecall: 5 / 6,
+			worstHoldoutRecall: 0.5,
+			aggregateUnseenHoldoutFingerprints: 3,
+			aggregateCoveredUnseenHoldoutFingerprints: 2,
+			aggregateUnseenHoldoutRecall: 2 / 3,
+			worstUnseenHoldoutRecall: 0.5,
+			meanPairwiseSelectionJaccard: 0.75,
+			cellSelectionFrequency: [
+				{ cell: "test (ubuntu, 20)", selectedFolds: 3, frequency: 1 },
+			],
+			folds: [],
+			warnings: [],
+		};
+
 		const report = formatActionReport(
 			"owner/repo",
 			"ci.yml",
 			recommendation,
 			backtest,
+			undefined,
+			rollingBacktest,
 		);
 
 		expect(report).toContain("<!-- matrixtrim-report -->");
+		expect(report).toContain(
+			"| Recommendation readiness | **ready** (automation=eligible) |",
+		);
+		expect(report).toContain("### Readiness");
 		expect(report).toContain("| Current matrix cells | 8 |");
 		expect(report).toContain("| Suggested cells | 1 |");
 		expect(report).toContain(
@@ -137,6 +262,17 @@ describe("GitHub Action report", () => {
 			"Standard GitHub-hosted runners are free in public repositories.",
 		);
 		expect(report).toContain("| Holdout failure recall | 2/2 (100.0%) |");
+		expect(report).toContain("Why cells were kept or omitted");
+		expect(report).toContain("**KEEP** `test (ubuntu, 20)`");
+		expect(report).toContain("counterfactual-job-anchor");
+		expect(report).toContain("**OMIT** `test (ubuntu, 22)`");
+		expect(report).toContain("replaced-by=`test (ubuntu, 20)`");
+		expect(report).toContain("| Rolling valid folds | 3/4 |");
+		expect(report).toContain(
+			"| Rolling aggregate failure recall | 5/6 (83.3%) |",
+		);
+		expect(report).toContain("| Rolling worst-fold recall | 50.0% |");
+		expect(report).toContain("| Selection stability (mean Jaccard) | 75.0% |");
 		expect(report).toContain("evidence, not proof");
 	});
 });
