@@ -16,6 +16,77 @@ describe("GitHub Action report", () => {
 			optimizerImprovementPercent: 20,
 			coverageStrength: 2,
 			currentCells: 8,
+			cellDecisions: [
+				{
+					cell: "test (ubuntu, 20)",
+					baseJob: "test",
+					decision: "selected",
+					objectiveCost: 10,
+					medianRuntimeSeconds: 10,
+					uniqueHistoricalFailures: 1,
+					zeroUniqueHistoricalFailureEvidence: false,
+					coveredRequirements: {
+						total: 1,
+						byCategory: {
+							failure: 0,
+							combinatorial: 0,
+							"job-anchor": 1,
+							"unresolved-safety": 0,
+							"hard-constraint": 0,
+						},
+						samples: ["base:test"],
+					},
+					counterfactualUncoveredRequirements: {
+						total: 1,
+						byCategory: {
+							failure: 0,
+							combinatorial: 0,
+							"job-anchor": 1,
+							"unresolved-safety": 0,
+							"hard-constraint": 0,
+						},
+						samples: ["base:test"],
+					},
+					indispensable: true,
+					replacementCellCount: 0,
+					replacementCells: [],
+					replacementCellsTruncated: false,
+					reasonCodes: ["counterfactual-job-anchor"],
+				},
+				{
+					cell: "test (ubuntu, 22)",
+					baseJob: "test",
+					decision: "omitted",
+					objectiveCost: 20,
+					medianRuntimeSeconds: 20,
+					uniqueHistoricalFailures: 0,
+					zeroUniqueHistoricalFailureEvidence: true,
+					coveredRequirements: {
+						total: 1,
+						byCategory: {
+							failure: 0,
+							combinatorial: 0,
+							"job-anchor": 1,
+							"unresolved-safety": 0,
+							"hard-constraint": 0,
+						},
+						samples: ["base:test"],
+					},
+					replacementCellCount: 1,
+					replacementCells: [
+						{
+							cell: "test (ubuntu, 20)",
+							objectiveCost: 10,
+							coveredRequirements: 1,
+						},
+					],
+					replacementCellsTruncated: false,
+					reasonCodes: [
+						"requirements-covered-by-selected",
+						"zero-unique-historical-failure-evidence",
+					],
+				},
+			],
 			selectedCells: [
 				{
 					cell: "test (ubuntu, 20)",
@@ -162,6 +233,11 @@ describe("GitHub Action report", () => {
 			"Standard GitHub-hosted runners are free in public repositories.",
 		);
 		expect(report).toContain("| Holdout failure recall | 2/2 (100.0%) |");
+		expect(report).toContain("Why cells were kept or omitted");
+		expect(report).toContain("**KEEP** `test (ubuntu, 20)`");
+		expect(report).toContain("counterfactual-job-anchor");
+		expect(report).toContain("**OMIT** `test (ubuntu, 22)`");
+		expect(report).toContain("replaced-by=`test (ubuntu, 20)`");
 		expect(report).toContain("| Rolling valid folds | 3/4 |");
 		expect(report).toContain(
 			"| Rolling aggregate failure recall | 5/6 (83.3%) |",

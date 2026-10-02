@@ -7411,6 +7411,17 @@ function formatActionReport(repository, workflow, recommendation, backtest, back
     `| Unseen-failure recall | ${backtest.unseenHoldoutRecall === null ? "n/a" : `${backtest.coveredUnseenHoldoutFingerprints}/${backtest.unseenHoldoutFingerprints} (${percent(backtest.unseenHoldoutRecall)})`} |`,
     `| Holdout combinatorial coverage | ${backtest.holdoutCombinatorialCoverage === null ? "n/a" : `${backtest.coveredHoldoutCombinatorialRequirements}/${backtest.holdoutCombinatorialRequirements} (${percent(backtest.holdoutCombinatorialCoverage)})`} |`
   ].join("\n") : `| Backtest | unavailable${backtestError ? `: ${backtestError}` : ""} |`;
+  const decisionLines = recommendation.cellDecisions.slice(0, 40).map((decision) => {
+    if (decision.decision === "selected") {
+      const uncovered = decision.counterfactualUncoveredRequirements?.total ?? 0;
+      return `- **KEEP** \`${decision.cell}\` \u2014 reasons=${decision.reasonCodes.join(", ")}, uncovered-if-removed=${uncovered}, objective-cost=${decision.objectiveCost.toFixed(1)}`;
+    }
+    const replacements = decision.replacementCells.map((item) => `\`${item.cell}\``).join(", ");
+    return `- **OMIT** \`${decision.cell}\` \u2014 reasons=${decision.reasonCodes.join(", ")}, replaced-by=${replacements || "n/a"}, objective-cost=${decision.objectiveCost.toFixed(1)}`;
+  }).join("\n");
+  const decisionTruncation = recommendation.cellDecisions.length > 40 ? `
+
+_Showing 40/${recommendation.cellDecisions.length} decisions. The complete structured explanations are available from the JSON CLI output._` : "";
   const rollingRows = rollingBacktest ? [
     `| Rolling valid folds | ${rollingBacktest.validFolds}/${rollingBacktest.foldCount} |`,
     `| Rolling aggregate failure recall | ${rollingBacktest.aggregateHoldoutRecall === null ? "n/a" : `${rollingBacktest.aggregateCoveredHoldoutFingerprints}/${rollingBacktest.aggregateHoldoutFingerprints} (${percent(rollingBacktest.aggregateHoldoutRecall)})`} |`,
@@ -7455,6 +7466,13 @@ ${rollingRows}
 <summary>Suggested cells</summary>
 
 ${selected || "_No cells selected._"}
+
+</details>
+
+<details>
+<summary>Why cells were kept or omitted</summary>
+
+${decisionLines || "_No cell decision explanations available._"}${decisionTruncation}
 
 </details>
 
@@ -9947,6 +9965,59 @@ function matchesRequireConstraint(cell, selector) {
     ([key, value]) => cell.axes?.[key] === value
   );
 }
+function requirementCategory(token) {
+  if (token.startsWith("failure:")) return "failure";
+  if (token.startsWith("tw:")) return "combinatorial";
+  if (token.startsWith("base:")) return "job-anchor";
+  if (token.startsWith("unresolved:")) return "unresolved-safety";
+  return "hard-constraint";
+}
+function summarizeRequirements(tokens) {
+  const sorted = [...new Set(tokens)].sort();
+  const byCategory = {
+    failure: 0,
+    combinatorial: 0,
+    "job-anchor": 0,
+    "unresolved-safety": 0,
+    "hard-constraint": 0
+  };
+  for (const token of sorted) byCategory[requirementCategory(token)]++;
+  return {
+    total: sorted.length,
+    byCategory,
+    samples: sorted.slice(0, 8)
+  };
+}
+function replacementCoverage(target, selectedCells, coverageByCell, costByCell) {
+  const remaining = new Set(target);
+  const available = [...selectedCells].sort();
+  const replacements = [];
+  while (remaining.size) {
+    const ranked = available.filter((cell) => !replacements.some((item) => item.cell === cell)).map((cell) => {
+      const coverage = coverageByCell.get(cell) ?? /* @__PURE__ */ new Set();
+      const newlyCovered = [...remaining].filter(
+        (token) => coverage.has(token)
+      );
+      return {
+        cell,
+        objectiveCost: costByCell.get(cell) ?? 0,
+        coveredRequirements: newlyCovered.length,
+        newlyCovered
+      };
+    }).filter((item) => item.coveredRequirements > 0).sort(
+      (a, b) => b.coveredRequirements - a.coveredRequirements || a.objectiveCost - b.objectiveCost || a.cell.localeCompare(b.cell)
+    );
+    const best = ranked[0];
+    if (!best) break;
+    for (const token of best.newlyCovered) remaining.delete(token);
+    replacements.push({
+      cell: best.cell,
+      objectiveCost: best.objectiveCost,
+      coveredRequirements: best.coveredRequirements
+    });
+  }
+  return replacements;
+}
 function recommendMatrix(report, options = {}) {
   if (!report.cells.length) {
     throw new Error("no matrix cells were observed");
@@ -10103,6 +10174,84 @@ function recommendMatrix(report, options = {}) {
       }
     }
   }
+  const objectiveCostByCell = new Map(
+    solverCandidates.map((candidate) => [candidate.id, candidate.cost])
+  );
+  const selectedCellNames = [...selectedNames].sort();
+  const cellDecisions = [...report.cells].sort((a, b) => a.cell.localeCompare(b.cell)).map((cell) => {
+    const coverage = new Set(
+      [...coverageByCell.get(cell.cell) ?? []].filter(
+        (token) => universe.has(token)
+      )
+    );
+    const common = {
+      cell: cell.cell,
+      baseJob: cell.baseJob,
+      objectiveCost: objectiveCostByCell.get(cell.cell) ?? 0,
+      medianRuntimeSeconds: cell.medianRuntimeSeconds,
+      uniqueHistoricalFailures: cell.uniqueFailures,
+      zeroUniqueHistoricalFailureEvidence: cell.uniqueFailures === 0,
+      coveredRequirements: summarizeRequirements(coverage)
+    };
+    if (selectedNames.has(cell.cell)) {
+      const coveredByOthers = /* @__PURE__ */ new Set();
+      for (const other of selectedCellNames) {
+        if (other === cell.cell) continue;
+        for (const token of coverageByCell.get(other) ?? []) {
+          if (universe.has(token)) coveredByOthers.add(token);
+        }
+      }
+      const uncovered = [...coverage].filter(
+        (token) => !coveredByOthers.has(token)
+      );
+      const counterfactual = summarizeRequirements(uncovered);
+      const reasonCodes2 = [];
+      if (counterfactual.byCategory["hard-constraint"]) {
+        reasonCodes2.push("counterfactual-hard-constraint");
+      }
+      if (counterfactual.byCategory["unresolved-safety"]) {
+        reasonCodes2.push("counterfactual-unresolved-safety");
+      }
+      if (counterfactual.byCategory.failure) {
+        reasonCodes2.push("counterfactual-failure-required");
+      }
+      if (counterfactual.byCategory.combinatorial) {
+        reasonCodes2.push("counterfactual-combinatorial-required");
+      }
+      if (counterfactual.byCategory["job-anchor"]) {
+        reasonCodes2.push("counterfactual-job-anchor");
+      }
+      if (!reasonCodes2.length) reasonCodes2.push("cost-efficient-contributor");
+      return {
+        ...common,
+        decision: "selected",
+        counterfactualUncoveredRequirements: counterfactual,
+        indispensable: counterfactual.total > 0,
+        replacementCellCount: 0,
+        replacementCells: [],
+        replacementCellsTruncated: false,
+        reasonCodes: reasonCodes2
+      };
+    }
+    const replacements = replacementCoverage(
+      coverage,
+      selectedCellNames,
+      coverageByCell,
+      objectiveCostByCell
+    );
+    const reasonCodes = ["requirements-covered-by-selected"];
+    if (cell.uniqueFailures === 0) {
+      reasonCodes.push("zero-unique-historical-failure-evidence");
+    }
+    return {
+      ...common,
+      decision: "omitted",
+      replacementCellCount: replacements.length,
+      replacementCells: replacements.slice(0, 12),
+      replacementCellsTruncated: replacements.length > 12,
+      reasonCodes
+    };
+  });
   const currentKnown = report.cells.every(
     (cell) => cell.medianRuntimeSeconds !== null
   );
@@ -10230,6 +10379,7 @@ function recommendMatrix(report, options = {}) {
       coveredFailures: (failureCoverage.get(cell.cell) ?? /* @__PURE__ */ new Set()).size,
       coveredCombinations: (combinatorial.byCell.get(cell.cell) ?? /* @__PURE__ */ new Set()).size
     })),
+    cellDecisions,
     historicalFingerprints: report.fingerprints,
     coveredFingerprints: coveredFailures.size,
     historicalRecall: report.fingerprints ? coveredFailures.size / report.fingerprints : null,
