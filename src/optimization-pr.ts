@@ -148,7 +148,7 @@ export function optimizationPullRequestBody(
 	const jobs = rewrite.jobs
 		.map(
 			(job) =>
-				`- \`${job.jobId}\`: ${job.beforeCells} → ${job.afterCells} cells`,
+				`- \`${job.jobId}\`: ${job.beforeCells} → ${job.afterCells} cells via **${job.mode}**`,
 		)
 		.join("\n");
 
@@ -164,7 +164,7 @@ export function optimizationPullRequestBody(
 	return `<!-- matrixtrim-optimization-pr -->
 ## MatrixTrim optimization proposal
 
-This **draft PR** converts the selected static matrix cells to explicit \`matrix.include\` rows. It is intentionally not auto-merged.
+This **draft PR** rewrites the selected static matrix cells using the smallest exact representation MatrixTrim can safely prove (axis pruning and/or excludes), falling back to explicit \`matrix.include\` rows when needed. It is intentionally not auto-merged.
 
 ### Changes
 
@@ -184,7 +184,7 @@ ${jobs}
 
 ### Safety
 
-MatrixTrim only creates this PR when the current workflow is a fully resolved static matrix, every current cell was observed in the analyzed history, historical and combinatorial coverage are preserved, and any available holdout checks pass at 100%.
+MatrixTrim only creates this PR when the current workflow is a fully resolved static matrix, every current cell was observed in the analyzed history, historical and combinatorial coverage are preserved, any available holdout checks pass at 100%, and the rewritten matrix round-trips to exactly the recommended cell set.
 
 Review and run the repository's normal CI before merging.
 `;

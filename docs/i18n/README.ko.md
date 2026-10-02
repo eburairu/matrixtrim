@@ -183,7 +183,7 @@ steps:
       create-pr: "true"
 ```
 
-MatrixTrim은 **draft PR만** 만들며 자동 병합하지 않습니다. 선택된 static cell을 명시적인 `matrix.include` 행으로 변환하고, 쓰기 전에 workflow를 round-trip 검증합니다. dynamic matrix, unresolved axis, 불완전한 workflow/job 이름 매핑, 100% 미만의 coverage, 또는 사용 가능한 holdout 검증 실패가 하나라도 있으면 PR 생성을 거부합니다. `pull_request` / `pull_request_target` 이벤트에서 실행된 경우에도 최적화 PR 생성은 강제로 건너뜁니다.
+MatrixTrim은 **draft PR만** 만들며 자동 병합하지 않습니다. rewrite planner는 먼저 axis 값 축소와/또는 `exclude`를 사용한 최소 변경 표현을 시도하고, 더 단순한 정확한 표현을 증명할 수 없을 때만 명시적 `matrix.include`로 fallback합니다. 각 후보는 쓰기 전에 전개하고 round-trip 검증하여 추천 cell 집합과 정확히 일치하는지 확인합니다. dynamic matrix, unresolved axis, 불완전한 workflow/job 이름 매핑, 100% 미만의 coverage, 또는 사용 가능한 holdout 검증 실패가 하나라도 있으면 PR 생성을 거부합니다. `pull_request` / `pull_request_target` 이벤트에서 실행된 경우에도 최적화 PR 생성은 강제로 건너뜁니다.
 
 ## 명시적 hard constraint
 

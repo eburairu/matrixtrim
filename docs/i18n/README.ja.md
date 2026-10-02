@@ -183,7 +183,7 @@ steps:
       create-pr: "true"
 ```
 
-生成するのは**draft PRだけ**で、auto-mergeはしません。選択したstatic cellを明示的な `matrix.include` へ変換し、書き込み前にworkflowをround-trip検証します。dynamic matrix、unresolved axis、不完全なworkflow/job名対応、coverage 100%未満、利用可能なholdout checkの失敗がある場合はPR生成を拒否します。pull_request / pull_request_target起動時も最適化PR生成は強制skipします。
+生成するのは**draft PRだけ**で、auto-mergeはしません。rewrite plannerはまずaxis値の削減や `exclude` による最小差分の表現を試し、それで推薦cell集合を完全一致で表せない場合だけ明示的な `matrix.include` にフォールバックします。各候補は書き込み前に展開・round-trip検証されます。dynamic matrix、unresolved axis、不完全なworkflow/job名対応、coverage 100%未満、利用可能なholdout checkの失敗がある場合はPR生成を拒否します。pull_request / pull_request_target起動時も最適化PR生成は強制skipします。
 
 ## 明示的なhard constraint
 

@@ -17,6 +17,7 @@
     "check": "npm run build && npm run lint && npm test",
     "quality": "npm run check && npm run audit && npm run test:coverage && npm run pack:check",
     "build:action": "esbuild src/action.ts --bundle --platform=node --target=node24 --outfile=action-dist/index.cjs",
+    "verify:ci": "npm run quality && npm run build:action && git diff --exit-code -- action-dist/index.cjs",
     "benchmark": "npm run build && node scripts/benchmark.mjs",
     "pack:check": "node scripts/check-package.mjs",
     "prepack": "npm run build",
