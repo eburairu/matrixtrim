@@ -183,7 +183,7 @@ steps:
       create-pr: "true"
 ```
 
-MatrixTrim solo crea un **draft PR** y nunca hace auto-merge. Convierte las celdas static seleccionadas en filas explícitas de `matrix.include` y valida el workflow con un round-trip antes de escribirlo. Si hay matrices dinámicas, axes sin resolver, correspondencia incompleta entre workflow y nombres de jobs, coverage inferior al 100% o algún holdout disponible falla, la creación del PR se rechaza. Las ejecuciones disparadas por `pull_request` o `pull_request_target` también omiten de forma forzada la creación del PR de optimización.
+MatrixTrim solo crea un **draft PR** y nunca hace auto-merge. El rewrite planner intenta primero una representación exacta de cambio mínimo mediante reducción de valores de axes y/o `exclude`, y solo recurre a filas explícitas de `matrix.include` cuando no puede demostrar una forma exacta más simple. Cada candidato se expande y se valida con round-trip contra el conjunto de cells recomendado antes de escribirlo. Si hay matrices dinámicas, axes sin resolver, correspondencia incompleta entre workflow y nombres de jobs, coverage inferior al 100% o algún holdout disponible falla, la creación del PR se rechaza. Las ejecuciones disparadas por `pull_request` o `pull_request_target` también omiten de forma forzada la creación del PR de optimización.
 
 ## Hard constraints explícitas
 

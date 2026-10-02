@@ -183,7 +183,7 @@ steps:
       create-pr: "true"
 ```
 
-MatrixTrim 只会创建 **draft PR**，绝不会自动合并。它会把选中的 static cell 改写成显式的 `matrix.include` 行，并在写入前对 workflow 做 round-trip 校验。只要存在 dynamic matrix、未解析 axis、workflow/job 名映射不完整、coverage 低于 100%，或已有 holdout 检查未通过，就会拒绝生成 PR。由 `pull_request` / `pull_request_target` 触发的 run 也会强制跳过优化 PR 创建。
+MatrixTrim 只会创建 **draft PR**，绝不会自动合并。rewrite planner 会优先尝试通过缩减 axis 值和/或 `exclude` 生成最小变更；只有无法证明更简单的精确表示时，才回退到显式 `matrix.include`。每个候选方案都会在写入前展开并进行 round-trip 校验，确保与推荐 cell 集合完全一致。只要存在 dynamic matrix、未解析 axis、workflow/job 名映射不完整、coverage 低于 100%，或已有 holdout 检查未通过，就会拒绝生成 PR。由 `pull_request` / `pull_request_target` 触发的 run 也会强制跳过优化 PR 创建。
 
 ## 显式 hard constraint
 

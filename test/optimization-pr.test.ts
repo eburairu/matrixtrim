@@ -200,9 +200,9 @@ function client(existing = false): OptimizationGitHubClient & {
 		},
 		async updateFile(path, branch, _sha, text) {
 			calls.push(`updateFile:${path}@${branch}`);
-			expect(text).toContain("include:");
-			expect(text).toContain("node: 20");
-			expect(text).not.toContain("node: 22");
+			expect(text).not.toContain("include:");
+			expect(text).toContain("- 20");
+			expect(text).not.toContain("- 22");
 		},
 		async listOpenPullRequests(branch, base) {
 			calls.push(`listPR:${branch}->${base}`);
@@ -219,7 +219,7 @@ function client(existing = false): OptimizationGitHubClient & {
 		},
 		async createPullRequest(_title, head, base, body) {
 			calls.push(`createPR:${head}->${base}`);
-			expect(body).toContain("2 → 1 cells");
+			expect(body).toContain("2 → 1 cells via **axis-pruning**");
 			return {
 				number: 8,
 				html_url: "https://example/pr/8",
@@ -229,7 +229,7 @@ function client(existing = false): OptimizationGitHubClient & {
 		},
 		async updatePullRequest(number, _title, body) {
 			calls.push(`updatePR:${number}`);
-			expect(body).toContain("2 → 1 cells");
+			expect(body).toContain("2 → 1 cells via **axis-pruning**");
 			return {
 				number,
 				html_url: `https://example/pr/${number}`,

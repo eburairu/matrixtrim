@@ -7259,7 +7259,7 @@ var require_public_api = __commonJS({
       }
       return doc;
     }
-    function parse3(src, reviver, options) {
+    function parse4(src, reviver, options) {
       let _reviver = void 0;
       if (typeof reviver === "function") {
         _reviver = reviver;
@@ -7300,7 +7300,7 @@ var require_public_api = __commonJS({
         return value.toString(options);
       return new Document.Document(value, _replacer, options).toString(options);
     }
-    exports2.parse = parse3;
+    exports2.parse = parse4;
     exports2.parseAllDocuments = parseAllDocuments;
     exports2.parseDocument = parseDocument2;
     exports2.stringify = stringify;
@@ -8718,7 +8718,7 @@ var GitHubClient = class {
     const exponential = this.retryBaseMs * 2 ** attempt;
     return Math.min(explicit ?? exponential, this.maxRetryDelayMs);
   }
-  async request(path, init, parse3) {
+  async request(path, init, parse4) {
     const attempts = this.maxRetries + 1;
     let lastError;
     for (let attempt = 0; attempt < attempts; attempt++) {
@@ -8740,7 +8740,7 @@ var GitHubClient = class {
           signal: controller.signal
         });
         if (response.ok) {
-          return await parse3(response);
+          return await parse4(response);
         }
         const body = await response.text();
         const retryable = this.retryableResponse(response);
@@ -11140,6 +11140,160 @@ var import_node_path = require("node:path");
 
 // src/rewrite.ts
 var import_yaml3 = __toESM(require_dist(), 1);
+function stableValueKey(value) {
+  if (value === null) return "null";
+  if (Array.isArray(value)) {
+    return `[${value.map(stableValueKey).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${stableValueKey(item)}`).join(",")}}`;
+  }
+  return `${typeof value}:${String(value)}`;
+}
+function sameNames(actual, expected) {
+  const left = [...actual].sort();
+  const right = [...expected].sort();
+  return left.length === right.length && left.every((name, index) => name === right[index]);
+}
+function matrixForJob(workflowText, jobId) {
+  const root = asRecord((0, import_yaml3.parse)(workflowText));
+  const jobs = asRecord(root?.jobs);
+  const job = asRecord(jobs?.[jobId]);
+  const strategy = asRecord(job?.strategy);
+  const matrix = asRecord(strategy?.matrix);
+  if (!matrix) {
+    throw new Error(`matrix for job ${jobId} could not be read safely`);
+  }
+  return structuredClone(matrix);
+}
+function renderMatrix(workflowText, jobId, matrix) {
+  const document = (0, import_yaml3.parseDocument)(workflowText, { keepSourceTokens: true });
+  if (document.errors.length) {
+    throw new Error(
+      `workflow YAML could not be parsed safely: ${document.errors[0].message}`
+    );
+  }
+  document.setIn(["jobs", jobId, "strategy", "matrix"], matrix);
+  return document.toString({ lineWidth: 0 });
+}
+function staticAxisKeys(matrix) {
+  return Object.entries(matrix).filter(
+    ([key, value]) => key !== "include" && key !== "exclude" && Array.isArray(value)
+  ).map(([key]) => key);
+}
+function selectedValueKeys(selected, axis) {
+  return new Set(
+    selected.filter((cell) => axis in cell.matrix).map((cell) => stableValueKey(cell.matrix[axis]))
+  );
+}
+function axisPrunedMatrix(matrix, selected) {
+  const candidate = structuredClone(matrix);
+  let changed = false;
+  for (const axis of staticAxisKeys(matrix)) {
+    const values = matrix[axis];
+    if (!Array.isArray(values)) continue;
+    const wanted = selectedValueKeys(selected, axis);
+    if (!wanted.size) return null;
+    const filtered = values.filter(
+      (value) => wanted.has(stableValueKey(value))
+    );
+    if (!filtered.length) return null;
+    if (filtered.length !== values.length) changed = true;
+    candidate[axis] = filtered;
+  }
+  return changed ? candidate : null;
+}
+function exclusionRule(cell, axisKeys) {
+  const rule = {};
+  for (const axis of axisKeys) {
+    if (!(axis in cell.matrix)) return null;
+    rule[axis] = cell.matrix[axis];
+  }
+  return Object.keys(rule).length ? rule : null;
+}
+function cellFitsAxisValues(cell, matrix) {
+  for (const axis of staticAxisKeys(matrix)) {
+    const values = matrix[axis];
+    if (!Array.isArray(values) || !(axis in cell.matrix)) return false;
+    const wanted = stableValueKey(cell.matrix[axis]);
+    if (!values.some((value) => stableValueKey(value) === wanted)) return false;
+  }
+  return true;
+}
+function withExclusions(matrix, omitted) {
+  const axes = staticAxisKeys(matrix);
+  if (!axes.length) return null;
+  const relevant = omitted.filter((cell) => cellFitsAxisValues(cell, matrix));
+  const rules = relevant.map((cell) => exclusionRule(cell, axes));
+  if (rules.some((rule) => rule === null)) return null;
+  const existing = Array.isArray(matrix.exclude) ? matrix.exclude.filter(
+    (item) => !!item && typeof item === "object" && !Array.isArray(item)
+  ) : [];
+  const unique = /* @__PURE__ */ new Map();
+  for (const rule of [...existing, ...rules]) {
+    unique.set(stableValueKey(rule), rule);
+  }
+  const candidate = structuredClone(matrix);
+  candidate.exclude = [...unique.values()];
+  return candidate;
+}
+function matrixCost(matrix) {
+  return JSON.stringify(matrix).length;
+}
+function candidateIsExact(workflowText, jobId, matrix, expectedNames) {
+  const workflow = renderMatrix(workflowText, jobId, matrix);
+  const definition = workflowMatrixDefinitions(workflow).find(
+    (item) => item.jobId === jobId
+  );
+  return {
+    workflow,
+    exact: !!definition && !definition.dynamic && sameNames(
+      definition.cells.map((cell) => cell.name),
+      expectedNames
+    )
+  };
+}
+function chooseSimplePlan(workflowText, jobId, definition, selected) {
+  const original = matrixForJob(workflowText, jobId);
+  const selectedNames = selected.map((cell) => cell.name);
+  const selectedSet = new Set(selectedNames);
+  const omitted = definition.cells.filter(
+    (cell) => !selectedSet.has(cell.name)
+  );
+  const plans = [];
+  const pruned = axisPrunedMatrix(original, selected);
+  if (pruned) {
+    plans.push({
+      mode: "axis-pruning",
+      matrix: pruned,
+      cost: matrixCost(pruned),
+      rank: 0
+    });
+    const prunedWithExcludes = withExclusions(pruned, omitted);
+    if (prunedWithExcludes) {
+      plans.push({
+        mode: "axis-pruning+exclude",
+        matrix: prunedWithExcludes,
+        cost: matrixCost(prunedWithExcludes),
+        rank: 1
+      });
+    }
+  }
+  const excluded = withExclusions(original, omitted);
+  if (excluded) {
+    plans.push({
+      mode: "exclude",
+      matrix: excluded,
+      cost: matrixCost(excluded),
+      rank: 2
+    });
+  }
+  const exact = plans.map((plan) => ({
+    plan,
+    ...candidateIsExact(workflowText, jobId, plan.matrix, selectedNames)
+  })).filter((item) => item.exact).sort((a, b) => a.plan.cost - b.plan.cost || a.plan.rank - b.plan.rank);
+  return exact[0] ?? null;
+}
 function assertMutationSafe(workflowText, observedCells, selectedCells) {
   const definitions = workflowMatrixDefinitions(workflowText);
   if (!definitions.length) {
@@ -11182,15 +11336,8 @@ function rewriteWorkflowToSelectedCells(workflowText, observedCellNames, selecte
     observedCells,
     selectedCells
   );
-  const document = (0, import_yaml3.parseDocument)(workflowText, {
-    keepSourceTokens: true
-  });
-  if (document.errors.length) {
-    throw new Error(
-      `workflow YAML could not be parsed safely: ${document.errors[0].message}`
-    );
-  }
   const jobs = [];
+  let rewritten = workflowText;
   for (const definition of definitions) {
     const selected = definition.cells.filter(
       (cell) => selectedCells.has(cell.name)
@@ -11201,22 +11348,31 @@ function rewriteWorkflowToSelectedCells(workflowText, observedCellNames, selecte
       );
     }
     if (selected.length === definition.cells.length) continue;
-    const include = selected.map((cell) => cell.matrix);
-    document.setIn(["jobs", definition.jobId, "strategy", "matrix"], {
-      include
-    });
+    const simple = chooseSimplePlan(
+      rewritten,
+      definition.jobId,
+      definition,
+      selected
+    );
+    let mode;
+    if (simple) {
+      rewritten = simple.workflow;
+      mode = simple.plan.mode;
+    } else {
+      const include = selected.map((cell) => cell.matrix);
+      rewritten = renderMatrix(rewritten, definition.jobId, { include });
+      mode = "explicit-include";
+    }
     jobs.push({
       jobId: definition.jobId,
       beforeCells: definition.cells.length,
-      afterCells: selected.length
+      afterCells: selected.length,
+      mode
     });
   }
   if (!jobs.length) {
     return { changed: false, workflow: workflowText, jobs: [] };
   }
-  const rewritten = document.toString({
-    lineWidth: 0
-  });
   const rewrittenDefinitions = workflowMatrixDefinitions(rewritten);
   for (const job of jobs) {
     const before = definitions.find((item) => item.jobId === job.jobId);
@@ -11226,19 +11382,15 @@ function rewriteWorkflowToSelectedCells(workflowText, observedCellNames, selecte
         `rewritten matrix for job ${job.jobId} could not be verified`
       );
     }
-    const expected = before.cells.filter((cell) => selectedCells.has(cell.name)).map((cell) => cell.name).sort();
-    const actual = after.cells.map((cell) => cell.name).sort();
-    if (expected.length !== actual.length || expected.some((name, index) => name !== actual[index])) {
+    const expected = before.cells.filter((cell) => selectedCells.has(cell.name)).map((cell) => cell.name);
+    const actual = after.cells.map((cell) => cell.name);
+    if (!sameNames(actual, expected)) {
       throw new Error(
         `rewritten matrix for job ${job.jobId} did not round-trip to the selected cells`
       );
     }
   }
-  return {
-    changed: true,
-    workflow: rewritten,
-    jobs
-  };
+  return { changed: true, workflow: rewritten, jobs };
 }
 
 // src/optimization-pr.ts
@@ -11303,14 +11455,14 @@ function optimizationSafetyReason(analysis, recommendation, backtest, options = 
 }
 function optimizationPullRequestBody(rewrite, recommendation, backtest, backtestError) {
   const jobs = rewrite.jobs.map(
-    (job) => `- \`${job.jobId}\`: ${job.beforeCells} \u2192 ${job.afterCells} cells`
+    (job) => `- \`${job.jobId}\`: ${job.beforeCells} \u2192 ${job.afterCells} cells via **${job.mode}**`
   ).join("\n");
   const holdout = backtest ? `${(backtest.holdoutRecall * 100).toFixed(1)}%` : `not available${backtestError ? ` (${backtestError})` : ""}`;
   const unseen = backtest?.unseenHoldoutRecall === null || backtest?.unseenHoldoutRecall === void 0 ? "n/a" : `${(backtest.unseenHoldoutRecall * 100).toFixed(1)}%`;
   return `<!-- matrixtrim-optimization-pr -->
 ## MatrixTrim optimization proposal
 
-This **draft PR** converts the selected static matrix cells to explicit \`matrix.include\` rows. It is intentionally not auto-merged.
+This **draft PR** rewrites the selected static matrix cells using the smallest exact representation MatrixTrim can safely prove (axis pruning and/or excludes), falling back to explicit \`matrix.include\` rows when needed. It is intentionally not auto-merged.
 
 ### Changes
 
@@ -11332,7 +11484,7 @@ ${jobs}
 
 ### Safety
 
-MatrixTrim only creates this PR when the current workflow is a fully resolved static matrix, every current cell was observed in the analyzed history, historical and combinatorial coverage are preserved, and any available holdout checks pass at 100%.
+MatrixTrim only creates this PR when the current workflow is a fully resolved static matrix, every current cell was observed in the analyzed history, historical and combinatorial coverage are preserved, any available holdout checks pass at 100%, and the rewritten matrix round-trips to exactly the recommended cell set.
 
 Review and run the repository's normal CI before merging.
 `;
