@@ -119,6 +119,19 @@ node=22
 
 For static matrices, MatrixTrim can reconstruct common rendered job names using direct or bracketed `matrix.*` references, boolean/comparison operators, `format(...)`, `contains(...)`, `startsWith(...)`, `endsWith(...)`, `join(...)`, `toJSON(...)`, `fromJSON(...)`, `case(...)`, object filters, fallback expressions, and include-only matrices. For dynamic matrices, MatrixTrim keeps observed jobs in the analysis when they can be identified safely and only inverts deterministic name mappings. When runtime outputs are otherwise opaque, an explicit `mode: capture` step can preserve the exact `toJSON(matrix)` value in a versioned Check Run annotation for later analysis. Dynamic matrices remain ineligible for automatic workflow rewriting. See [docs/dynamic-matrices.md](docs/dynamic-matrices.md), [docs/expression-support.md](docs/expression-support.md), and [docs/runtime-evidence.md](docs/runtime-evidence.md).
 
+### Diagnose partial matrix coverage
+
+When axis recovery or workflow/job-name matching is incomplete, use the diagnostic view instead of guessing from aggregate percentages:
+
+```bash
+GH_TOKEN="$(gh auth token)" \
+  node dist/cli.js doctor owner/repo \
+  --workflow ci.yml \
+  --limit 100
+```
+
+Diagnostics use stable reason codes for unresolved axes, static-name rendering gaps, static-cell/job-name mismatches, workflow-definition fallbacks, and runtime capture problems. Opaque dynamic matrices include the required analysis permissions and a `mode: capture` step template. The same diagnostics are available in `analyze --json`.
+
 ## Recommend a smaller matrix
 
 ```bash
@@ -165,6 +178,18 @@ The older runs are used for selection, then the newer holdout runs are used to m
 - which failures the selected matrix missed.
 
 Runtime costs are computed from the **training window only**, avoiding leakage from the holdout period.
+
+For a less split-sensitive view, use expanding-window rolling validation:
+
+```bash
+GH_TOKEN="$(gh auth token)" \
+  node dist/cli.js backtest owner/repo \
+  --workflow ci.yml \
+  --limit 100 \
+  --rolling-folds 4
+```
+
+Each fold trains only on older runs and evaluates the immediately newer segment. Folds without analyzable holdout failures are reported as invalid instead of being assigned a synthetic recall. MatrixTrim reports aggregate and worst-fold recall, unseen-failure recall, per-cell selection frequency, and mean pairwise Jaccard similarity of selected cell sets. The GitHub Action runs the same rolling validation alongside the existing single holdout; configure the fold count with `rolling-folds`.
 
 ## Multi-event failure fingerprints
 

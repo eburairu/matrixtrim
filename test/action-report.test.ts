@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { formatActionReport } from "../src/action-report.js";
-import type { BacktestReport } from "../src/backtest.js";
+import type { BacktestReport, RollingBacktestReport } from "../src/backtest.js";
 import type { RecommendationReport } from "../src/recommend.js";
 
 describe("GitHub Action report", () => {
@@ -171,11 +171,36 @@ describe("GitHub Action report", () => {
 			warnings: [],
 		};
 
+		const rollingBacktest: RollingBacktestReport = {
+			mode: "rolling-time-validation",
+			requestedFolds: 4,
+			foldCount: 4,
+			validFolds: 3,
+			invalidFolds: 1,
+			coverageStrength: 2,
+			aggregateHoldoutFingerprints: 6,
+			aggregateCoveredHoldoutFingerprints: 5,
+			aggregateHoldoutRecall: 5 / 6,
+			worstHoldoutRecall: 0.5,
+			aggregateUnseenHoldoutFingerprints: 3,
+			aggregateCoveredUnseenHoldoutFingerprints: 2,
+			aggregateUnseenHoldoutRecall: 2 / 3,
+			worstUnseenHoldoutRecall: 0.5,
+			meanPairwiseSelectionJaccard: 0.75,
+			cellSelectionFrequency: [
+				{ cell: "test (ubuntu, 20)", selectedFolds: 3, frequency: 1 },
+			],
+			folds: [],
+			warnings: [],
+		};
+
 		const report = formatActionReport(
 			"owner/repo",
 			"ci.yml",
 			recommendation,
 			backtest,
+			undefined,
+			rollingBacktest,
 		);
 
 		expect(report).toContain("<!-- matrixtrim-report -->");
@@ -213,6 +238,12 @@ describe("GitHub Action report", () => {
 		expect(report).toContain("counterfactual-job-anchor");
 		expect(report).toContain("**OMIT** `test (ubuntu, 22)`");
 		expect(report).toContain("replaced-by=`test (ubuntu, 20)`");
+		expect(report).toContain("| Rolling valid folds | 3/4 |");
+		expect(report).toContain(
+			"| Rolling aggregate failure recall | 5/6 (83.3%) |",
+		);
+		expect(report).toContain("| Rolling worst-fold recall | 50.0% |");
+		expect(report).toContain("| Selection stability (mean Jaccard) | 75.0% |");
 		expect(report).toContain("evidence, not proof");
 	});
 });

@@ -7391,7 +7391,7 @@ function boolActionInput(name, fallback, env = process.env) {
 var percent = (value) => value === null ? "n/a" : `${(value * 100).toFixed(1)}%`;
 var seconds = (value) => value === null ? "n/a" : `${value.toFixed(1)}s`;
 var dollars = (value, digits = 3) => value === null ? "n/a" : `$${value.toFixed(digits)}`;
-function formatActionReport(repository, workflow, recommendation, backtest, backtestError) {
+function formatActionReport(repository, workflow, recommendation, backtest, backtestError, rollingBacktest, rollingBacktestError) {
   const selected = recommendation.selectedCells.map(
     (cell) => `- \`${cell.cell}\` \u2014 failures=${cell.coveredFailures}, combinations=${cell.coveredCombinations}, median=${seconds(cell.medianRuntimeSeconds)}, list-price/run=${dollars(cell.estimatedListPriceUsdPerRun)}`
   ).join("\n");
@@ -7422,6 +7422,13 @@ function formatActionReport(repository, workflow, recommendation, backtest, back
   const decisionTruncation = recommendation.cellDecisions.length > 40 ? `
 
 _Showing 40/${recommendation.cellDecisions.length} decisions. The complete structured explanations are available from the JSON CLI output._` : "";
+  const rollingRows = rollingBacktest ? [
+    `| Rolling valid folds | ${rollingBacktest.validFolds}/${rollingBacktest.foldCount} |`,
+    `| Rolling aggregate failure recall | ${rollingBacktest.aggregateHoldoutRecall === null ? "n/a" : `${rollingBacktest.aggregateCoveredHoldoutFingerprints}/${rollingBacktest.aggregateHoldoutFingerprints} (${percent(rollingBacktest.aggregateHoldoutRecall)})`} |`,
+    `| Rolling worst-fold recall | ${percent(rollingBacktest.worstHoldoutRecall)} |`,
+    `| Rolling unseen-failure recall | ${rollingBacktest.aggregateUnseenHoldoutRecall === null ? "n/a" : `${rollingBacktest.aggregateCoveredUnseenHoldoutFingerprints}/${rollingBacktest.aggregateUnseenHoldoutFingerprints} (${percent(rollingBacktest.aggregateUnseenHoldoutRecall)})`} |`,
+    `| Selection stability (mean Jaccard) | ${percent(rollingBacktest.meanPairwiseSelectionJaccard)} |`
+  ].join("\n") : `| Rolling validation | unavailable${rollingBacktestError ? `: ${rollingBacktestError}` : ""} |`;
   const warnings = recommendation.warnings.map((warning2) => `- \u26A0\uFE0F ${warning2}`).join("\n");
   return `<!-- matrixtrim-report -->
 ## MatrixTrim analysis
@@ -7453,6 +7460,7 @@ _Showing 40/${recommendation.cellDecisions.length} decisions. The complete struc
 | Estimated GitHub charge reduction | ${estimatedChargeReduction} |
 | Projected 30-day GitHub charge | ${projectedCharge30d} |
 ${backtestRows}
+${rollingRows}
 
 <details>
 <summary>Suggested cells</summary>
@@ -8090,7 +8098,7 @@ function workflowMatrixDefinitions(text) {
   }
   return definitions;
 }
-function inferAxesFromExpandedJobName(name, definitions) {
+function diagnoseAxesFromExpandedJobName(name, definitions) {
   const exactMatches = definitions.flatMap(
     (definition2) => definition2.cells.filter(
       (cell) => cell.name === name || name.startsWith(`${cell.name} / `)
@@ -8102,6 +8110,14 @@ function inferAxesFromExpandedJobName(name, definitions) {
       baseJob: match2.definition.jobId,
       axes: match2.cell.axes,
       source: "workflow-rendered-name"
+    };
+  }
+  if (exactMatches.length > 1) {
+    return {
+      baseJob: name,
+      axes: null,
+      source: "unavailable",
+      reason: "ambiguous-rendered-name"
     };
   }
   const dynamicMatches = definitions.flatMap((definition2) => {
@@ -8117,9 +8133,25 @@ function inferAxesFromExpandedJobName(name, definitions) {
       source: "workflow-rendered-name"
     };
   }
+  if (dynamicMatches.length > 1) {
+    return {
+      baseJob: name,
+      axes: null,
+      source: "unavailable",
+      reason: "ambiguous-dynamic-name"
+    };
+  }
   const match = name.match(/^(.*?)\s+\((.*)\)$/);
   if (!match) {
-    return { baseJob: name, axes: null, source: "unavailable" };
+    const direct = definitions.find(
+      (candidate) => candidate.displayName === name || candidate.jobId === name
+    );
+    return {
+      baseJob: direct?.jobId ?? name,
+      axes: null,
+      source: "unavailable",
+      reason: direct?.dynamic ? "opaque-dynamic-job-name" : "job-name-not-matrix-shaped"
+    };
   }
   const baseJob = match[1].trim();
   const inner = match[2].trim();
@@ -8127,18 +8159,29 @@ function inferAxesFromExpandedJobName(name, definitions) {
     (candidate) => candidate.displayName === baseJob || candidate.jobId === baseJob
   );
   if (!definition) {
-    return { baseJob, axes: null, source: "unavailable" };
+    return {
+      baseJob,
+      axes: null,
+      source: "unavailable",
+      reason: "matrix-definition-not-found"
+    };
   }
   if (!definition.axes.length) {
     return {
       baseJob: definition.jobId,
       axes: null,
-      source: "unavailable"
+      source: "unavailable",
+      reason: "axis-names-unavailable"
     };
   }
   const values = definition.axes.length === 1 ? [inner] : inner.split(",").map((value) => value.trim());
   if (values.length !== definition.axes.length) {
-    return { baseJob, axes: null, source: "unavailable" };
+    return {
+      baseJob: definition.jobId,
+      axes: null,
+      source: "unavailable",
+      reason: "axis-value-count-mismatch"
+    };
   }
   return {
     baseJob: definition.jobId,
@@ -8258,6 +8301,72 @@ function summarizeCells(matrixJobs, observations) {
     };
   }).sort(
     (a, b) => b.uniqueFailures - a.uniqueFailures || b.distinctFailures - a.distinctFailures || a.cell.localeCompare(b.cell)
+  );
+}
+
+// src/diagnostics.ts
+function captureRemediation(jobId) {
+  return {
+    kind: "capture",
+    summary: "Capture the exact runtime matrix object from a step that has access to the matrix context. A reusable-workflow caller with uses: cannot add steps directly; place capture in an executable matrix job instead.",
+    permissions: ["actions: read", "checks: read", "contents: read"],
+    snippet: [
+      "- uses: eburairu/matrixtrim@v0",
+      "  with:",
+      "    mode: capture",
+      "    matrix: ${{ toJSON(matrix) }}",
+      "",
+      `# analysis later maps this evidence back to job: ${jobId}`
+    ].join("\n")
+  };
+}
+function captureEvidenceDiagnostic(problem, jobId, cell) {
+  const messages = {
+    missing: "The workflow opted into runtime matrix capture, but no matching evidence annotation was found for this observed job.",
+    conflict: "Multiple conflicting runtime matrix evidence payloads were found for this observed job; MatrixTrim refused to choose one.",
+    "fetch-error": "MatrixTrim could not read runtime matrix evidence annotations for this observed job."
+  };
+  return {
+    code: problem === "missing" ? "capture-evidence-missing" : problem === "conflict" ? "capture-evidence-conflict" : "capture-evidence-fetch-error",
+    severity: "warning",
+    scope: "cell",
+    jobId,
+    cell,
+    message: messages[problem],
+    remediation: captureRemediation(jobId)
+  };
+}
+function compactDiagnostics(items) {
+  const byKey = /* @__PURE__ */ new Map();
+  for (const item of items) {
+    const key = [
+      item.code,
+      item.scope,
+      item.jobId ?? "",
+      item.scope === "cell" ? "" : item.cell ?? "",
+      item.message
+    ].join("\0");
+    const current = byKey.get(key);
+    if (current) {
+      current.occurrences = (current.occurrences ?? 1) + (item.occurrences ?? 1);
+      if (item.scope === "cell") {
+        const affectedCells = /* @__PURE__ */ new Set([
+          ...current.details?.affectedCells ?? [],
+          ...current.cell ? [current.cell] : [],
+          ...item.cell ? [item.cell] : []
+        ]);
+        current.details = {
+          ...current.details,
+          affectedCells: [...affectedCells].sort().slice(0, 10)
+        };
+        if (affectedCells.size > 1) current.cell = void 0;
+      }
+      continue;
+    }
+    byKey.set(key, { ...item, occurrences: item.occurrences ?? 1 });
+  }
+  return [...byKey.values()].sort(
+    (a, b) => (a.severity === b.severity ? 0 : a.severity === "warning" ? -1 : 1) || a.code.localeCompare(b.code) || (a.jobId ?? "").localeCompare(b.jobId ?? "") || (a.cell ?? "").localeCompare(b.cell ?? "")
   );
 }
 
@@ -8800,9 +8909,30 @@ async function mapLimit(items, concurrency, fn) {
   );
   return results;
 }
+var AXIS_DIAGNOSTIC_CODES = {
+  "ambiguous-rendered-name": "axis-ambiguous-rendered-name",
+  "ambiguous-dynamic-name": "axis-ambiguous-dynamic-name",
+  "job-name-not-matrix-shaped": "axis-job-name-not-matrix-shaped",
+  "matrix-definition-not-found": "axis-definition-not-found",
+  "axis-names-unavailable": "axis-names-unavailable",
+  "axis-value-count-mismatch": "axis-value-count-mismatch",
+  "opaque-dynamic-job-name": "axis-opaque-dynamic-job-name"
+};
+function axisDiagnosticMessage(reason) {
+  return {
+    "ambiguous-rendered-name": "More than one static matrix cell renders to this job name, so axis values cannot be assigned uniquely.",
+    "ambiguous-dynamic-name": "More than one dynamic matrix name template matches this job name, so axis values cannot be assigned uniquely.",
+    "job-name-not-matrix-shaped": "The observed job name does not expose a matrix suffix or a supported deterministic name template.",
+    "matrix-definition-not-found": "No matrix definition matches the observed job-name prefix.",
+    "axis-names-unavailable": "The runtime matrix values are visible in the job name, but the workflow does not expose stable axis names.",
+    "axis-value-count-mismatch": "The number of values rendered in the job name does not match the known matrix axis count.",
+    "opaque-dynamic-job-name": "The dynamic matrix job uses a name that does not expose runtime axis values."
+  }[reason];
+}
 async function analyzeRepository(repository, options) {
   const client = new GitHubClient(repository, options.token);
   const concurrency = options.concurrency ?? 4;
+  const diagnostics = [];
   let repositoryVisibility;
   try {
     const info = await client.repositoryInfo();
@@ -8912,6 +9042,49 @@ async function analyzeRepository(repository, options) {
   const dynamicMatrixDefinitions = revisionDefinitions.filter(
     (definition) => definition.dynamic
   ).length;
+  if (workflowDefinitionFallbacks) {
+    diagnostics.push({
+      code: "workflow-definition-fallback",
+      severity: "warning",
+      scope: "workflow",
+      message: "One or more historical workflow revisions were unavailable; the default-branch workflow definition was used instead.",
+      occurrences: workflowDefinitionFallbacks
+    });
+  }
+  if (workflowDefinitionErrors) {
+    diagnostics.push({
+      code: "workflow-definition-unavailable",
+      severity: "warning",
+      scope: "workflow",
+      message: "One or more historical workflow definitions could not be loaded, so matrix classification may be incomplete.",
+      occurrences: workflowDefinitionErrors
+    });
+  }
+  for (const definition of revisionDefinitions) {
+    if (!definition.dynamic && definition.renderedCells < definition.expectedCells) {
+      diagnostics.push({
+        code: "static-name-render-incomplete",
+        severity: "warning",
+        scope: "definition",
+        jobId: definition.jobId,
+        message: "Some static matrix cells could not be rendered to deterministic GitHub job names.",
+        details: {
+          expectedCells: definition.expectedCells,
+          renderedCells: definition.renderedCells
+        }
+      });
+    }
+    if (definition.dynamic && definition.axes.length === 0 && !definition.captureEvidence) {
+      diagnostics.push({
+        code: "dynamic-matrix-capture-not-configured",
+        severity: "warning",
+        scope: "definition",
+        jobId: definition.jobId,
+        message: "This dynamic matrix does not expose stable axis names and has no MatrixTrim runtime evidence capture step.",
+        remediation: captureRemediation(definition.jobId)
+      });
+    }
+  }
   const jobsByRun = await mapLimit(runs, concurrency, async (run) => ({
     run,
     jobs: await client.listJobs(run.id)
@@ -8919,6 +9092,7 @@ async function analyzeRepository(repository, options) {
   const matrixJobs = [];
   const matrixJobIds = /* @__PURE__ */ new Set();
   const matrixJobById = /* @__PURE__ */ new Map();
+  const axisFailureByJobId = /* @__PURE__ */ new Map();
   let workflowExpectedMatrixCells = 0;
   let workflowMatchedMatrixCells = 0;
   let inactiveStaticMatrixFamilies = 0;
@@ -8938,11 +9112,30 @@ async function analyzeRepository(repository, options) {
         }
         workflowExpectedMatrixCells += definition.expectedCells;
         workflowMatchedMatrixCells += matched;
+        if (matched < definition.expectedCells) {
+          const unmatched = definition.cells.filter(
+            (cell) => !jobs.some(
+              (job) => job.name === cell.name || job.name.startsWith(`${cell.name} / `)
+            )
+          ).map((cell) => cell.name).slice(0, 5);
+          diagnostics.push({
+            code: "static-cell-job-match-incomplete",
+            severity: "warning",
+            scope: "definition",
+            jobId: definition.jobId,
+            message: "Some expected static matrix cells did not match actual GitHub job names in an active matrix family.",
+            details: {
+              expectedCells: definition.expectedCells,
+              matchedCells: matched,
+              unmatchedSamples: unmatched
+            }
+          });
+        }
       }
     }
     for (const job of jobs) {
       const parsed = splitJobName(job.name);
-      const inferred = inferAxesFromExpandedJobName(job.name, definitions);
+      const inferred = diagnoseAxesFromExpandedJobName(job.name, definitions);
       const renderedMatch = inferred.source !== "unavailable";
       const fallbackDefinition = definitions.find(
         (definition) => definition.displayName === parsed.baseJob || definition.jobId === parsed.baseJob
@@ -8953,6 +9146,9 @@ async function analyzeRepository(repository, options) {
       );
       if (!renderedMatch && !defaultNameFallback && !exactDynamicDefinition) {
         continue;
+      }
+      if (inferred.reason) {
+        axisFailureByJobId.set(job.id, inferred.reason);
       }
       const observation = {
         runId: run.id,
@@ -8991,7 +9187,16 @@ async function analyzeRepository(repository, options) {
         const matches = annotations.map((annotation) => decodeMatrixEvidence(annotation.message)).filter(
           (evidence) => evidence !== null && evidence.jobId === observation.baseJob
         );
-        if (!matches.length) return;
+        if (!matches.length) {
+          diagnostics.push(
+            captureEvidenceDiagnostic(
+              "missing",
+              observation.baseJob,
+              observation.cell
+            )
+          );
+          return;
+        }
         const unique = new Map(
           matches.map((evidence) => [
             JSON.stringify(axesFromMatrixEvidence(evidence.matrix)),
@@ -9000,15 +9205,44 @@ async function analyzeRepository(repository, options) {
         );
         if (unique.size !== 1) {
           captureEvidenceErrors++;
+          diagnostics.push(
+            captureEvidenceDiagnostic(
+              "conflict",
+              observation.baseJob,
+              observation.cell
+            )
+          );
           return;
         }
         applyCapturedMatrixEvidence(observation, [...unique.values()][0]);
         captureEvidenceJobs++;
       } catch {
         captureEvidenceErrors++;
+        diagnostics.push(
+          captureEvidenceDiagnostic(
+            "fetch-error",
+            observation.baseJob,
+            observation.cell
+          )
+        );
       }
     }
   );
+  for (const observation of matrixJobs) {
+    if (observation.axes !== null) continue;
+    const reason = axisFailureByJobId.get(observation.jobId);
+    if (!reason) continue;
+    const definition = definitionsByRunId.get(observation.runId)?.find((item) => item.jobId === observation.baseJob);
+    diagnostics.push({
+      code: AXIS_DIAGNOSTIC_CODES[reason],
+      severity: "warning",
+      scope: "cell",
+      jobId: observation.baseJob,
+      cell: observation.cell,
+      message: axisDiagnosticMessage(reason),
+      ...definition?.dynamic ? { remediation: captureRemediation(observation.baseJob) } : {}
+    });
+  }
   const allFailedJobs = jobsByRun.flatMap(
     ({ run, jobs }) => jobs.filter((job) => ["failure", "timed_out"].includes(job.conclusion ?? "")).map((job) => ({ run, job }))
   );
@@ -9087,6 +9321,7 @@ async function analyzeRepository(repository, options) {
     captureEvidenceCandidates: captureCandidates.length,
     captureEvidenceJobs,
     captureEvidenceErrors,
+    diagnostics: compactDiagnostics(diagnostics),
     runWindowDays,
     projectedRunsPer30Days,
     cells,
@@ -10329,6 +10564,224 @@ function backtestRecommendation(report, holdoutPercent = 25, coverageStrength = 
     warnings
   };
 }
+function conclusiveRuns(report) {
+  const conclusive = (value) => value === void 0 || ["success", "failure", "timed_out", "neutral"].includes(value ?? "");
+  return [
+    ...new Map(
+      report.matrixJobs.filter((item) => conclusive(item.runConclusion)).map((item) => [
+        item.runId,
+        { runId: item.runId, runNumber: item.runNumber }
+      ])
+    ).values()
+  ].sort((a, b) => a.runNumber - b.runNumber || a.runId - b.runId);
+}
+function selectionJaccard(a, b) {
+  const left = new Set(a);
+  const right = new Set(b);
+  const union = /* @__PURE__ */ new Set([...left, ...right]);
+  if (!union.size) return 1;
+  let intersection = 0;
+  for (const cell of left) {
+    if (right.has(cell)) intersection++;
+  }
+  return intersection / union.size;
+}
+function rollingFold(report, fold, trainingRunIds, holdoutRunIds, coverageStrength, constraints, optimizerOptions) {
+  const training = report.observations.filter(
+    (item) => trainingRunIds.has(item.runId)
+  );
+  const holdout = report.observations.filter(
+    (item) => holdoutRunIds.has(item.runId)
+  );
+  const base = {
+    fold,
+    trainingRuns: trainingRunIds.size,
+    holdoutRuns: holdoutRunIds.size,
+    selectedCells: [],
+    trainingFingerprints: new Set(training.map((item) => item.fingerprint)).size,
+    holdoutFingerprints: 0,
+    coveredHoldoutFingerprints: 0,
+    holdoutRecall: null,
+    unseenHoldoutFingerprints: 0,
+    coveredUnseenHoldoutFingerprints: 0,
+    unseenHoldoutRecall: null
+  };
+  if (!holdout.length) {
+    return {
+      ...base,
+      status: "invalid",
+      reason: "no analyzable failure fingerprints in holdout window"
+    };
+  }
+  const trainingReport = subsetReport(report, training, trainingRunIds);
+  if (!trainingReport.cells.length) {
+    return {
+      ...base,
+      status: "invalid",
+      reason: "no matrix observations in training window"
+    };
+  }
+  try {
+    const recommendation = recommendMatrix(trainingReport, {
+      maxStrength: coverageStrength,
+      constraints,
+      ...optimizerOptions
+    });
+    const selected = new Set(
+      recommendation.selectedCells.map((cell) => cell.cell)
+    );
+    const trainingFingerprints = new Set(
+      training.map((item) => item.fingerprint)
+    );
+    const holdoutClusters = clustersFor(holdout);
+    let covered = 0;
+    let unseen = 0;
+    let coveredUnseen = 0;
+    for (const cluster of holdoutClusters) {
+      const detected = cluster.cells.some((cell) => selected.has(cell));
+      const seenInTraining = trainingFingerprints.has(cluster.fingerprint);
+      if (detected) covered++;
+      if (!seenInTraining) {
+        unseen++;
+        if (detected) coveredUnseen++;
+      }
+    }
+    return {
+      ...base,
+      status: "valid",
+      selectedCells: [...selected].sort(),
+      holdoutFingerprints: holdoutClusters.length,
+      coveredHoldoutFingerprints: covered,
+      holdoutRecall: covered / holdoutClusters.length,
+      unseenHoldoutFingerprints: unseen,
+      coveredUnseenHoldoutFingerprints: coveredUnseen,
+      unseenHoldoutRecall: unseen ? coveredUnseen / unseen : null,
+      optimizerAlgorithm: recommendation.algorithm,
+      optimizerOptimal: recommendation.optimizerOptimal,
+      optimizerSearchNodes: recommendation.optimizerSearchNodes
+    };
+  } catch (error) {
+    return {
+      ...base,
+      status: "invalid",
+      reason: `training recommendation unavailable: ${error.message}`
+    };
+  }
+}
+function rollingBacktestRecommendation(report, requestedFolds = 4, coverageStrength = 2, constraints, optimizerOptions = {}) {
+  if (!Number.isInteger(requestedFolds) || requestedFolds < 2) {
+    throw new Error("requestedFolds must be an integer of at least 2");
+  }
+  const runs = conclusiveRuns(report);
+  if (runs.length < 3) {
+    throw new Error(
+      "rolling backtest requires at least three completed matrix workflow runs"
+    );
+  }
+  const foldCount = Math.min(requestedFolds, runs.length - 1);
+  const segmentCount = foldCount + 1;
+  const baseSize = Math.floor(runs.length / segmentCount);
+  const extra = runs.length % segmentCount;
+  const segments = [];
+  let offset = 0;
+  for (let index = 0; index < segmentCount; index++) {
+    const size = baseSize + (index < extra ? 1 : 0);
+    segments.push(runs.slice(offset, offset + size));
+    offset += size;
+  }
+  const folds = [];
+  for (let index = 1; index < segments.length; index++) {
+    const trainingRuns = segments.slice(0, index).flat();
+    const holdoutRuns = segments[index];
+    folds.push(
+      rollingFold(
+        report,
+        index,
+        new Set(trainingRuns.map((run) => run.runId)),
+        new Set(holdoutRuns.map((run) => run.runId)),
+        coverageStrength,
+        constraints,
+        optimizerOptions
+      )
+    );
+  }
+  const valid = folds.filter((item) => item.status === "valid");
+  const aggregateHoldoutFingerprints = valid.reduce(
+    (sum, item) => sum + item.holdoutFingerprints,
+    0
+  );
+  const aggregateCoveredHoldoutFingerprints = valid.reduce(
+    (sum, item) => sum + item.coveredHoldoutFingerprints,
+    0
+  );
+  const aggregateUnseenHoldoutFingerprints = valid.reduce(
+    (sum, item) => sum + item.unseenHoldoutFingerprints,
+    0
+  );
+  const aggregateCoveredUnseenHoldoutFingerprints = valid.reduce(
+    (sum, item) => sum + item.coveredUnseenHoldoutFingerprints,
+    0
+  );
+  const holdoutRecalls = valid.map((item) => item.holdoutRecall).filter((value) => value !== null);
+  const unseenRecalls = valid.map((item) => item.unseenHoldoutRecall).filter((value) => value !== null);
+  const pairwiseJaccards = [];
+  for (let left = 0; left < valid.length; left++) {
+    for (let right = left + 1; right < valid.length; right++) {
+      pairwiseJaccards.push(
+        selectionJaccard(
+          valid[left].selectedCells,
+          valid[right].selectedCells
+        )
+      );
+    }
+  }
+  const selectionCounts = /* @__PURE__ */ new Map();
+  for (const item of valid) {
+    for (const cell of item.selectedCells) {
+      selectionCounts.set(cell, (selectionCounts.get(cell) ?? 0) + 1);
+    }
+  }
+  const cellSelectionFrequency = [...selectionCounts.entries()].map(([cell, selectedFolds]) => ({
+    cell,
+    selectedFolds,
+    frequency: valid.length ? selectedFolds / valid.length : 0
+  })).sort((a, b) => b.frequency - a.frequency || a.cell.localeCompare(b.cell));
+  const warnings = [
+    "Rolling validation uses expanding training windows and only newer runs in each holdout fold.",
+    "Failure-recall aggregates include only folds with at least one analyzable holdout failure fingerprint.",
+    "Training windows may contain zero historical failures; in that case selection is driven by non-failure safety constraints and all holdout fingerprints are unseen."
+  ];
+  if (valid.length < folds.length) {
+    warnings.push(
+      `${folds.length - valid.length}/${folds.length} fold(s) were excluded from recall aggregation because they lacked evaluable holdout failure evidence or a valid training recommendation.`
+    );
+  }
+  if (!valid.length) {
+    warnings.push(
+      "No rolling fold had analyzable holdout failure evidence; recall and stability metrics are n/a."
+    );
+  }
+  return {
+    mode: "rolling-time-validation",
+    requestedFolds,
+    foldCount,
+    validFolds: valid.length,
+    invalidFolds: folds.length - valid.length,
+    coverageStrength,
+    aggregateHoldoutFingerprints,
+    aggregateCoveredHoldoutFingerprints,
+    aggregateHoldoutRecall: aggregateHoldoutFingerprints ? aggregateCoveredHoldoutFingerprints / aggregateHoldoutFingerprints : null,
+    worstHoldoutRecall: holdoutRecalls.length ? Math.min(...holdoutRecalls) : null,
+    aggregateUnseenHoldoutFingerprints,
+    aggregateCoveredUnseenHoldoutFingerprints,
+    aggregateUnseenHoldoutRecall: aggregateUnseenHoldoutFingerprints ? aggregateCoveredUnseenHoldoutFingerprints / aggregateUnseenHoldoutFingerprints : null,
+    worstUnseenHoldoutRecall: unseenRecalls.length ? Math.min(...unseenRecalls) : null,
+    meanPairwiseSelectionJaccard: pairwiseJaccards.length ? pairwiseJaccards.reduce((sum, value) => sum + value, 0) / pairwiseJaccards.length : null,
+    cellSelectionFrequency,
+    folds,
+    warnings
+  };
+}
 
 // src/optimization-pr.ts
 var import_node_path = require("node:path");
@@ -10660,6 +11113,7 @@ async function main() {
   const workflow = actionInput("workflow") || inferWorkflowFile(repository);
   const limit = intActionInput("limit", 100, 2, 500);
   const holdout = intActionInput("holdout", 25, 5, 50);
+  const rollingFolds = intActionInput("rolling-folds", 4, 2, 20);
   const strength = intActionInput("strength", 2, 1, 4);
   const optimizerRaw = actionInput("optimizer") || "auto";
   if (!["auto", "exact", "greedy"].includes(optimizerRaw)) {
@@ -10682,7 +11136,7 @@ async function main() {
     configPath !== ".matrixtrim.yml"
   );
   console.log(
-    `MatrixTrim: repository=${repository}, workflow=${workflow ?? "all"}, limit=${limit}, strength=${strength}, optimizer=${optimizer}, exactMaxNodes=${exactMaxNodes}, constraints=${(config?.constraints.keep.length ?? 0) + (config?.constraints.require.length ?? 0)}`
+    `MatrixTrim: repository=${repository}, workflow=${workflow ?? "all"}, limit=${limit}, strength=${strength}, rollingFolds=${rollingFolds}, optimizer=${optimizer}, exactMaxNodes=${exactMaxNodes}, constraints=${(config?.constraints.keep.length ?? 0) + (config?.constraints.require.length ?? 0)}`
   );
   const analysis = await analyzeRepository(repository, {
     limit,
@@ -10712,12 +11166,31 @@ async function main() {
     backtestError = error.message;
     warning(`backtest unavailable: ${backtestError}`);
   }
+  let rollingBacktest = null;
+  let rollingBacktestError;
+  try {
+    rollingBacktest = rollingBacktestRecommendation(
+      analysis,
+      rollingFolds,
+      strength,
+      config?.constraints,
+      {
+        optimizer,
+        exactMaxNodes
+      }
+    );
+  } catch (error) {
+    rollingBacktestError = error.message;
+    warning(`rolling backtest unavailable: ${rollingBacktestError}`);
+  }
   const report = formatActionReport(
     repository,
     workflow,
     recommendation,
     backtest,
-    backtestError
+    backtestError,
+    rollingBacktest,
+    rollingBacktestError
   );
   const summaryPath = process.env.GITHUB_STEP_SUMMARY;
   if (summaryPath) {
@@ -10831,6 +11304,23 @@ async function main() {
   await writeOutput(
     "unseen-failure-recall",
     backtest?.unseenHoldoutRecall?.toFixed(4) ?? ""
+  );
+  await writeOutput("rolling-valid-folds", rollingBacktest?.validFolds ?? 0);
+  await writeOutput(
+    "rolling-holdout-recall",
+    rollingBacktest?.aggregateHoldoutRecall?.toFixed(4) ?? ""
+  );
+  await writeOutput(
+    "rolling-worst-holdout-recall",
+    rollingBacktest?.worstHoldoutRecall?.toFixed(4) ?? ""
+  );
+  await writeOutput(
+    "rolling-unseen-failure-recall",
+    rollingBacktest?.aggregateUnseenHoldoutRecall?.toFixed(4) ?? ""
+  );
+  await writeOutput(
+    "rolling-selection-stability",
+    rollingBacktest?.meanPairwiseSelectionJaccard?.toFixed(4) ?? ""
   );
   let optimizationStatus = createPr ? "skipped" : "disabled";
   let optimizationNumber = "";

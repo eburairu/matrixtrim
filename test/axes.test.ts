@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	diagnoseAxesFromExpandedJobName,
 	inferAxesFromExpandedJobName,
 	workflowMatrixDefinitions,
 } from "../src/axes.js";
@@ -502,5 +503,69 @@ describe("matrix axis inference", () => {
 		expect(
 			inferAxesFromExpandedJobName("Runtime default", definitions).axes,
 		).toBeNull();
+	});
+
+	it("reports why an opaque whole dynamic matrix cannot recover axes", () => {
+		const workflow = [
+			"jobs:",
+			"  test:",
+			"    strategy:",
+			"      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}",
+		].join("\n");
+		const definitions = workflowMatrixDefinitions(workflow);
+
+		expect(
+			diagnoseAxesFromExpandedJobName("test (ubuntu, 22)", definitions),
+		).toMatchObject({
+			baseJob: "test",
+			axes: null,
+			source: "unavailable",
+			reason: "axis-names-unavailable",
+		});
+	});
+
+	it("reports value-count mismatches instead of guessing axis assignments", () => {
+		const workflow = [
+			"jobs:",
+			"  test:",
+			"    strategy:",
+			"      matrix:",
+			"        os: [ubuntu]",
+			"        node: ${{ fromJSON(needs.prepare.outputs.nodes) }}",
+		].join("\n");
+		const definitions = workflowMatrixDefinitions(workflow);
+
+		expect(
+			diagnoseAxesFromExpandedJobName("test (ubuntu)", definitions),
+		).toMatchObject({
+			baseJob: "test",
+			axes: null,
+			reason: "axis-value-count-mismatch",
+		});
+	});
+
+	it("reports ambiguous static rendered names instead of choosing a cell", () => {
+		const workflow = [
+			"jobs:",
+			"  first:",
+			"    name: Same",
+			"    strategy:",
+			"      matrix:",
+			"        node: [20]",
+			"  second:",
+			"    name: Same",
+			"    strategy:",
+			"      matrix:",
+			"        node: [20]",
+		].join("\n");
+		const definitions = workflowMatrixDefinitions(workflow);
+
+		expect(
+			diagnoseAxesFromExpandedJobName("Same (20)", definitions),
+		).toMatchObject({
+			axes: null,
+			source: "unavailable",
+			reason: "ambiguous-rendered-name",
+		});
 	});
 });
