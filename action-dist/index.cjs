@@ -29,9 +29,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// node_modules/yaml/dist/nodes/identity.js
+// ../matrixtrim-init/node_modules/yaml/dist/nodes/identity.js
 var require_identity = __commonJS({
-  "node_modules/yaml/dist/nodes/identity.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/nodes/identity.js"(exports2) {
     "use strict";
     var ALIAS = /* @__PURE__ */ Symbol.for("yaml.alias");
     var DOC = /* @__PURE__ */ Symbol.for("yaml.document");
@@ -86,9 +86,9 @@ var require_identity = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/visit.js
+// ../matrixtrim-init/node_modules/yaml/dist/visit.js
 var require_visit = __commonJS({
-  "node_modules/yaml/dist/visit.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/visit.js"(exports2) {
     "use strict";
     var identity = require_identity();
     var BREAK = /* @__PURE__ */ Symbol("break visit");
@@ -244,9 +244,9 @@ var require_visit = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/doc/directives.js
+// ../matrixtrim-init/node_modules/yaml/dist/doc/directives.js
 var require_directives = __commonJS({
-  "node_modules/yaml/dist/doc/directives.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/doc/directives.js"(exports2) {
     "use strict";
     var identity = require_identity();
     var visit = require_visit();
@@ -415,9 +415,9 @@ var require_directives = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/doc/anchors.js
+// ../matrixtrim-init/node_modules/yaml/dist/doc/anchors.js
 var require_anchors = __commonJS({
-  "node_modules/yaml/dist/doc/anchors.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/doc/anchors.js"(exports2) {
     "use strict";
     var identity = require_identity();
     var visit = require_visit();
@@ -485,9 +485,9 @@ var require_anchors = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/doc/applyReviver.js
+// ../matrixtrim-init/node_modules/yaml/dist/doc/applyReviver.js
 var require_applyReviver = __commonJS({
-  "node_modules/yaml/dist/doc/applyReviver.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/doc/applyReviver.js"(exports2) {
     "use strict";
     function applyReviver(reviver, obj, key, val) {
       if (val && typeof val === "object") {
@@ -535,9 +535,9 @@ var require_applyReviver = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/nodes/toJS.js
+// ../matrixtrim-init/node_modules/yaml/dist/nodes/toJS.js
 var require_toJS = __commonJS({
-  "node_modules/yaml/dist/nodes/toJS.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/nodes/toJS.js"(exports2) {
     "use strict";
     var identity = require_identity();
     function toJS(value, arg, ctx) {
@@ -565,9 +565,9 @@ var require_toJS = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/nodes/Node.js
+// ../matrixtrim-init/node_modules/yaml/dist/nodes/Node.js
 var require_Node = __commonJS({
-  "node_modules/yaml/dist/nodes/Node.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/nodes/Node.js"(exports2) {
     "use strict";
     var applyReviver = require_applyReviver();
     var identity = require_identity();
@@ -606,9 +606,9 @@ var require_Node = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/nodes/Alias.js
+// ../matrixtrim-init/node_modules/yaml/dist/nodes/Alias.js
 var require_Alias = __commonJS({
-  "node_modules/yaml/dist/nodes/Alias.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/nodes/Alias.js"(exports2) {
     "use strict";
     var anchors = require_anchors();
     var visit = require_visit();
@@ -724,9 +724,9 @@ var require_Alias = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/nodes/Scalar.js
+// ../matrixtrim-init/node_modules/yaml/dist/nodes/Scalar.js
 var require_Scalar = __commonJS({
-  "node_modules/yaml/dist/nodes/Scalar.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/nodes/Scalar.js"(exports2) {
     "use strict";
     var identity = require_identity();
     var Node = require_Node();
@@ -754,9 +754,9 @@ var require_Scalar = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/doc/createNode.js
+// ../matrixtrim-init/node_modules/yaml/dist/doc/createNode.js
 var require_createNode = __commonJS({
-  "node_modules/yaml/dist/doc/createNode.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/doc/createNode.js"(exports2) {
     "use strict";
     var Alias = require_Alias();
     var identity = require_identity();
@@ -829,9 +829,9 @@ var require_createNode = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/nodes/Collection.js
+// ../matrixtrim-init/node_modules/yaml/dist/nodes/Collection.js
 var require_Collection = __commonJS({
-  "node_modules/yaml/dist/nodes/Collection.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/nodes/Collection.js"(exports2) {
     "use strict";
     var createNode = require_createNode();
     var identity = require_identity();
@@ -972,9 +972,9 @@ var require_Collection = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/stringify/stringifyComment.js
+// ../matrixtrim-init/node_modules/yaml/dist/stringify/stringifyComment.js
 var require_stringifyComment = __commonJS({
-  "node_modules/yaml/dist/stringify/stringifyComment.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/stringify/stringifyComment.js"(exports2) {
     "use strict";
     var stringifyComment = (str) => str.replace(/^(?!$)(?: $)?/gm, "#");
     function indentComment(comment, indent) {
@@ -989,9 +989,9 @@ var require_stringifyComment = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/stringify/foldFlowLines.js
+// ../matrixtrim-init/node_modules/yaml/dist/stringify/foldFlowLines.js
 var require_foldFlowLines = __commonJS({
-  "node_modules/yaml/dist/stringify/foldFlowLines.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/stringify/foldFlowLines.js"(exports2) {
     "use strict";
     var FOLD_FLOW = "flow";
     var FOLD_BLOCK = "block";
@@ -1125,9 +1125,9 @@ ${indent}${text.slice(fold + 1, end2)}`;
   }
 });
 
-// node_modules/yaml/dist/stringify/stringifyString.js
+// ../matrixtrim-init/node_modules/yaml/dist/stringify/stringifyString.js
 var require_stringifyString = __commonJS({
-  "node_modules/yaml/dist/stringify/stringifyString.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/stringify/stringifyString.js"(exports2) {
     "use strict";
     var Scalar = require_Scalar();
     var foldFlowLines = require_foldFlowLines();
@@ -1408,9 +1408,9 @@ ${indent}`);
   }
 });
 
-// node_modules/yaml/dist/stringify/stringify.js
+// ../matrixtrim-init/node_modules/yaml/dist/stringify/stringify.js
 var require_stringify = __commonJS({
-  "node_modules/yaml/dist/stringify/stringify.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/stringify/stringify.js"(exports2) {
     "use strict";
     var anchors = require_anchors();
     var identity = require_identity();
@@ -1532,9 +1532,9 @@ ${ctx.indent}${str}`;
   }
 });
 
-// node_modules/yaml/dist/stringify/stringifyPair.js
+// ../matrixtrim-init/node_modules/yaml/dist/stringify/stringifyPair.js
 var require_stringifyPair = __commonJS({
-  "node_modules/yaml/dist/stringify/stringifyPair.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/stringify/stringifyPair.js"(exports2) {
     "use strict";
     var identity = require_identity();
     var Scalar = require_Scalar();
@@ -1665,9 +1665,9 @@ ${ctx.indent}`;
   }
 });
 
-// node_modules/yaml/dist/log.js
+// ../matrixtrim-init/node_modules/yaml/dist/log.js
 var require_log = __commonJS({
-  "node_modules/yaml/dist/log.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/log.js"(exports2) {
     "use strict";
     var node_process = require("process");
     function debug(logLevel, ...messages) {
@@ -1687,9 +1687,9 @@ var require_log = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/schema/yaml-1.1/merge.js
+// ../matrixtrim-init/node_modules/yaml/dist/schema/yaml-1.1/merge.js
 var require_merge = __commonJS({
-  "node_modules/yaml/dist/schema/yaml-1.1/merge.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/schema/yaml-1.1/merge.js"(exports2) {
     "use strict";
     var identity = require_identity();
     var Scalar = require_Scalar();
@@ -1747,9 +1747,9 @@ var require_merge = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/nodes/addPairToJSMap.js
+// ../matrixtrim-init/node_modules/yaml/dist/nodes/addPairToJSMap.js
 var require_addPairToJSMap = __commonJS({
-  "node_modules/yaml/dist/nodes/addPairToJSMap.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/nodes/addPairToJSMap.js"(exports2) {
     "use strict";
     var log = require_log();
     var merge = require_merge();
@@ -1811,9 +1811,9 @@ var require_addPairToJSMap = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/nodes/Pair.js
+// ../matrixtrim-init/node_modules/yaml/dist/nodes/Pair.js
 var require_Pair = __commonJS({
-  "node_modules/yaml/dist/nodes/Pair.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/nodes/Pair.js"(exports2) {
     "use strict";
     var createNode = require_createNode();
     var stringifyPair = require_stringifyPair();
@@ -1851,9 +1851,9 @@ var require_Pair = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/stringify/stringifyCollection.js
+// ../matrixtrim-init/node_modules/yaml/dist/stringify/stringifyCollection.js
 var require_stringifyCollection = __commonJS({
-  "node_modules/yaml/dist/stringify/stringifyCollection.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/stringify/stringifyCollection.js"(exports2) {
     "use strict";
     var identity = require_identity();
     var stringify = require_stringify();
@@ -2002,9 +2002,9 @@ ${indent}${end}`;
   }
 });
 
-// node_modules/yaml/dist/nodes/YAMLMap.js
+// ../matrixtrim-init/node_modules/yaml/dist/nodes/YAMLMap.js
 var require_YAMLMap = __commonJS({
-  "node_modules/yaml/dist/nodes/YAMLMap.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/nodes/YAMLMap.js"(exports2) {
     "use strict";
     var stringifyCollection = require_stringifyCollection();
     var addPairToJSMap = require_addPairToJSMap();
@@ -2146,9 +2146,9 @@ var require_YAMLMap = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/schema/common/map.js
+// ../matrixtrim-init/node_modules/yaml/dist/schema/common/map.js
 var require_map = __commonJS({
-  "node_modules/yaml/dist/schema/common/map.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/schema/common/map.js"(exports2) {
     "use strict";
     var identity = require_identity();
     var YAMLMap = require_YAMLMap();
@@ -2168,9 +2168,9 @@ var require_map = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/nodes/YAMLSeq.js
+// ../matrixtrim-init/node_modules/yaml/dist/nodes/YAMLSeq.js
 var require_YAMLSeq = __commonJS({
-  "node_modules/yaml/dist/nodes/YAMLSeq.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/nodes/YAMLSeq.js"(exports2) {
     "use strict";
     var createNode = require_createNode();
     var stringifyCollection = require_stringifyCollection();
@@ -2284,9 +2284,9 @@ var require_YAMLSeq = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/schema/common/seq.js
+// ../matrixtrim-init/node_modules/yaml/dist/schema/common/seq.js
 var require_seq = __commonJS({
-  "node_modules/yaml/dist/schema/common/seq.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/schema/common/seq.js"(exports2) {
     "use strict";
     var identity = require_identity();
     var YAMLSeq = require_YAMLSeq();
@@ -2306,9 +2306,9 @@ var require_seq = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/schema/common/string.js
+// ../matrixtrim-init/node_modules/yaml/dist/schema/common/string.js
 var require_string = __commonJS({
-  "node_modules/yaml/dist/schema/common/string.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/schema/common/string.js"(exports2) {
     "use strict";
     var stringifyString = require_stringifyString();
     var string = {
@@ -2325,9 +2325,9 @@ var require_string = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/schema/common/null.js
+// ../matrixtrim-init/node_modules/yaml/dist/schema/common/null.js
 var require_null = __commonJS({
-  "node_modules/yaml/dist/schema/common/null.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/schema/common/null.js"(exports2) {
     "use strict";
     var Scalar = require_Scalar();
     var nullTag = {
@@ -2343,9 +2343,9 @@ var require_null = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/schema/core/bool.js
+// ../matrixtrim-init/node_modules/yaml/dist/schema/core/bool.js
 var require_bool = __commonJS({
-  "node_modules/yaml/dist/schema/core/bool.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/schema/core/bool.js"(exports2) {
     "use strict";
     var Scalar = require_Scalar();
     var boolTag = {
@@ -2367,9 +2367,9 @@ var require_bool = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/stringify/stringifyNumber.js
+// ../matrixtrim-init/node_modules/yaml/dist/stringify/stringifyNumber.js
 var require_stringifyNumber = __commonJS({
-  "node_modules/yaml/dist/stringify/stringifyNumber.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/stringify/stringifyNumber.js"(exports2) {
     "use strict";
     function stringifyNumber({ format, minFractionDigits, tag, value }) {
       if (typeof value === "bigint")
@@ -2394,9 +2394,9 @@ var require_stringifyNumber = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/schema/core/float.js
+// ../matrixtrim-init/node_modules/yaml/dist/schema/core/float.js
 var require_float = __commonJS({
-  "node_modules/yaml/dist/schema/core/float.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/schema/core/float.js"(exports2) {
     "use strict";
     var Scalar = require_Scalar();
     var stringifyNumber = require_stringifyNumber();
@@ -2440,9 +2440,9 @@ var require_float = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/schema/core/int.js
+// ../matrixtrim-init/node_modules/yaml/dist/schema/core/int.js
 var require_int = __commonJS({
-  "node_modules/yaml/dist/schema/core/int.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/schema/core/int.js"(exports2) {
     "use strict";
     var stringifyNumber = require_stringifyNumber();
     var intIdentify = (value) => typeof value === "bigint" || Number.isInteger(value);
@@ -2485,9 +2485,9 @@ var require_int = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/schema/core/schema.js
+// ../matrixtrim-init/node_modules/yaml/dist/schema/core/schema.js
 var require_schema = __commonJS({
-  "node_modules/yaml/dist/schema/core/schema.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/schema/core/schema.js"(exports2) {
     "use strict";
     var map = require_map();
     var _null = require_null();
@@ -2513,9 +2513,9 @@ var require_schema = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/schema/json/schema.js
+// ../matrixtrim-init/node_modules/yaml/dist/schema/json/schema.js
 var require_schema2 = __commonJS({
-  "node_modules/yaml/dist/schema/json/schema.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/schema/json/schema.js"(exports2) {
     "use strict";
     var Scalar = require_Scalar();
     var map = require_map();
@@ -2580,9 +2580,9 @@ var require_schema2 = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/schema/yaml-1.1/binary.js
+// ../matrixtrim-init/node_modules/yaml/dist/schema/yaml-1.1/binary.js
 var require_binary = __commonJS({
-  "node_modules/yaml/dist/schema/yaml-1.1/binary.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/schema/yaml-1.1/binary.js"(exports2) {
     "use strict";
     var node_buffer = require("buffer");
     var Scalar = require_Scalar();
@@ -2646,9 +2646,9 @@ var require_binary = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/schema/yaml-1.1/pairs.js
+// ../matrixtrim-init/node_modules/yaml/dist/schema/yaml-1.1/pairs.js
 var require_pairs = __commonJS({
-  "node_modules/yaml/dist/schema/yaml-1.1/pairs.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/schema/yaml-1.1/pairs.js"(exports2) {
     "use strict";
     var identity = require_identity();
     var Pair = require_Pair();
@@ -2724,9 +2724,9 @@ ${cn.comment}` : item.comment;
   }
 });
 
-// node_modules/yaml/dist/schema/yaml-1.1/omap.js
+// ../matrixtrim-init/node_modules/yaml/dist/schema/yaml-1.1/omap.js
 var require_omap = __commonJS({
-  "node_modules/yaml/dist/schema/yaml-1.1/omap.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/schema/yaml-1.1/omap.js"(exports2) {
     "use strict";
     var identity = require_identity();
     var toJS = require_toJS();
@@ -2802,9 +2802,9 @@ var require_omap = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/schema/yaml-1.1/bool.js
+// ../matrixtrim-init/node_modules/yaml/dist/schema/yaml-1.1/bool.js
 var require_bool2 = __commonJS({
-  "node_modules/yaml/dist/schema/yaml-1.1/bool.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/schema/yaml-1.1/bool.js"(exports2) {
     "use strict";
     var Scalar = require_Scalar();
     function boolStringify({ value, source }, ctx) {
@@ -2834,9 +2834,9 @@ var require_bool2 = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/schema/yaml-1.1/float.js
+// ../matrixtrim-init/node_modules/yaml/dist/schema/yaml-1.1/float.js
 var require_float2 = __commonJS({
-  "node_modules/yaml/dist/schema/yaml-1.1/float.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/schema/yaml-1.1/float.js"(exports2) {
     "use strict";
     var Scalar = require_Scalar();
     var stringifyNumber = require_stringifyNumber();
@@ -2883,9 +2883,9 @@ var require_float2 = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/schema/yaml-1.1/int.js
+// ../matrixtrim-init/node_modules/yaml/dist/schema/yaml-1.1/int.js
 var require_int2 = __commonJS({
-  "node_modules/yaml/dist/schema/yaml-1.1/int.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/schema/yaml-1.1/int.js"(exports2) {
     "use strict";
     var stringifyNumber = require_stringifyNumber();
     var intIdentify = (value) => typeof value === "bigint" || Number.isInteger(value);
@@ -2962,9 +2962,9 @@ var require_int2 = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/schema/yaml-1.1/set.js
+// ../matrixtrim-init/node_modules/yaml/dist/schema/yaml-1.1/set.js
 var require_set = __commonJS({
-  "node_modules/yaml/dist/schema/yaml-1.1/set.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/schema/yaml-1.1/set.js"(exports2) {
     "use strict";
     var identity = require_identity();
     var Pair = require_Pair();
@@ -3051,9 +3051,9 @@ var require_set = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/schema/yaml-1.1/timestamp.js
+// ../matrixtrim-init/node_modules/yaml/dist/schema/yaml-1.1/timestamp.js
 var require_timestamp = __commonJS({
-  "node_modules/yaml/dist/schema/yaml-1.1/timestamp.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/schema/yaml-1.1/timestamp.js"(exports2) {
     "use strict";
     var stringifyNumber = require_stringifyNumber();
     function parseSexagesimal(str, asBigInt) {
@@ -3139,9 +3139,9 @@ var require_timestamp = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/schema/yaml-1.1/schema.js
+// ../matrixtrim-init/node_modules/yaml/dist/schema/yaml-1.1/schema.js
 var require_schema3 = __commonJS({
-  "node_modules/yaml/dist/schema/yaml-1.1/schema.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/schema/yaml-1.1/schema.js"(exports2) {
     "use strict";
     var map = require_map();
     var _null = require_null();
@@ -3183,9 +3183,9 @@ var require_schema3 = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/schema/tags.js
+// ../matrixtrim-init/node_modules/yaml/dist/schema/tags.js
 var require_tags = __commonJS({
-  "node_modules/yaml/dist/schema/tags.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/schema/tags.js"(exports2) {
     "use strict";
     var map = require_map();
     var _null = require_null();
@@ -3277,9 +3277,9 @@ var require_tags = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/schema/Schema.js
+// ../matrixtrim-init/node_modules/yaml/dist/schema/Schema.js
 var require_Schema = __commonJS({
-  "node_modules/yaml/dist/schema/Schema.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/schema/Schema.js"(exports2) {
     "use strict";
     var identity = require_identity();
     var map = require_map();
@@ -3309,9 +3309,9 @@ var require_Schema = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/stringify/stringifyDocument.js
+// ../matrixtrim-init/node_modules/yaml/dist/stringify/stringifyDocument.js
 var require_stringifyDocument = __commonJS({
-  "node_modules/yaml/dist/stringify/stringifyDocument.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/stringify/stringifyDocument.js"(exports2) {
     "use strict";
     var identity = require_identity();
     var stringify = require_stringify();
@@ -3389,9 +3389,9 @@ var require_stringifyDocument = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/doc/Document.js
+// ../matrixtrim-init/node_modules/yaml/dist/doc/Document.js
 var require_Document = __commonJS({
-  "node_modules/yaml/dist/doc/Document.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/doc/Document.js"(exports2) {
     "use strict";
     var Alias = require_Alias();
     var Collection = require_Collection();
@@ -3698,9 +3698,9 @@ var require_Document = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/errors.js
+// ../matrixtrim-init/node_modules/yaml/dist/errors.js
 var require_errors = __commonJS({
-  "node_modules/yaml/dist/errors.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/errors.js"(exports2) {
     "use strict";
     var YAMLError = class extends Error {
       constructor(name, pos, code, message) {
@@ -3763,9 +3763,9 @@ ${pointer}
   }
 });
 
-// node_modules/yaml/dist/compose/resolve-props.js
+// ../matrixtrim-init/node_modules/yaml/dist/compose/resolve-props.js
 var require_resolve_props = __commonJS({
-  "node_modules/yaml/dist/compose/resolve-props.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/compose/resolve-props.js"(exports2) {
     "use strict";
     function resolveProps(tokens, { flow, indicator, next, offset, onError, parentIndent, startOnNewline }) {
       let spaceBefore = false;
@@ -3897,9 +3897,9 @@ var require_resolve_props = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/compose/util-contains-newline.js
+// ../matrixtrim-init/node_modules/yaml/dist/compose/util-contains-newline.js
 var require_util_contains_newline = __commonJS({
-  "node_modules/yaml/dist/compose/util-contains-newline.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/compose/util-contains-newline.js"(exports2) {
     "use strict";
     function containsNewline(key) {
       if (!key)
@@ -3939,9 +3939,9 @@ var require_util_contains_newline = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/compose/util-flow-indent-check.js
+// ../matrixtrim-init/node_modules/yaml/dist/compose/util-flow-indent-check.js
 var require_util_flow_indent_check = __commonJS({
-  "node_modules/yaml/dist/compose/util-flow-indent-check.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/compose/util-flow-indent-check.js"(exports2) {
     "use strict";
     var utilContainsNewline = require_util_contains_newline();
     function flowIndentCheck(indent, fc, onError) {
@@ -3957,9 +3957,9 @@ var require_util_flow_indent_check = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/compose/util-map-includes.js
+// ../matrixtrim-init/node_modules/yaml/dist/compose/util-map-includes.js
 var require_util_map_includes = __commonJS({
-  "node_modules/yaml/dist/compose/util-map-includes.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/compose/util-map-includes.js"(exports2) {
     "use strict";
     var identity = require_identity();
     function mapIncludes(ctx, items, search) {
@@ -3973,9 +3973,9 @@ var require_util_map_includes = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/compose/resolve-block-map.js
+// ../matrixtrim-init/node_modules/yaml/dist/compose/resolve-block-map.js
 var require_resolve_block_map = __commonJS({
-  "node_modules/yaml/dist/compose/resolve-block-map.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/compose/resolve-block-map.js"(exports2) {
     "use strict";
     var Pair = require_Pair();
     var YAMLMap = require_YAMLMap();
@@ -4081,9 +4081,9 @@ var require_resolve_block_map = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/compose/resolve-block-seq.js
+// ../matrixtrim-init/node_modules/yaml/dist/compose/resolve-block-seq.js
 var require_resolve_block_seq = __commonJS({
-  "node_modules/yaml/dist/compose/resolve-block-seq.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/compose/resolve-block-seq.js"(exports2) {
     "use strict";
     var YAMLSeq = require_YAMLSeq();
     var resolveProps = require_resolve_props();
@@ -4132,9 +4132,9 @@ var require_resolve_block_seq = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/compose/resolve-end.js
+// ../matrixtrim-init/node_modules/yaml/dist/compose/resolve-end.js
 var require_resolve_end = __commonJS({
-  "node_modules/yaml/dist/compose/resolve-end.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/compose/resolve-end.js"(exports2) {
     "use strict";
     function resolveEnd(end, offset, reqSpace, onError) {
       let comment = "";
@@ -4175,9 +4175,9 @@ var require_resolve_end = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/compose/resolve-flow-collection.js
+// ../matrixtrim-init/node_modules/yaml/dist/compose/resolve-flow-collection.js
 var require_resolve_flow_collection = __commonJS({
-  "node_modules/yaml/dist/compose/resolve-flow-collection.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/compose/resolve-flow-collection.js"(exports2) {
     "use strict";
     var identity = require_identity();
     var Pair = require_Pair();
@@ -4369,9 +4369,9 @@ var require_resolve_flow_collection = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/compose/compose-collection.js
+// ../matrixtrim-init/node_modules/yaml/dist/compose/compose-collection.js
 var require_compose_collection = __commonJS({
-  "node_modules/yaml/dist/compose/compose-collection.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/compose/compose-collection.js"(exports2) {
     "use strict";
     var identity = require_identity();
     var Scalar = require_Scalar();
@@ -4434,9 +4434,9 @@ var require_compose_collection = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/compose/resolve-block-scalar.js
+// ../matrixtrim-init/node_modules/yaml/dist/compose/resolve-block-scalar.js
 var require_resolve_block_scalar = __commonJS({
-  "node_modules/yaml/dist/compose/resolve-block-scalar.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/compose/resolve-block-scalar.js"(exports2) {
     "use strict";
     var Scalar = require_Scalar();
     function resolveBlockScalar(ctx, scalar, onError) {
@@ -4617,9 +4617,9 @@ var require_resolve_block_scalar = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/compose/resolve-flow-scalar.js
+// ../matrixtrim-init/node_modules/yaml/dist/compose/resolve-flow-scalar.js
 var require_resolve_flow_scalar = __commonJS({
-  "node_modules/yaml/dist/compose/resolve-flow-scalar.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/compose/resolve-flow-scalar.js"(exports2) {
     "use strict";
     var Scalar = require_Scalar();
     var resolveEnd = require_resolve_end();
@@ -4838,9 +4838,9 @@ var require_resolve_flow_scalar = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/compose/compose-scalar.js
+// ../matrixtrim-init/node_modules/yaml/dist/compose/compose-scalar.js
 var require_compose_scalar = __commonJS({
-  "node_modules/yaml/dist/compose/compose-scalar.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/compose/compose-scalar.js"(exports2) {
     "use strict";
     var identity = require_identity();
     var Scalar = require_Scalar();
@@ -4919,9 +4919,9 @@ var require_compose_scalar = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/compose/util-empty-scalar-position.js
+// ../matrixtrim-init/node_modules/yaml/dist/compose/util-empty-scalar-position.js
 var require_util_empty_scalar_position = __commonJS({
-  "node_modules/yaml/dist/compose/util-empty-scalar-position.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/compose/util-empty-scalar-position.js"(exports2) {
     "use strict";
     function emptyScalarPosition(offset, before, pos) {
       if (before) {
@@ -4949,9 +4949,9 @@ var require_util_empty_scalar_position = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/compose/compose-node.js
+// ../matrixtrim-init/node_modules/yaml/dist/compose/compose-node.js
 var require_compose_node = __commonJS({
-  "node_modules/yaml/dist/compose/compose-node.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/compose/compose-node.js"(exports2) {
     "use strict";
     var Alias = require_Alias();
     var identity = require_identity();
@@ -5055,9 +5055,9 @@ var require_compose_node = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/compose/compose-doc.js
+// ../matrixtrim-init/node_modules/yaml/dist/compose/compose-doc.js
 var require_compose_doc = __commonJS({
-  "node_modules/yaml/dist/compose/compose-doc.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/compose/compose-doc.js"(exports2) {
     "use strict";
     var Document = require_Document();
     var composeNode = require_compose_node();
@@ -5098,9 +5098,9 @@ var require_compose_doc = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/compose/composer.js
+// ../matrixtrim-init/node_modules/yaml/dist/compose/composer.js
 var require_composer = __commonJS({
-  "node_modules/yaml/dist/compose/composer.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/compose/composer.js"(exports2) {
     "use strict";
     var node_process = require("process");
     var directives = require_directives();
@@ -5306,9 +5306,9 @@ ${end.comment}` : end.comment;
   }
 });
 
-// node_modules/yaml/dist/parse/cst-scalar.js
+// ../matrixtrim-init/node_modules/yaml/dist/parse/cst-scalar.js
 var require_cst_scalar = __commonJS({
-  "node_modules/yaml/dist/parse/cst-scalar.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/parse/cst-scalar.js"(exports2) {
     "use strict";
     var resolveBlockScalar = require_resolve_block_scalar();
     var resolveFlowScalar = require_resolve_flow_scalar();
@@ -5491,9 +5491,9 @@ var require_cst_scalar = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/parse/cst-stringify.js
+// ../matrixtrim-init/node_modules/yaml/dist/parse/cst-stringify.js
 var require_cst_stringify = __commonJS({
-  "node_modules/yaml/dist/parse/cst-stringify.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/parse/cst-stringify.js"(exports2) {
     "use strict";
     var stringify = (cst) => "type" in cst ? stringifyToken(cst) : stringifyItem(cst);
     function stringifyToken(token) {
@@ -5552,9 +5552,9 @@ var require_cst_stringify = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/parse/cst-visit.js
+// ../matrixtrim-init/node_modules/yaml/dist/parse/cst-visit.js
 var require_cst_visit = __commonJS({
-  "node_modules/yaml/dist/parse/cst-visit.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/parse/cst-visit.js"(exports2) {
     "use strict";
     var BREAK = /* @__PURE__ */ Symbol("break visit");
     var SKIP = /* @__PURE__ */ Symbol("skip children");
@@ -5614,9 +5614,9 @@ var require_cst_visit = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/parse/cst.js
+// ../matrixtrim-init/node_modules/yaml/dist/parse/cst.js
 var require_cst = __commonJS({
-  "node_modules/yaml/dist/parse/cst.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/parse/cst.js"(exports2) {
     "use strict";
     var cstScalar = require_cst_scalar();
     var cstStringify = require_cst_stringify();
@@ -5716,9 +5716,9 @@ var require_cst = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/parse/lexer.js
+// ../matrixtrim-init/node_modules/yaml/dist/parse/lexer.js
 var require_lexer = __commonJS({
-  "node_modules/yaml/dist/parse/lexer.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/parse/lexer.js"(exports2) {
     "use strict";
     var cst = require_cst();
     function isEmpty(ch) {
@@ -6305,9 +6305,9 @@ var require_lexer = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/parse/line-counter.js
+// ../matrixtrim-init/node_modules/yaml/dist/parse/line-counter.js
 var require_line_counter = __commonJS({
-  "node_modules/yaml/dist/parse/line-counter.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/parse/line-counter.js"(exports2) {
     "use strict";
     var LineCounter = class {
       constructor() {
@@ -6336,9 +6336,9 @@ var require_line_counter = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/parse/parser.js
+// ../matrixtrim-init/node_modules/yaml/dist/parse/parser.js
 var require_parser = __commonJS({
-  "node_modules/yaml/dist/parse/parser.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/parse/parser.js"(exports2) {
     "use strict";
     var node_process = require("process");
     var cst = require_cst();
@@ -7210,9 +7210,9 @@ var require_parser = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/public-api.js
+// ../matrixtrim-init/node_modules/yaml/dist/public-api.js
 var require_public_api = __commonJS({
-  "node_modules/yaml/dist/public-api.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/public-api.js"(exports2) {
     "use strict";
     var composer = require_composer();
     var Document = require_Document();
@@ -7307,9 +7307,9 @@ var require_public_api = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/index.js
+// ../matrixtrim-init/node_modules/yaml/dist/index.js
 var require_dist = __commonJS({
-  "node_modules/yaml/dist/index.js"(exports2) {
+  "../matrixtrim-init/node_modules/yaml/dist/index.js"(exports2) {
     "use strict";
     var composer = require_composer();
     var Document = require_Document();
@@ -7391,7 +7391,7 @@ function boolActionInput(name, fallback, env = process.env) {
 var percent = (value) => value === null ? "n/a" : `${(value * 100).toFixed(1)}%`;
 var seconds = (value) => value === null ? "n/a" : `${value.toFixed(1)}s`;
 var dollars = (value, digits = 3) => value === null ? "n/a" : `$${value.toFixed(digits)}`;
-function formatActionReport(repository, workflow, recommendation, backtest, backtestError) {
+function formatActionReport(repository, workflow, recommendation, backtest, backtestError, rollingBacktest, rollingBacktestError) {
   const selected = recommendation.selectedCells.map(
     (cell) => `- \`${cell.cell}\` \u2014 failures=${cell.coveredFailures}, combinations=${cell.coveredCombinations}, median=${seconds(cell.medianRuntimeSeconds)}, list-price/run=${dollars(cell.estimatedListPriceUsdPerRun)}`
   ).join("\n");
@@ -7411,6 +7411,13 @@ function formatActionReport(repository, workflow, recommendation, backtest, back
     `| Unseen-failure recall | ${backtest.unseenHoldoutRecall === null ? "n/a" : `${backtest.coveredUnseenHoldoutFingerprints}/${backtest.unseenHoldoutFingerprints} (${percent(backtest.unseenHoldoutRecall)})`} |`,
     `| Holdout combinatorial coverage | ${backtest.holdoutCombinatorialCoverage === null ? "n/a" : `${backtest.coveredHoldoutCombinatorialRequirements}/${backtest.holdoutCombinatorialRequirements} (${percent(backtest.holdoutCombinatorialCoverage)})`} |`
   ].join("\n") : `| Backtest | unavailable${backtestError ? `: ${backtestError}` : ""} |`;
+  const rollingRows = rollingBacktest ? [
+    `| Rolling valid folds | ${rollingBacktest.validFolds}/${rollingBacktest.foldCount} |`,
+    `| Rolling aggregate failure recall | ${rollingBacktest.aggregateHoldoutRecall === null ? "n/a" : `${rollingBacktest.aggregateCoveredHoldoutFingerprints}/${rollingBacktest.aggregateHoldoutFingerprints} (${percent(rollingBacktest.aggregateHoldoutRecall)})`} |`,
+    `| Rolling worst-fold recall | ${percent(rollingBacktest.worstHoldoutRecall)} |`,
+    `| Rolling unseen-failure recall | ${rollingBacktest.aggregateUnseenHoldoutRecall === null ? "n/a" : `${rollingBacktest.aggregateCoveredUnseenHoldoutFingerprints}/${rollingBacktest.aggregateUnseenHoldoutFingerprints} (${percent(rollingBacktest.aggregateUnseenHoldoutRecall)})`} |`,
+    `| Selection stability (mean Jaccard) | ${percent(rollingBacktest.meanPairwiseSelectionJaccard)} |`
+  ].join("\n") : `| Rolling validation | unavailable${rollingBacktestError ? `: ${rollingBacktestError}` : ""} |`;
   const warnings = recommendation.warnings.map((warning2) => `- \u26A0\uFE0F ${warning2}`).join("\n");
   return `<!-- matrixtrim-report -->
 ## MatrixTrim analysis
@@ -7442,6 +7449,7 @@ function formatActionReport(repository, workflow, recommendation, backtest, back
 | Estimated GitHub charge reduction | ${estimatedChargeReduction} |
 | Projected 30-day GitHub charge | ${projectedCharge30d} |
 ${backtestRows}
+${rollingRows}
 
 <details>
 <summary>Suggested cells</summary>
@@ -10179,6 +10187,224 @@ function backtestRecommendation(report, holdoutPercent = 25, coverageStrength = 
     warnings
   };
 }
+function conclusiveRuns(report) {
+  const conclusive = (value) => value === void 0 || ["success", "failure", "timed_out", "neutral"].includes(value ?? "");
+  return [
+    ...new Map(
+      report.matrixJobs.filter((item) => conclusive(item.runConclusion)).map((item) => [
+        item.runId,
+        { runId: item.runId, runNumber: item.runNumber }
+      ])
+    ).values()
+  ].sort((a, b) => a.runNumber - b.runNumber || a.runId - b.runId);
+}
+function selectionJaccard(a, b) {
+  const left = new Set(a);
+  const right = new Set(b);
+  const union = /* @__PURE__ */ new Set([...left, ...right]);
+  if (!union.size) return 1;
+  let intersection = 0;
+  for (const cell of left) {
+    if (right.has(cell)) intersection++;
+  }
+  return intersection / union.size;
+}
+function rollingFold(report, fold, trainingRunIds, holdoutRunIds, coverageStrength, constraints, optimizerOptions) {
+  const training = report.observations.filter(
+    (item) => trainingRunIds.has(item.runId)
+  );
+  const holdout = report.observations.filter(
+    (item) => holdoutRunIds.has(item.runId)
+  );
+  const base = {
+    fold,
+    trainingRuns: trainingRunIds.size,
+    holdoutRuns: holdoutRunIds.size,
+    selectedCells: [],
+    trainingFingerprints: new Set(training.map((item) => item.fingerprint)).size,
+    holdoutFingerprints: 0,
+    coveredHoldoutFingerprints: 0,
+    holdoutRecall: null,
+    unseenHoldoutFingerprints: 0,
+    coveredUnseenHoldoutFingerprints: 0,
+    unseenHoldoutRecall: null
+  };
+  if (!holdout.length) {
+    return {
+      ...base,
+      status: "invalid",
+      reason: "no analyzable failure fingerprints in holdout window"
+    };
+  }
+  const trainingReport = subsetReport(report, training, trainingRunIds);
+  if (!trainingReport.cells.length) {
+    return {
+      ...base,
+      status: "invalid",
+      reason: "no matrix observations in training window"
+    };
+  }
+  try {
+    const recommendation = recommendMatrix(trainingReport, {
+      maxStrength: coverageStrength,
+      constraints,
+      ...optimizerOptions
+    });
+    const selected = new Set(
+      recommendation.selectedCells.map((cell) => cell.cell)
+    );
+    const trainingFingerprints = new Set(
+      training.map((item) => item.fingerprint)
+    );
+    const holdoutClusters = clustersFor(holdout);
+    let covered = 0;
+    let unseen = 0;
+    let coveredUnseen = 0;
+    for (const cluster of holdoutClusters) {
+      const detected = cluster.cells.some((cell) => selected.has(cell));
+      const seenInTraining = trainingFingerprints.has(cluster.fingerprint);
+      if (detected) covered++;
+      if (!seenInTraining) {
+        unseen++;
+        if (detected) coveredUnseen++;
+      }
+    }
+    return {
+      ...base,
+      status: "valid",
+      selectedCells: [...selected].sort(),
+      holdoutFingerprints: holdoutClusters.length,
+      coveredHoldoutFingerprints: covered,
+      holdoutRecall: covered / holdoutClusters.length,
+      unseenHoldoutFingerprints: unseen,
+      coveredUnseenHoldoutFingerprints: coveredUnseen,
+      unseenHoldoutRecall: unseen ? coveredUnseen / unseen : null,
+      optimizerAlgorithm: recommendation.algorithm,
+      optimizerOptimal: recommendation.optimizerOptimal,
+      optimizerSearchNodes: recommendation.optimizerSearchNodes
+    };
+  } catch (error) {
+    return {
+      ...base,
+      status: "invalid",
+      reason: `training recommendation unavailable: ${error.message}`
+    };
+  }
+}
+function rollingBacktestRecommendation(report, requestedFolds = 4, coverageStrength = 2, constraints, optimizerOptions = {}) {
+  if (!Number.isInteger(requestedFolds) || requestedFolds < 2) {
+    throw new Error("requestedFolds must be an integer of at least 2");
+  }
+  const runs = conclusiveRuns(report);
+  if (runs.length < 3) {
+    throw new Error(
+      "rolling backtest requires at least three completed matrix workflow runs"
+    );
+  }
+  const foldCount = Math.min(requestedFolds, runs.length - 1);
+  const segmentCount = foldCount + 1;
+  const baseSize = Math.floor(runs.length / segmentCount);
+  const extra = runs.length % segmentCount;
+  const segments = [];
+  let offset = 0;
+  for (let index = 0; index < segmentCount; index++) {
+    const size = baseSize + (index < extra ? 1 : 0);
+    segments.push(runs.slice(offset, offset + size));
+    offset += size;
+  }
+  const folds = [];
+  for (let index = 1; index < segments.length; index++) {
+    const trainingRuns = segments.slice(0, index).flat();
+    const holdoutRuns = segments[index];
+    folds.push(
+      rollingFold(
+        report,
+        index,
+        new Set(trainingRuns.map((run) => run.runId)),
+        new Set(holdoutRuns.map((run) => run.runId)),
+        coverageStrength,
+        constraints,
+        optimizerOptions
+      )
+    );
+  }
+  const valid = folds.filter((item) => item.status === "valid");
+  const aggregateHoldoutFingerprints = valid.reduce(
+    (sum, item) => sum + item.holdoutFingerprints,
+    0
+  );
+  const aggregateCoveredHoldoutFingerprints = valid.reduce(
+    (sum, item) => sum + item.coveredHoldoutFingerprints,
+    0
+  );
+  const aggregateUnseenHoldoutFingerprints = valid.reduce(
+    (sum, item) => sum + item.unseenHoldoutFingerprints,
+    0
+  );
+  const aggregateCoveredUnseenHoldoutFingerprints = valid.reduce(
+    (sum, item) => sum + item.coveredUnseenHoldoutFingerprints,
+    0
+  );
+  const holdoutRecalls = valid.map((item) => item.holdoutRecall).filter((value) => value !== null);
+  const unseenRecalls = valid.map((item) => item.unseenHoldoutRecall).filter((value) => value !== null);
+  const pairwiseJaccards = [];
+  for (let left = 0; left < valid.length; left++) {
+    for (let right = left + 1; right < valid.length; right++) {
+      pairwiseJaccards.push(
+        selectionJaccard(
+          valid[left].selectedCells,
+          valid[right].selectedCells
+        )
+      );
+    }
+  }
+  const selectionCounts = /* @__PURE__ */ new Map();
+  for (const item of valid) {
+    for (const cell of item.selectedCells) {
+      selectionCounts.set(cell, (selectionCounts.get(cell) ?? 0) + 1);
+    }
+  }
+  const cellSelectionFrequency = [...selectionCounts.entries()].map(([cell, selectedFolds]) => ({
+    cell,
+    selectedFolds,
+    frequency: valid.length ? selectedFolds / valid.length : 0
+  })).sort((a, b) => b.frequency - a.frequency || a.cell.localeCompare(b.cell));
+  const warnings = [
+    "Rolling validation uses expanding training windows and only newer runs in each holdout fold.",
+    "Failure-recall aggregates include only folds with at least one analyzable holdout failure fingerprint.",
+    "Training windows may contain zero historical failures; in that case selection is driven by non-failure safety constraints and all holdout fingerprints are unseen."
+  ];
+  if (valid.length < folds.length) {
+    warnings.push(
+      `${folds.length - valid.length}/${folds.length} fold(s) were excluded from recall aggregation because they lacked evaluable holdout failure evidence or a valid training recommendation.`
+    );
+  }
+  if (!valid.length) {
+    warnings.push(
+      "No rolling fold had analyzable holdout failure evidence; recall and stability metrics are n/a."
+    );
+  }
+  return {
+    mode: "rolling-time-validation",
+    requestedFolds,
+    foldCount,
+    validFolds: valid.length,
+    invalidFolds: folds.length - valid.length,
+    coverageStrength,
+    aggregateHoldoutFingerprints,
+    aggregateCoveredHoldoutFingerprints,
+    aggregateHoldoutRecall: aggregateHoldoutFingerprints ? aggregateCoveredHoldoutFingerprints / aggregateHoldoutFingerprints : null,
+    worstHoldoutRecall: holdoutRecalls.length ? Math.min(...holdoutRecalls) : null,
+    aggregateUnseenHoldoutFingerprints,
+    aggregateCoveredUnseenHoldoutFingerprints,
+    aggregateUnseenHoldoutRecall: aggregateUnseenHoldoutFingerprints ? aggregateCoveredUnseenHoldoutFingerprints / aggregateUnseenHoldoutFingerprints : null,
+    worstUnseenHoldoutRecall: unseenRecalls.length ? Math.min(...unseenRecalls) : null,
+    meanPairwiseSelectionJaccard: pairwiseJaccards.length ? pairwiseJaccards.reduce((sum, value) => sum + value, 0) / pairwiseJaccards.length : null,
+    cellSelectionFrequency,
+    folds,
+    warnings
+  };
+}
 
 // src/optimization-pr.ts
 var import_node_path = require("node:path");
@@ -10510,6 +10736,7 @@ async function main() {
   const workflow = actionInput("workflow") || inferWorkflowFile(repository);
   const limit = intActionInput("limit", 100, 2, 500);
   const holdout = intActionInput("holdout", 25, 5, 50);
+  const rollingFolds = intActionInput("rolling-folds", 4, 2, 20);
   const strength = intActionInput("strength", 2, 1, 4);
   const optimizerRaw = actionInput("optimizer") || "auto";
   if (!["auto", "exact", "greedy"].includes(optimizerRaw)) {
@@ -10532,7 +10759,7 @@ async function main() {
     configPath !== ".matrixtrim.yml"
   );
   console.log(
-    `MatrixTrim: repository=${repository}, workflow=${workflow ?? "all"}, limit=${limit}, strength=${strength}, optimizer=${optimizer}, exactMaxNodes=${exactMaxNodes}, constraints=${(config?.constraints.keep.length ?? 0) + (config?.constraints.require.length ?? 0)}`
+    `MatrixTrim: repository=${repository}, workflow=${workflow ?? "all"}, limit=${limit}, strength=${strength}, rollingFolds=${rollingFolds}, optimizer=${optimizer}, exactMaxNodes=${exactMaxNodes}, constraints=${(config?.constraints.keep.length ?? 0) + (config?.constraints.require.length ?? 0)}`
   );
   const analysis = await analyzeRepository(repository, {
     limit,
@@ -10562,12 +10789,31 @@ async function main() {
     backtestError = error.message;
     warning(`backtest unavailable: ${backtestError}`);
   }
+  let rollingBacktest = null;
+  let rollingBacktestError;
+  try {
+    rollingBacktest = rollingBacktestRecommendation(
+      analysis,
+      rollingFolds,
+      strength,
+      config?.constraints,
+      {
+        optimizer,
+        exactMaxNodes
+      }
+    );
+  } catch (error) {
+    rollingBacktestError = error.message;
+    warning(`rolling backtest unavailable: ${rollingBacktestError}`);
+  }
   const report = formatActionReport(
     repository,
     workflow,
     recommendation,
     backtest,
-    backtestError
+    backtestError,
+    rollingBacktest,
+    rollingBacktestError
   );
   const summaryPath = process.env.GITHUB_STEP_SUMMARY;
   if (summaryPath) {
@@ -10681,6 +10927,23 @@ async function main() {
   await writeOutput(
     "unseen-failure-recall",
     backtest?.unseenHoldoutRecall?.toFixed(4) ?? ""
+  );
+  await writeOutput("rolling-valid-folds", rollingBacktest?.validFolds ?? 0);
+  await writeOutput(
+    "rolling-holdout-recall",
+    rollingBacktest?.aggregateHoldoutRecall?.toFixed(4) ?? ""
+  );
+  await writeOutput(
+    "rolling-worst-holdout-recall",
+    rollingBacktest?.worstHoldoutRecall?.toFixed(4) ?? ""
+  );
+  await writeOutput(
+    "rolling-unseen-failure-recall",
+    rollingBacktest?.aggregateUnseenHoldoutRecall?.toFixed(4) ?? ""
+  );
+  await writeOutput(
+    "rolling-selection-stability",
+    rollingBacktest?.meanPairwiseSelectionJaccard?.toFixed(4) ?? ""
   );
   let optimizationStatus = createPr ? "skipped" : "disabled";
   let optimizationNumber = "";

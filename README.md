@@ -164,6 +164,18 @@ The older runs are used for selection, then the newer holdout runs are used to m
 
 Runtime costs are computed from the **training window only**, avoiding leakage from the holdout period.
 
+For a less split-sensitive view, use expanding-window rolling validation:
+
+```bash
+GH_TOKEN="$(gh auth token)" \
+  node dist/cli.js backtest owner/repo \
+  --workflow ci.yml \
+  --limit 100 \
+  --rolling-folds 4
+```
+
+Each fold trains only on older runs and evaluates the immediately newer segment. Folds without analyzable holdout failures are reported as invalid instead of being assigned a synthetic recall. MatrixTrim reports aggregate and worst-fold recall, unseen-failure recall, per-cell selection frequency, and mean pairwise Jaccard similarity of selected cell sets. The GitHub Action runs the same rolling validation alongside the existing single holdout; configure the fold count with `rolling-folds`.
+
 ## Multi-event failure fingerprints
 
 A failed matrix job can contain more than one independent failure signal. MatrixTrim now fingerprints strong root causes separately, so a job containing `Error X` and `Error Y` contributes two events instead of one compound `X+Y` fingerprint. Typed errors/exceptions, panic/fatal lines and segmentation faults are preferred; test-runner summary lines are used only when no strong root cause is present, avoiding obvious double-counting.

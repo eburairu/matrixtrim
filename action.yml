@@ -29,6 +29,10 @@ inputs:
     description: Percentage of newer runs reserved for time-based holdout backtesting.
     required: false
     default: "25"
+  rolling-folds:
+    description: Number of expanding-window temporal validation folds reported alongside the single holdout.
+    required: false
+    default: "4"
   strength:
     description: Maximum observed combinatorial coverage strength to preserve. 2 means 1-wise + pairwise.
     required: false
@@ -121,6 +125,16 @@ outputs:
     description: Holdout failure recall as a 0-1 ratio.
   unseen-failure-recall:
     description: Holdout recall for fingerprints unseen in training as a 0-1 ratio.
+  rolling-valid-folds:
+    description: Number of rolling temporal folds with analyzable holdout failure evidence.
+  rolling-holdout-recall:
+    description: Aggregate failure recall across valid rolling temporal folds as a 0-1 ratio.
+  rolling-worst-holdout-recall:
+    description: Worst valid-fold failure recall as a 0-1 ratio.
+  rolling-unseen-failure-recall:
+    description: Aggregate recall for holdout fingerprints unseen in each fold's training window.
+  rolling-selection-stability:
+    description: Mean pairwise Jaccard similarity of selected cell sets across valid rolling folds.
   optimization-pr-status:
     description: created, updated, skipped, or disabled.
   optimization-pr-number:
