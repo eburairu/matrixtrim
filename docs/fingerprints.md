@@ -28,6 +28,17 @@ The optimizer therefore reasons about the individual failure signals a matrix ce
 
 MatrixTrim normalizes timestamps, paths, volatile IDs, line/column numbers, runtimes, and other common log noise before fingerprinting.
 
+Extraction is implemented as a deterministic registry with explicit precedence:
+
+1. Python / pytest
+2. Rust / Cargo
+3. Node package managers and test-runner summaries
+4. generic fallback
+
+An ecosystem extractor is used only when its narrow matcher recognizes the log and it can produce a concrete root cause. Otherwise analysis continues to the next extractor, ending with the existing generic heuristic. Every extractor shares the same per-job bound of eight distinct events.
+
+The Node adapter recognizes concise npm, pnpm, Yarn, and summary-only Node test-runner failures while filtering wrapper metadata such as npm's cwd, runtime version, exit-code, and complete-log-location lines. This keeps package-manager transport noise out of the fingerprint without hiding typed JavaScript errors, which still take precedence as strong root causes.
+
 It then looks for root-cause headlines in two tiers.
 
 ### Strong root causes
@@ -107,6 +118,8 @@ The pinned public-OSS benchmark provides concrete checks on the heuristic:
 - **Diesel:** 40 failed matrix jobs normalized to 40 events and 1 distinct fingerprint after stripping volatile Rust thread IDs/source locations and suppressing derivative `error: test run failed` summaries.
 - **pytest:** 3 failed matrix jobs normalized to 3 events and 1 root-cause fingerprint in the pinned snapshot.
 
+The extractor-registry change was also re-run against the pinned Node targets. Vite remained unchanged at 25 events, 23 fingerprints, and 6/6 selected cells. pnpm changed from 1 event / 1 fingerprint to 2 events / 2 fingerprints because one failed job contained two distinct bare test-runner summaries (`FAIL test/globalAdd.test.ts` and `FAIL test/globalUpdate.test.ts`) with no stronger root-cause headline; its recommendation remained 3/3 cells. This is an intentional summary-recall improvement rather than an additional matrix reduction.
+
 The validated matrix reductions remain pandas 34 → 32, Flask 12 → 10, and Diesel 28 → 25. Event-level fingerprinting changes the evidence model without forcing additional removal.
 
 See [benchmark/results.md](../benchmark/results.md) for the complete fixed snapshot.
@@ -117,6 +130,6 @@ Log structure does not prove causal independence. A chained exception can contai
 
 MatrixTrim currently favors precision over summary-level recall: once at least one strong root cause is found in a job, summary-only lines without an extractable cause are not added as extra events. In a mixed log, that can miss a second failure that appears only as a bare runner summary.
 
-v0.12 deliberately uses a deterministic heuristic rather than an LLM or language-specific parser. The public OSS benchmark records the number of **failure events** and **multi-event jobs** so over-splitting remains observable.
+MatrixTrim deliberately uses deterministic, bounded extractors rather than an LLM or full language parser. The ecosystem adapters are narrow normalizers layered over the generic heuristic; they do not attempt causal program analysis. The public OSS benchmark records the number of **failure events** and **multi-event jobs** so over-splitting remains observable.
 
-Future work may add language/test-runner-specific grouping when there is enough evidence that deterministic grouping improves precision and recall.
+Future work may add additional narrow adapters only when fixed fixtures and benchmark evidence show a precision or recall improvement without collapsing materially different causes.

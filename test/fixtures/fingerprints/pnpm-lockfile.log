@@ -1,0 +1,2 @@
+2026-09-30T09:00:01Z  ERR_PNPM_OUTDATED_LOCKFILE  Cannot install with "frozen-lockfile" because pnpm-lock.yaml is not up to date with package.json
+2026-09-30T09:00:02Z Failure reason: specifiers in the lockfile do not match specs in package.json

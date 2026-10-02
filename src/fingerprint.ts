@@ -6,6 +6,26 @@ export type FailureFingerprint = {
 	evidence: string[];
 };
 
+type EventRoot = {
+	signature: string;
+	index: number;
+};
+
+export type FailureExtractorId =
+	| "python-pytest"
+	| "rust-cargo"
+	| "node-package-manager"
+	| "generic";
+
+type FailureExtractor = {
+	id: FailureExtractorId;
+	priority: number;
+	matches: (lines: string[]) => boolean;
+	extract: (lines: string[]) => EventRoot[];
+};
+
+const MAX_FAILURE_EVENTS = 8;
+
 const interesting =
 	/(error|fail(?:ed|ure)?|exception|panic|assert|fatal|traceback|segmentation|timeout)/i;
 const noise =
@@ -32,6 +52,14 @@ const derivativeRootCausePatterns = [
 	/^error: test run failed$/i,
 	/^error: test failed\b.*\bto rerun\b/i,
 ];
+
+const nodePackageNoisePatterns = [
+	/^npm (?:ERR!|error) (?:code|cwd|node|npm|exit)\b/i,
+	/^npm (?:ERR!|error) A complete log of this run can be found/i,
+	/^error Command failed with exit code \d+\.?$/i,
+];
+
+const nodeTestSummaryPatterns = [/^FAIL\s+\S+/, /^✖\s+.+/, /^×\s+.+/];
 
 const rootCausePatterns = [
 	...strongRootCausePatterns,
@@ -86,7 +114,7 @@ function rootCauses(lines: string[]): string[] {
 	const causes = lines
 		.filter((line) => rootCausePatterns.some((pattern) => pattern.test(line)))
 		.map(normalizeRootCause);
-	return [...new Set(causes)].slice(-8);
+	return [...new Set(causes)].slice(-MAX_FAILURE_EVENTS);
 }
 
 function fingerprint(
@@ -123,7 +151,7 @@ function eventRoots(
 	return [...bySignature.entries()]
 		.map(([signature, index]) => ({ signature, index }))
 		.sort((a, b) => a.index - b.index)
-		.slice(-8);
+		.slice(-MAX_FAILURE_EVENTS);
 }
 
 function strongEventRoots(
@@ -150,9 +178,122 @@ function strongEventRoots(
 				pattern.test(root.signature),
 			),
 	);
-	return (specific.length ? specific : roots).slice(-8);
+	return (specific.length ? specific : roots).slice(-MAX_FAILURE_EVENTS);
 }
 
+function pytestEventRoots(lines: string[]): EventRoot[] {
+	const strong = strongEventRoots(lines);
+	return strong.length ? strong : eventRoots(lines, summaryRootCausePatterns);
+}
+
+function rustCargoEventRoots(lines: string[]): EventRoot[] {
+	return strongEventRoots(lines);
+}
+
+function nodeEventRoots(lines: string[]): EventRoot[] {
+	const strong = strongEventRoots(lines);
+	if (strong.length) return strong;
+
+	const bySignature = new Map<string, number>();
+	lines.forEach((line, index) => {
+		if (nodePackageNoisePatterns.some((pattern) => pattern.test(line))) return;
+
+		let signature: string | null = null;
+		const npm = line.match(/^npm (?:ERR!|error)\s+(.+)/i);
+		if (
+			npm?.[1] &&
+			(/^[A-Z][A-Z0-9_]+\b/.test(npm[1]) ||
+				/(?:error|exception|failed|unable|not found|missing script|unsupported)/i.test(
+					npm[1],
+				))
+		) {
+			signature = npm[1];
+		}
+
+		const pnpm = line.match(/\b(ERR_PNPM_[A-Z0-9_]+)\b\s*(.*)$/i);
+		if (pnpm) {
+			signature = `${pnpm[1]}${pnpm[2]?.trim() ? `: ${pnpm[2].trim()}` : ""}`;
+		}
+
+		const yarn = line.match(/^YN(?!0000)\d{4}:\s*(.+)$/);
+		if (yarn?.[1]) signature = yarn[1];
+
+		if (
+			!signature &&
+			nodeTestSummaryPatterns.some((pattern) => pattern.test(line))
+		) {
+			signature = line;
+		}
+
+		if (!signature) return;
+		bySignature.set(normalizeRootCause(signature), index);
+	});
+
+	return [...bySignature.entries()]
+		.map(([signature, index]) => ({ signature, index }))
+		.sort((a, b) => a.index - b.index)
+		.slice(-MAX_FAILURE_EVENTS);
+}
+
+const failureExtractors: FailureExtractor[] = [
+	{
+		id: "python-pytest",
+		priority: 300,
+		matches: (lines) =>
+			lines.some((line) =>
+				/^FAILED\s+|^ERROR\s+|^E\s{2,}|^Traceback \(most recent call last\):/.test(
+					line,
+				),
+			),
+		extract: pytestEventRoots,
+	},
+	{
+		id: "rust-cargo",
+		priority: 200,
+		matches: (lines) =>
+			lines.some((line) =>
+				/^error(?:\[[^\]]+\])?:|\bpanicked at\b|^cargo\s+/i.test(line),
+			),
+		extract: rustCargoEventRoots,
+	},
+	{
+		id: "node-package-manager",
+		priority: 100,
+		matches: (lines) =>
+			lines.some(
+				(line) =>
+					/^npm (?:ERR!|error)(?:\s|$)|\bERR_PNPM_[A-Z0-9_]+\b|^YN\d{4}:/.test(
+						line,
+					) || nodeTestSummaryPatterns.some((pattern) => pattern.test(line)),
+			),
+		extract: nodeEventRoots,
+	},
+	{
+		id: "generic",
+		priority: 0,
+		matches: () => true,
+		extract: (lines) => {
+			const strong = strongEventRoots(lines);
+			return strong.length
+				? strong
+				: eventRoots(lines, summaryRootCausePatterns);
+		},
+	},
+];
+failureExtractors.sort((a, b) => b.priority - a.priority);
+
+export function failureExtractorOrder(): FailureExtractorId[] {
+	return failureExtractors.map((extractor) => extractor.id);
+}
+
+function extractEventRoots(lines: string[]): EventRoot[] {
+	for (const extractor of failureExtractors) {
+		if (!extractor.matches(lines)) continue;
+		const roots = extractor.extract(lines).slice(-MAX_FAILURE_EVENTS);
+		if (roots.length) return roots;
+	}
+	return [];
+}
 function eventEvidence(lines: string[], index: number): string[] {
 	const start = Math.max(0, index - 3);
 	const end = Math.min(lines.length, index + 4);
@@ -160,7 +301,7 @@ function eventEvidence(lines: string[], index: number): string[] {
 	const interestingNearby = nearby.filter((line) => interesting.test(line));
 	return [
 		...new Set(interestingNearby.length ? interestingNearby : nearby),
-	].slice(-8);
+	].slice(-MAX_FAILURE_EVENTS);
 }
 
 /**
@@ -176,10 +317,7 @@ function eventEvidence(lines: string[], index: number): string[] {
  */
 export function fingerprintFailures(log: string): FailureFingerprint[] {
 	const lines = normalizedLog(log);
-	const strong = strongEventRoots(lines);
-	const roots = strong.length
-		? strong
-		: eventRoots(lines, summaryRootCausePatterns);
+	const roots = extractEventRoots(lines);
 
 	if (roots.length) {
 		return roots.map((root) =>
