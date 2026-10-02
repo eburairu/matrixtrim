@@ -7558,8 +7558,10 @@ function getPath(row, path) {
         return Array.isArray(resolved) ? resolved : [resolved];
       }).filter((item) => item !== void 0);
     }
-    if (!value || typeof value !== "object") return void 0;
-    return descend(value[part], index + 1);
+    if (!value || typeof value !== "object") return null;
+    const record = value;
+    if (!(part in record)) return null;
+    return descend(record[part], index + 1);
   }
   return descend(row, 0);
 }
@@ -7809,7 +7811,7 @@ function renderName(template, row) {
       return String(value ?? "");
     }
   );
-  return failed ? null : rendered;
+  return failed ? null : rendered.trim();
 }
 function escapeRegex(text) {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -8033,8 +8035,8 @@ function axesForRow(row, axisNames) {
   }
   return result;
 }
-function defaultExpandedName(label, row, axisNames) {
-  const values = axisNames.filter((axis) => axis in row).map((axis) => stableStringify(row[axis]));
+function defaultExpandedName(label, row) {
+  const values = Object.values(row).map((value) => stableStringify(value)).filter((value) => value !== "");
   return values.length ? `${label} (${values.join(", ")})` : label;
 }
 function hasCaptureEvidenceStep(spec) {
@@ -8079,7 +8081,7 @@ function workflowMatrixDefinitions(text) {
     const cells = [];
     if (!expanded.dynamic) {
       for (const row of expanded.rows) {
-        const name = typeof spec?.name === "string" ? spec.name.includes("${{") ? renderName(spec.name, row) : defaultExpandedName(spec.name, row, expanded.axes) : defaultExpandedName(jobId, row, expanded.axes);
+        const name = typeof spec?.name === "string" ? spec.name.includes("${{") ? renderName(spec.name, row) : defaultExpandedName(spec.name, row) : defaultExpandedName(jobId, row);
         if (!name) continue;
         cells.push({
           name,
@@ -8894,6 +8896,9 @@ function splitJobName(name) {
   const match = name.match(/^(.*?)\s+\((.+)\)$/);
   return match ? { baseJob: match[1].trim(), cell: name, matrixLike: true } : { baseJob: name, cell: name, matrixLike: false };
 }
+function isSkippedUnexpandedMatrixPlaceholder(job) {
+  return job.conclusion === "skipped" && !job.labels?.length && /\$\{\{\s*matrix(?:\.|\[)/.test(job.name);
+}
 function durationSeconds(startedAt, completedAt) {
   if (!startedAt || !completedAt) return null;
   const value = (Date.parse(completedAt) - Date.parse(startedAt)) / 1e3;
@@ -9139,6 +9144,16 @@ async function analyzeRepository(repository, options) {
       }
     }
     for (const job of jobs) {
+      if (isSkippedUnexpandedMatrixPlaceholder(job)) {
+        diagnostics.push({
+          code: "skipped-unexpanded-matrix-placeholder",
+          severity: "info",
+          scope: "job",
+          cell: job.name,
+          message: "GitHub left a skipped matrix job at its unexpanded name template; this placeholder is not an executed matrix cell and is excluded from analysis."
+        });
+        continue;
+      }
       const parsed = splitJobName(job.name);
       const inferred = diagnoseAxesFromExpandedJobName(job.name, definitions);
       const renderedMatch = inferred.source !== "unavailable";

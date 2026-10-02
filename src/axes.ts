@@ -221,11 +221,10 @@ function axesForRow(
 function defaultExpandedName(
 	label: string,
 	row: Record<string, MatrixValue>,
-	axisNames: string[],
 ): string {
-	const values = axisNames
-		.filter((axis) => axis in row)
-		.map((axis) => stableStringify(row[axis]));
+	const values = Object.values(row)
+		.map((value) => stableStringify(value))
+		.filter((value) => value !== "");
 	return values.length ? `${label} (${values.join(", ")})` : label;
 }
 
@@ -290,8 +289,8 @@ export function workflowMatrixDefinitions(text: string): MatrixDefinition[] {
 					typeof spec?.name === "string"
 						? spec.name.includes("${{")
 							? renderName(spec.name, row)
-							: defaultExpandedName(spec.name, row, expanded.axes)
-						: defaultExpandedName(jobId, row, expanded.axes);
+							: defaultExpandedName(spec.name, row)
+						: defaultExpandedName(jobId, row);
 				if (!name) continue;
 				cells.push({
 					name,

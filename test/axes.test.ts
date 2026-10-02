@@ -210,6 +210,91 @@ describe("matrix axis inference", () => {
 		]);
 	});
 
+	it("omits empty scalar values from GitHub default matrix job names", () => {
+		const workflow = [
+			"jobs:",
+			"  test:",
+			"    name: Test",
+			"    strategy:",
+			"      matrix:",
+			"        pyver: ['3.14']",
+			"        no-extensions: ['']",
+			"        os: [ubuntu]",
+			"        experimental: [false]",
+		].join("\n");
+
+		const definitions = workflowMatrixDefinitions(workflow);
+		expect(definitions[0]?.cells[0]).toMatchObject({
+			name: "Test (3.14, ubuntu, false)",
+			axes: {
+				pyver: "3.14",
+				"no-extensions": "",
+				os: "ubuntu",
+				experimental: "false",
+			},
+		});
+		expect(
+			inferAxesFromExpandedJobName("Test (3.14, ubuntu, false)", definitions)
+				.axes,
+		).toMatchObject({ "no-extensions": "", os: "ubuntu" });
+	});
+
+	it("preserves standalone include key order in default job names", () => {
+		const workflow = [
+			"jobs:",
+			"  test:",
+			"    name: Test",
+			"    strategy:",
+			"      matrix:",
+			"        pyver: ['3.14']",
+			"        no-extensions: ['']",
+			"        os: [ubuntu]",
+			"        experimental: [false]",
+			"        include:",
+			"          - os: ubuntu",
+			"            pyver: '3.14t'",
+			"            no-extensions: ''",
+			"            experimental: false",
+		].join("\n");
+
+		const definitions = workflowMatrixDefinitions(workflow);
+		expect(definitions[0]?.cells.map((cell) => cell.name)).toEqual([
+			"Test (3.14, ubuntu, false)",
+			"Test (ubuntu, 3.14t, false)",
+		]);
+		expect(
+			inferAxesFromExpandedJobName("Test (ubuntu, 3.14t, false)", definitions)
+				.axes,
+		).toMatchObject({
+			pyver: "3.14t",
+			"no-extensions": "",
+			os: "ubuntu",
+			experimental: "false",
+		});
+	});
+
+	it("renders missing properties in standalone static include rows as empty strings", () => {
+		const workflow = [
+			"jobs:",
+			"  build:",
+			"    name: Build ${{ matrix.os }} ${{ matrix.qemu }} ${{ matrix.platform }}",
+			"    strategy:",
+			"      matrix:",
+			"        os: [ubuntu]",
+			"        qemu: ['']",
+			"        platform: ['']",
+			"        include:",
+			"          - {os: ubuntu, qemu: ppc64le}",
+		].join("\n");
+
+		const [definition] = workflowMatrixDefinitions(workflow);
+		expect(definition?.expectedCells).toBe(2);
+		expect(definition?.renderedCells).toBe(2);
+		expect(definition?.cells.map((cell) => cell.name)).toContain(
+			"Build ubuntu ppc64le",
+		);
+	});
+
 	it("keeps one-axis matrix values intact", () => {
 		const workflow = [
 			"jobs:",
